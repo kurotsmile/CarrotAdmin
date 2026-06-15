@@ -9,9 +9,7 @@ $editing = null;
 
 function admin_nas_upload_endpoint(): string
 {
-    $scheme = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
-    $host = $_SERVER['HTTP_HOST'] ?? 'localhost';
-    return $scheme . '://' . $host . '/CarrotNas/index.php?api=upload_image';
+    return 'https://nas.carrot28.com/index.php?api=upload_image';
 }
 
 function admin_upload_image_to_nas(array $file, string $typeMedia): string
