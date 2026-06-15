@@ -118,13 +118,13 @@ if (!$pdo instanceof PDO) {
                     throw new RuntimeException('Trường data phải là JSON hợp lệ.');
                 }
 
-                $uploadedAvatar = admin_upload_image_to_nas($_FILES['avatar_file'] ?? [], 'avatar');
+                $uploadedAvatar = admin_upload_image_to_nas($_FILES['avatar_file'] ?? [], 'coc_images');
                 if ($uploadedAvatar !== '') {
                     $avatar = $uploadedAvatar;
                 }
 
                 foreach (admin_uploaded_files('photos_files') as $photoFile) {
-                    $uploadedPhoto = admin_upload_image_to_nas($photoFile, 'photos');
+                    $uploadedPhoto = admin_upload_image_to_nas($photoFile, 'coc_images');
                     if ($uploadedPhoto !== '') {
                         $photoUrls[] = $uploadedPhoto;
                     }
