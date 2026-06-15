@@ -280,7 +280,7 @@ $photoText = $editing ? implode("\n", coc_decode_photos($editing['photos'])) : '
                                         <td><?= $th ?: 'N/A' ?></td>
                                         <td><?= coc_money($account['price']) ?></td>
                                         <td class="text-end">
-                                            <a class="btn btn-sm btn-outline-light" href="index.php?edit=<?= (int) $account['id'] ?>">Sửa</a>
+                                            <a class="btn btn-sm btn-outline-light" href="index.php?edit=<?= (int) $account['id'] ?>">Cập nhật</a>
                                             <form class="d-inline" method="post" onsubmit="return confirm('Xóa acc này?')">
                                                 <input type="hidden" name="action" value="delete">
                                                 <input type="hidden" name="id" value="<?= (int) $account['id'] ?>">
