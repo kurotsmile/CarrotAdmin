@@ -7,6 +7,86 @@ $error = '';
 $editId = isset($_GET['edit']) ? (int) $_GET['edit'] : 0;
 $editing = null;
 
+function admin_nas_upload_endpoint(): string
+{
+    $scheme = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
+    $host = $_SERVER['HTTP_HOST'] ?? 'localhost';
+    return $scheme . '://' . $host . '/CarrotNas/index.php?api=upload_image';
+}
+
+function admin_upload_image_to_nas(array $file, string $typeMedia): string
+{
+    if (($file['error'] ?? UPLOAD_ERR_NO_FILE) === UPLOAD_ERR_NO_FILE) {
+        return '';
+    }
+
+    if (($file['error'] ?? UPLOAD_ERR_OK) !== UPLOAD_ERR_OK) {
+        throw new RuntimeException('Upload ảnh lỗi, mã: ' . (int) $file['error']);
+    }
+
+    if (!is_uploaded_file($file['tmp_name'] ?? '')) {
+        throw new RuntimeException('File upload không hợp lệ.');
+    }
+
+    if (!function_exists('curl_init') || !function_exists('curl_file_create')) {
+        throw new RuntimeException('Server cần bật PHP cURL để tải ảnh lên CarrotNas.');
+    }
+
+    $curl = curl_init(admin_nas_upload_endpoint());
+    $postFields = [
+        'type_media' => $typeMedia,
+        'file' => curl_file_create(
+            $file['tmp_name'],
+            mime_content_type($file['tmp_name']) ?: 'application/octet-stream',
+            $file['name'] ?? 'image'
+        ),
+    ];
+
+    curl_setopt_array($curl, [
+        CURLOPT_POST => true,
+        CURLOPT_POSTFIELDS => $postFields,
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_TIMEOUT => 60,
+    ]);
+
+    $response = curl_exec($curl);
+    $curlError = curl_error($curl);
+    $statusCode = (int) curl_getinfo($curl, CURLINFO_RESPONSE_CODE);
+    curl_close($curl);
+
+    if ($response === false) {
+        throw new RuntimeException('Không gọi được API CarrotNas: ' . $curlError);
+    }
+
+    $payload = json_decode($response, true);
+    if ($statusCode >= 400 || !is_array($payload) || ($payload['status'] ?? '') !== 'success' || empty($payload['url'])) {
+        $apiMessage = is_array($payload) ? ($payload['message'] ?? 'unknown error') : trim($response);
+        throw new RuntimeException('CarrotNas upload thất bại: ' . $apiMessage);
+    }
+
+    return (string) $payload['url'];
+}
+
+function admin_uploaded_files(string $field): array
+{
+    if (empty($_FILES[$field]) || !is_array($_FILES[$field]['name'])) {
+        return [];
+    }
+
+    $files = [];
+    foreach ($_FILES[$field]['name'] as $index => $name) {
+        $files[] = [
+            'name' => $name,
+            'type' => $_FILES[$field]['type'][$index] ?? '',
+            'tmp_name' => $_FILES[$field]['tmp_name'][$index] ?? '',
+            'error' => $_FILES[$field]['error'][$index] ?? UPLOAD_ERR_NO_FILE,
+            'size' => $_FILES[$field]['size'][$index] ?? 0,
+        ];
+    }
+
+    return $files;
+}
+
 if (!$pdo instanceof PDO) {
     $error = 'Không thể kết nối database: ' . ($db_error ?? 'unknown error');
 } else {
@@ -27,7 +107,7 @@ if (!$pdo instanceof PDO) {
                 $name = trim($_POST['name'] ?? '');
                 $data = trim($_POST['data'] ?? '');
                 $avatar = trim($_POST['avatar'] ?? '');
-                $photos = coc_photos_to_json($_POST['photos'] ?? '');
+                $photoUrls = coc_decode_photos(coc_photos_to_json($_POST['photos'] ?? ''));
                 $username = trim($_POST['username'] ?? '');
                 $password = trim($_POST['password'] ?? '');
                 $price = (float) ($_POST['price'] ?? 0);
@@ -39,6 +119,20 @@ if (!$pdo instanceof PDO) {
                 if (json_decode($data, true) === null && json_last_error() !== JSON_ERROR_NONE) {
                     throw new RuntimeException('Trường data phải là JSON hợp lệ.');
                 }
+
+                $uploadedAvatar = admin_upload_image_to_nas($_FILES['avatar_file'] ?? [], 'avatar');
+                if ($uploadedAvatar !== '') {
+                    $avatar = $uploadedAvatar;
+                }
+
+                foreach (admin_uploaded_files('photos_files') as $photoFile) {
+                    $uploadedPhoto = admin_upload_image_to_nas($photoFile, 'photos');
+                    if ($uploadedPhoto !== '') {
+                        $photoUrls[] = $uploadedPhoto;
+                    }
+                }
+
+                $photos = coc_photos_to_json(implode("\n", array_unique($photoUrls)));
 
                 if ($id > 0) {
                     $stmt = $pdo->prepare('UPDATE coc SET name = ?, data = ?, avatar = ?, photos = ?, username = ?, password = ?, price = ? WHERE id = ?');
@@ -106,7 +200,7 @@ $photoText = $editing ? implode("\n", coc_decode_photos($editing['photos'])) : '
 
             <div class="row g-4">
                 <div class="col-xl-5">
-                    <form class="glass-panel p-4" method="post">
+                    <form class="glass-panel p-4" method="post" enctype="multipart/form-data">
                         <input type="hidden" name="action" value="save">
                         <input type="hidden" name="id" value="<?= (int) ($editing['id'] ?? 0) ?>">
                         <h2 class="h5 mb-3"><?= $editing ? 'Cập nhật acc' : 'Thêm acc mới' ?></h2>
@@ -124,6 +218,7 @@ $photoText = $editing ? implode("\n", coc_decode_photos($editing['photos'])) : '
                             <div class="col-md-6">
                                 <label class="form-label" for="avatar">Avatar URL</label>
                                 <input class="form-control" id="avatar" name="avatar" value="<?= htmlspecialchars($editing['avatar'] ?? '') ?>">
+                                <input class="form-control mt-2" id="avatar_file" name="avatar_file" type="file" accept="image/*">
                             </div>
                         </div>
 
@@ -141,6 +236,7 @@ $photoText = $editing ? implode("\n", coc_decode_photos($editing['photos'])) : '
                         <div class="mb-3 mt-3">
                             <label class="form-label" for="photos">Photos URL, mỗi dòng một ảnh</label>
                             <textarea class="form-control" id="photos" name="photos" rows="4"><?= htmlspecialchars($photoText) ?></textarea>
+                            <input class="form-control mt-2" id="photos_files" name="photos_files[]" type="file" accept="image/*" multiple>
                         </div>
 
                         <div class="mb-3">
