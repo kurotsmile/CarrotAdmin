@@ -5,10 +5,13 @@ require __DIR__ . '/../CarrotCoc/includes/coc_helpers.php';
 $message = '';
 $error = '';
 $section = ($_GET['section'] ?? 'coc') === 'apps' ? 'apps' : 'coc';
+$editKey = trim($_GET['edit'] ?? '');
 $editId = isset($_GET['edit']) ? (int) $_GET['edit'] : 0;
+$cocTab = ($_GET['tab'] ?? 'accounts') === 'orders' ? 'orders' : 'accounts';
 $editing = null;
 $accounts = [];
 $apps = [];
+$orders = [];
 
 function admin_nas_upload_endpoint(): string
 {
@@ -88,90 +91,52 @@ function admin_uploaded_files(string $field): array
     return $files;
 }
 
-function admin_empty_json_array(): string
+function admin_fetch_app(PDO $pdo, string $id): ?array
 {
-    return '[]';
-}
-
-function admin_json_text($value, string $fallback = '[]'): string
-{
-    if ($value === null || $value === '') {
-        return $fallback;
-    }
-
-    if (is_string($value)) {
-        $decoded = json_decode($value, true);
-    } else {
-        $decoded = $value;
-    }
-
-    if (json_last_error() !== JSON_ERROR_NONE && is_string($value)) {
-        return (string) $value;
-    }
-
-    return json_encode($decoded, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
-}
-
-function admin_require_json(string $json, string $label): string
-{
-    $json = trim($json);
-    if ($json === '') {
-        $json = '[]';
-    }
-
-    json_decode($json, true);
-    if (json_last_error() !== JSON_ERROR_NONE) {
-        throw new RuntimeException($label . ' phải là JSON hợp lệ.');
-    }
-
-    return $json;
-}
-
-function admin_slugify(string $text): string
-{
-    $text = strtolower(trim($text));
-    $text = preg_replace('/[^a-z0-9]+/', '-', $text);
-    $text = trim((string) $text, '-');
-    return $text !== '' ? $text : 'app-' . time();
-}
-
-function admin_fetch_app(PDO $pdo, int $id): ?array
-{
-    $stmt = $pdo->prepare('SELECT * FROM apps WHERE id = ?');
+    $stmt = $pdo->prepare('SELECT * FROM app WHERE id = ?');
     $stmt->execute([$id]);
     $row = $stmt->fetch();
     return $row ?: null;
 }
 
-function admin_ensure_apps_table(PDO $pdo): void
+function admin_excerpt(?string $text, int $limit = 70): string
+{
+    $text = trim((string) $text);
+    if (function_exists('mb_strimwidth')) {
+        return mb_strimwidth($text, 0, $limit, '...');
+    }
+
+    return strlen($text) > $limit ? substr($text, 0, $limit - 3) . '...' : $text;
+}
+
+function admin_ensure_app_table(PDO $pdo): void
 {
     $pdo->exec("
-        CREATE TABLE IF NOT EXISTS apps (
-          id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-          app_id VARCHAR(160) NOT NULL,
-          slug VARCHAR(180) NOT NULL,
-          name_en VARCHAR(255) NOT NULL,
-          type VARCHAR(80) DEFAULT 'app',
-          status ENUM('publish','draft','trash') DEFAULT 'publish',
-          priority INT DEFAULT 0,
-          date_create DATETIME DEFAULT CURRENT_TIMESTAMP,
-          icon TEXT NULL,
-          images JSON NULL,
-          store_links JSON NULL,
-          download_links JSON NULL,
-          video_links JSON NULL,
-          category JSON NULL,
-          icons JSON NULL,
-          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-          PRIMARY KEY (id),
-          UNIQUE KEY uq_apps_app_id (app_id),
-          UNIQUE KEY uq_apps_slug (slug),
-          KEY idx_apps_status (status),
-          KEY idx_apps_type (type),
-          KEY idx_apps_priority (priority),
-          KEY idx_apps_date_create (date_create),
-          FULLTEXT KEY ft_apps_name_appid (name_en, app_id)
+        CREATE TABLE IF NOT EXISTS app (
+          id varchar(255) NOT NULL,
+          decription longtext DEFAULT NULL,
+          github longtext DEFAULT NULL,
+          microsoft_store longtext DEFAULT NULL,
+          icon longtext DEFAULT NULL,
+          itch longtext DEFAULT NULL,
+          exe_file longtext DEFAULT NULL,
+          ipa_file longtext DEFAULT NULL,
+          deb_file longtext DEFAULT NULL,
+          amazon_app_store longtext DEFAULT NULL,
+          huawei_store longtext DEFAULT NULL,
+          youtube_link longtext DEFAULT NULL,
+          google_play longtext DEFAULT NULL,
+          dmg_file longtext DEFAULT NULL,
+          uptodown longtext DEFAULT NULL,
+          simmer longtext DEFAULT NULL,
+          type longtext DEFAULT NULL,
+          apk_file longtext DEFAULT NULL,
+          status longtext DEFAULT NULL,
+          sync_status int(11) DEFAULT 0,
+          priority int(11) DEFAULT 0,
+          category longtext DEFAULT NULL,
+          created_at datetime DEFAULT current_timestamp(),
+          PRIMARY KEY (id)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     ");
 }
@@ -181,7 +146,7 @@ if (!$pdo instanceof PDO) {
 } else {
     try {
         $pdo->exec(file_get_contents(__DIR__ . '/../CarrotCoc/sql/schema.sql'));
-        admin_ensure_apps_table($pdo);
+        admin_ensure_app_table($pdo);
 
         if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $action = $_POST['action'] ?? '';
@@ -236,52 +201,41 @@ if (!$pdo instanceof PDO) {
             }
 
             if ($section === 'apps' && $action === 'delete_app') {
-                $stmt = $pdo->prepare('DELETE FROM apps WHERE id = ?');
-                $stmt->execute([(int) ($_POST['id'] ?? 0)]);
+                $stmt = $pdo->prepare('DELETE FROM app WHERE id = ?');
+                $stmt->execute([trim($_POST['id'] ?? '')]);
                 $message = 'Đã xóa app.';
             }
 
             if ($section === 'apps' && $action === 'save_app') {
-                $id = (int) ($_POST['id'] ?? 0);
-                $appId = trim($_POST['app_id'] ?? '');
-                $slug = trim($_POST['slug'] ?? '');
-                $nameEn = trim($_POST['name_en'] ?? '');
-                $type = trim($_POST['type'] ?? 'app');
-                $status = $_POST['status'] ?? 'publish';
+                $originalId = trim($_POST['original_id'] ?? '');
+                $id = trim($_POST['id'] ?? '');
+                $decription = trim($_POST['decription'] ?? '');
+                $type = trim($_POST['type'] ?? '');
+                $status = trim($_POST['status'] ?? '');
+                $syncStatus = (int) ($_POST['sync_status'] ?? 0);
                 $priority = (int) ($_POST['priority'] ?? 0);
-                $dateCreate = trim($_POST['date_create'] ?? '');
-                $icon = trim($_POST['icon'] ?? '');
 
-                if ($appId === '' || $nameEn === '') {
-                    throw new RuntimeException('Vui lòng nhập đủ App ID và Name.');
+                if ($id === '') {
+                    throw new RuntimeException('Vui lòng nhập ID app.');
                 }
 
-                if (!in_array($status, ['publish', 'draft', 'trash'], true)) {
-                    throw new RuntimeException('Status không hợp lệ.');
+                $textFields = [
+                    'github', 'microsoft_store', 'icon', 'itch', 'exe_file', 'ipa_file', 'deb_file',
+                    'amazon_app_store', 'huawei_store', 'youtube_link', 'google_play', 'dmg_file',
+                    'uptodown', 'simmer', 'apk_file', 'category',
+                ];
+                $values = [];
+                foreach ($textFields as $field) {
+                    $values[$field] = trim($_POST[$field] ?? '');
                 }
 
-                if ($slug === '') {
-                    $slug = admin_slugify($nameEn);
-                }
-
-                if ($dateCreate === '') {
-                    $dateCreate = date('Y-m-d H:i:s');
-                }
-
-                $images = admin_require_json($_POST['images'] ?? '', 'Images');
-                $storeLinks = admin_require_json($_POST['store_links'] ?? '', 'Store links');
-                $downloadLinks = admin_require_json($_POST['download_links'] ?? '', 'Download links');
-                $videoLinks = admin_require_json($_POST['video_links'] ?? '', 'Video links');
-                $category = admin_require_json($_POST['category'] ?? '', 'Category');
-                $icons = admin_require_json($_POST['icons'] ?? '', 'Icons');
-
-                if ($id > 0) {
-                    $stmt = $pdo->prepare('UPDATE apps SET app_id = ?, slug = ?, name_en = ?, type = ?, status = ?, priority = ?, date_create = ?, icon = ?, images = ?, store_links = ?, download_links = ?, video_links = ?, category = ?, icons = ? WHERE id = ?');
-                    $stmt->execute([$appId, $slug, $nameEn, $type, $status, $priority, $dateCreate, $icon, $images, $storeLinks, $downloadLinks, $videoLinks, $category, $icons, $id]);
+                if ($originalId !== '') {
+                    $stmt = $pdo->prepare('UPDATE app SET id = ?, decription = ?, github = ?, microsoft_store = ?, icon = ?, itch = ?, exe_file = ?, ipa_file = ?, deb_file = ?, amazon_app_store = ?, huawei_store = ?, youtube_link = ?, google_play = ?, dmg_file = ?, uptodown = ?, simmer = ?, type = ?, apk_file = ?, status = ?, sync_status = ?, priority = ?, category = ? WHERE id = ?');
+                    $stmt->execute([$id, $decription, $values['github'], $values['microsoft_store'], $values['icon'], $values['itch'], $values['exe_file'], $values['ipa_file'], $values['deb_file'], $values['amazon_app_store'], $values['huawei_store'], $values['youtube_link'], $values['google_play'], $values['dmg_file'], $values['uptodown'], $values['simmer'], $type, $values['apk_file'], $status, $syncStatus, $priority, $values['category'], $originalId]);
                     $message = 'Đã cập nhật app.';
                 } else {
-                    $stmt = $pdo->prepare('INSERT INTO apps (app_id, slug, name_en, type, status, priority, date_create, icon, images, store_links, download_links, video_links, category, icons) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
-                    $stmt->execute([$appId, $slug, $nameEn, $type, $status, $priority, $dateCreate, $icon, $images, $storeLinks, $downloadLinks, $videoLinks, $category, $icons]);
+                    $stmt = $pdo->prepare('INSERT INTO app (id, decription, github, microsoft_store, icon, itch, exe_file, ipa_file, deb_file, amazon_app_store, huawei_store, youtube_link, google_play, dmg_file, uptodown, simmer, type, apk_file, status, sync_status, priority, category) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
+                    $stmt->execute([$id, $decription, $values['github'], $values['microsoft_store'], $values['icon'], $values['itch'], $values['exe_file'], $values['ipa_file'], $values['deb_file'], $values['amazon_app_store'], $values['huawei_store'], $values['youtube_link'], $values['google_play'], $values['dmg_file'], $values['uptodown'], $values['simmer'], $type, $values['apk_file'], $status, $syncStatus, $priority, $values['category']]);
                     $message = 'Đã thêm app mới.';
                 }
             }
@@ -291,16 +245,25 @@ if (!$pdo instanceof PDO) {
             $editing = coc_fetch_account($pdo, $editId);
         }
 
-        if ($section === 'apps' && $editId > 0) {
-            $editing = admin_fetch_app($pdo, $editId);
+        if ($section === 'apps' && $editKey !== '') {
+            $editing = admin_fetch_app($pdo, $editKey);
         }
 
         $accounts = $section === 'coc' ? $pdo->query('SELECT * FROM coc ORDER BY id DESC')->fetchAll() : [];
-        $apps = $section === 'apps' ? $pdo->query('SELECT * FROM apps ORDER BY priority DESC, date_create DESC, id DESC')->fetchAll() : [];
+        $orders = ($section === 'coc' && $cocTab === 'orders')
+            ? $pdo->query('
+                SELECT coc_orders.*, coc.name AS coc_name, coc.username AS coc_username
+                FROM coc_orders
+                LEFT JOIN coc ON coc.id = coc_orders.coc_id
+                ORDER BY coc_orders.created_at DESC, coc_orders.id DESC
+            ')->fetchAll()
+            : [];
+        $apps = $section === 'apps' ? $pdo->query('SELECT * FROM app ORDER BY priority DESC, created_at DESC, id ASC')->fetchAll() : [];
     } catch (Throwable $e) {
         $error = $e->getMessage();
         $accounts = [];
         $apps = [];
+        $orders = [];
     }
 }
 
@@ -330,9 +293,8 @@ $pageTitle = $section === 'apps' ? 'App' : 'Coc';
                 <strong>Carrot Admin</strong>
             </div>
             <div class="list-group">
-                <a class="list-group-item list-group-item-action <?= $section === 'coc' ? 'active' : '' ?>" href="index.php">Coc</a>
                 <a class="list-group-item list-group-item-action <?= $section === 'apps' ? 'active' : '' ?>" href="index.php?section=apps">App</a>
-                <a class="list-group-item list-group-item-action" href="/CarrotCoc/index.php">Xem shop</a>
+                <a class="list-group-item list-group-item-action <?= $section === 'coc' ? 'active' : '' ?>" href="index.php">Coc</a>
             </div>
         </aside>
 
@@ -343,9 +305,14 @@ $pageTitle = $section === 'apps' ? 'App' : 'Coc';
                         <p class="muted-text text-uppercase fw-bold mb-1">Quản lý <?= $section === 'apps' ? 'ứng dụng' : 'shop' ?></p>
                         <h1 class="h3 mb-0"><?= $section === 'apps' ? 'App Carrot Home' : 'Acc Clash of Clans' ?></h1>
                     </div>
-                    <?php if ($editing): ?>
-                        <a class="btn btn-outline-light" href="index.php<?= $section === 'apps' ? '?section=apps' : '' ?>">Thêm mới</a>
-                    <?php endif; ?>
+                    <div class="d-flex flex-wrap gap-2">
+                        <?php if ($section === 'coc'): ?>
+                            <a class="btn btn-outline-light" href="/CarrotCoc/index.php">Xem shop</a>
+                        <?php endif; ?>
+                        <?php if ($editing): ?>
+                            <a class="btn btn-outline-light" href="index.php<?= $section === 'apps' ? '?section=apps' : '' ?>">Thêm mới</a>
+                        <?php endif; ?>
+                    </div>
                 </div>
             </div>
 
@@ -353,6 +320,16 @@ $pageTitle = $section === 'apps' ? 'App' : 'Coc';
             <?php if ($error): ?><div class="alert alert-warning"><?= htmlspecialchars($error) ?></div><?php endif; ?>
 
             <?php if ($section === 'coc'): ?>
+            <ul class="nav nav-tabs mb-4">
+                <li class="nav-item">
+                    <a class="nav-link <?= $cocTab === 'accounts' ? 'active' : '' ?>" href="index.php?tab=accounts">Các Tài khoản</a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link <?= $cocTab === 'orders' ? 'active' : '' ?>" href="index.php?tab=orders">Đơn Đặt hàng</a>
+                </li>
+            </ul>
+
+            <?php if ($cocTab === 'accounts'): ?>
             <div class="row g-4">
                 <div class="col-xl-5">
                     <form class="glass-panel p-4" method="post" enctype="multipart/form-data">
@@ -455,42 +432,75 @@ $pageTitle = $section === 'apps' ? 'App' : 'Coc';
             </div>
             <?php endif; ?>
 
+            <?php if ($cocTab === 'orders'): ?>
+            <div class="glass-panel p-4">
+                <h2 class="h5 mb-3">Đơn Đặt hàng</h2>
+                <div class="table-responsive">
+                    <table class="table align-middle">
+                        <thead>
+                        <tr>
+                            <th>ID</th>
+                            <th>Acc</th>
+                            <th>PayPal Order</th>
+                            <th>Status</th>
+                            <th>Amount</th>
+                            <th>Payer</th>
+                            <th>Created</th>
+                            <th>Paid</th>
+                        </tr>
+                        </thead>
+                        <tbody>
+                        <?php foreach ($orders as $order): ?>
+                            <tr>
+                                <td><?= (int) $order['id'] ?></td>
+                                <td>
+                                    <strong><?= htmlspecialchars($order['coc_name'] ?? ('#' . $order['coc_id'])) ?></strong>
+                                    <div class="muted-text small"><?= htmlspecialchars($order['coc_username'] ?? '') ?></div>
+                                </td>
+                                <td class="font-monospace small"><?= htmlspecialchars($order['paypal_order_id']) ?></td>
+                                <td><?= htmlspecialchars($order['status']) ?></td>
+                                <td><?= coc_money($order['amount']) ?></td>
+                                <td><?= htmlspecialchars($order['payer_email'] ?? '') ?></td>
+                                <td><?= htmlspecialchars($order['created_at']) ?></td>
+                                <td><?= htmlspecialchars($order['paid_at'] ?? '') ?></td>
+                            </tr>
+                        <?php endforeach; ?>
+                        <?php if (!$orders): ?>
+                            <tr><td colspan="8" class="text-center muted-text py-4">Chưa có đơn đặt hàng.</td></tr>
+                        <?php endif; ?>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            <?php endif; ?>
+            <?php endif; ?>
+
             <?php if ($section === 'apps'): ?>
             <div class="row g-4">
                 <div class="col-xl-5">
                     <form class="glass-panel p-4" method="post">
                         <input type="hidden" name="action" value="save_app">
-                        <input type="hidden" name="id" value="<?= (int) ($editing['id'] ?? 0) ?>">
+                        <input type="hidden" name="original_id" value="<?= htmlspecialchars($editing['id'] ?? '') ?>">
                         <h2 class="h5 mb-3"><?= $editing ? 'Cập nhật app' : 'Thêm app mới' ?></h2>
 
-                        <div class="row g-3">
-                            <div class="col-md-6">
-                                <label class="form-label" for="app_id">App ID</label>
-                                <input class="form-control" id="app_id" name="app_id" value="<?= htmlspecialchars($editing['app_id'] ?? '') ?>" required>
-                            </div>
-                            <div class="col-md-6">
-                                <label class="form-label" for="slug">Slug</label>
-                                <input class="form-control" id="slug" name="slug" value="<?= htmlspecialchars($editing['slug'] ?? '') ?>">
-                            </div>
+                        <div class="mb-3">
+                            <label class="form-label" for="id">ID</label>
+                            <input class="form-control" id="id" name="id" value="<?= htmlspecialchars($editing['id'] ?? '') ?>" required>
                         </div>
 
-                        <div class="mb-3 mt-3">
-                            <label class="form-label" for="name_en">Name</label>
-                            <input class="form-control" id="name_en" name="name_en" value="<?= htmlspecialchars($editing['name_en'] ?? '') ?>" required>
+                        <div class="mb-3">
+                            <label class="form-label" for="decription">Decription</label>
+                            <textarea class="form-control" id="decription" name="decription" rows="4"><?= htmlspecialchars($editing['decription'] ?? '') ?></textarea>
                         </div>
 
                         <div class="row g-3">
                             <div class="col-md-4">
                                 <label class="form-label" for="type">Type</label>
-                                <input class="form-control" id="type" name="type" value="<?= htmlspecialchars($editing['type'] ?? 'app') ?>">
+                                <input class="form-control" id="type" name="type" value="<?= htmlspecialchars($editing['type'] ?? '') ?>">
                             </div>
                             <div class="col-md-4">
                                 <label class="form-label" for="status">Status</label>
-                                <select class="form-select" id="status" name="status">
-                                    <?php foreach (['publish', 'draft', 'trash'] as $status): ?>
-                                        <option value="<?= $status ?>" <?= ($editing['status'] ?? 'publish') === $status ? 'selected' : '' ?>><?= $status ?></option>
-                                    <?php endforeach; ?>
-                                </select>
+                                <input class="form-control" id="status" name="status" value="<?= htmlspecialchars($editing['status'] ?? '') ?>">
                             </div>
                             <div class="col-md-4">
                                 <label class="form-label" for="priority">Priority</label>
@@ -498,30 +508,40 @@ $pageTitle = $section === 'apps' ? 'App' : 'Coc';
                             </div>
                         </div>
 
-                        <div class="mb-3 mt-3">
-                            <label class="form-label" for="date_create">Date create</label>
-                            <input class="form-control" id="date_create" name="date_create" value="<?= htmlspecialchars($editing['date_create'] ?? date('Y-m-d H:i:s')) ?>">
-                        </div>
-
-                        <div class="mb-3">
-                            <label class="form-label" for="icon">Icon URL</label>
-                            <input class="form-control" id="icon" name="icon" value="<?= htmlspecialchars($editing['icon'] ?? '') ?>">
+                        <div class="row g-3 mt-0">
+                            <div class="col-md-6">
+                                <label class="form-label" for="sync_status">Sync status</label>
+                                <input class="form-control" id="sync_status" name="sync_status" type="number" value="<?= htmlspecialchars((string) ($editing['sync_status'] ?? 0)) ?>">
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label" for="category">Category</label>
+                                <input class="form-control" id="category" name="category" value="<?= htmlspecialchars($editing['category'] ?? '') ?>">
+                            </div>
                         </div>
 
                         <?php
-                        $jsonFields = [
-                            'images' => 'Images',
-                            'store_links' => 'Store links',
-                            'download_links' => 'Download links',
-                            'video_links' => 'Video links',
-                            'category' => 'Category',
-                            'icons' => 'Icons',
+                        $appFields = [
+                            'icon' => 'Icon URL',
+                            'github' => 'Github',
+                            'google_play' => 'Google Play',
+                            'microsoft_store' => 'Microsoft Store',
+                            'amazon_app_store' => 'Amazon App Store',
+                            'huawei_store' => 'Huawei Store',
+                            'itch' => 'Itch',
+                            'uptodown' => 'Uptodown',
+                            'simmer' => 'Simmer',
+                            'youtube_link' => 'Youtube link',
+                            'apk_file' => 'APK file',
+                            'exe_file' => 'EXE file',
+                            'deb_file' => 'DEB file',
+                            'dmg_file' => 'DMG file',
+                            'ipa_file' => 'IPA file',
                         ];
-                        foreach ($jsonFields as $field => $label):
+                        foreach ($appFields as $field => $label):
                         ?>
                             <div class="mb-3">
-                                <label class="form-label" for="<?= $field ?>"><?= $label ?> JSON</label>
-                                <textarea class="form-control font-monospace small" id="<?= $field ?>" name="<?= $field ?>" rows="5"><?= htmlspecialchars(admin_json_text($editing[$field] ?? admin_empty_json_array())) ?></textarea>
+                                <label class="form-label" for="<?= $field ?>"><?= $label ?></label>
+                                <input class="form-control" id="<?= $field ?>" name="<?= $field ?>" value="<?= htmlspecialchars($editing[$field] ?? '') ?>">
                             </div>
                         <?php endforeach; ?>
 
@@ -547,15 +567,15 @@ $pageTitle = $section === 'apps' ? 'App' : 'Coc';
                                 <tbody>
                                 <?php foreach ($apps as $app): ?>
                                     <tr>
-                                        <td><?= (int) $app['id'] ?></td>
+                                        <td><?= htmlspecialchars($app['id']) ?></td>
                                         <td>
                                             <div class="d-flex align-items-center gap-3">
                                                 <?php if (!empty($app['icon'])): ?>
                                                     <img src="<?= htmlspecialchars($app['icon']) ?>" alt="" width="54" height="54" class="rounded-2 object-fit-cover">
                                                 <?php endif; ?>
                                                 <div>
-                                                    <strong><?= htmlspecialchars($app['name_en']) ?></strong>
-                                                    <div class="muted-text small"><?= htmlspecialchars($app['app_id']) ?> / <?= htmlspecialchars($app['slug']) ?></div>
+                                                    <strong><?= htmlspecialchars($app['id']) ?></strong>
+                                                    <div class="muted-text small"><?= htmlspecialchars(admin_excerpt($app['decription'] ?? '')) ?></div>
                                                 </div>
                                             </div>
                                         </td>
@@ -563,10 +583,10 @@ $pageTitle = $section === 'apps' ? 'App' : 'Coc';
                                         <td><?= htmlspecialchars($app['status']) ?></td>
                                         <td><?= (int) $app['priority'] ?></td>
                                         <td class="text-end">
-                                            <a class="btn btn-sm btn-warning fw-bold" href="index.php?section=apps&edit=<?= (int) $app['id'] ?>">Cập nhật</a>
+                                            <a class="btn btn-sm btn-warning fw-bold" href="index.php?section=apps&edit=<?= urlencode($app['id']) ?>">Cập nhật</a>
                                             <form class="d-inline" method="post" onsubmit="return confirm('Xóa app này?')">
                                                 <input type="hidden" name="action" value="delete_app">
-                                                <input type="hidden" name="id" value="<?= (int) $app['id'] ?>">
+                                                <input type="hidden" name="id" value="<?= htmlspecialchars($app['id']) ?>">
                                                 <button class="btn btn-sm btn-outline-danger" type="submit">Xóa</button>
                                             </form>
                                         </td>
