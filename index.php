@@ -278,6 +278,7 @@ if (!$pdo instanceof PDO) {
             if ($section === 'coc' && $action === 'save') {
                 $id = (int) ($_POST['id'] ?? 0);
                 $name = trim($_POST['name'] ?? '');
+                $hall = (int) ($_POST['hall'] ?? 0);
                 $data = trim($_POST['data'] ?? '');
                 $avatar = trim($_POST['avatar'] ?? '');
                 $photoUrls = coc_decode_photos(coc_photos_to_json($_POST['photos'] ?? ''));
@@ -289,6 +290,10 @@ if (!$pdo instanceof PDO) {
                     throw new RuntimeException('Vui lòng nhập đủ name, data, username và password.');
                 }
 
+                if ($hall < 1 || $hall > 99) {
+                    throw new RuntimeException('Town Hall phải nằm trong khoảng 1 đến 99.');
+                }
+
                 if (json_decode($data, true) === null && json_last_error() !== JSON_ERROR_NONE) {
                     throw new RuntimeException('Trường data phải là JSON hợp lệ.');
                 }
@@ -296,12 +301,12 @@ if (!$pdo instanceof PDO) {
                 $photos = coc_photos_to_json(implode("\n", array_unique($photoUrls)));
 
                 if ($id > 0) {
-                    $stmt = $pdo->prepare('UPDATE coc SET name = ?, data = ?, avatar = ?, photos = ?, username = ?, password = ?, price = ? WHERE id = ?');
-                    $stmt->execute([$name, $data, $avatar, $photos, $username, $password, $price, $id]);
+                    $stmt = $pdo->prepare('UPDATE coc SET name = ?, hall = ?, data = ?, avatar = ?, photos = ?, username = ?, password = ?, price = ? WHERE id = ?');
+                    $stmt->execute([$name, $hall, $data, $avatar, $photos, $username, $password, $price, $id]);
                     $message = 'Đã cập nhật acc.';
                 } else {
-                    $stmt = $pdo->prepare('INSERT INTO coc (name, data, avatar, photos, username, password, price) VALUES (?, ?, ?, ?, ?, ?, ?)');
-                    $stmt->execute([$name, $data, $avatar, $photos, $username, $password, $price]);
+                    $stmt = $pdo->prepare('INSERT INTO coc (name, hall, data, avatar, photos, username, password, price) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
+                    $stmt->execute([$name, $hall, $data, $avatar, $photos, $username, $password, $price]);
                     $message = 'Đã thêm acc mới.';
                 }
             }
@@ -358,6 +363,7 @@ if (!$pdo instanceof PDO) {
         $accountSortColumns = [
             'id' => 'id',
             'name' => 'name',
+            'hall' => 'hall',
             'username' => 'username',
             'price' => 'price',
             'updated_at' => 'updated_at',
@@ -492,11 +498,16 @@ $pageTitle = $section === 'apps' ? 'App' : 'Coc';
                                 <input class="form-control" id="price" name="price" type="number" min="0" step="0.01" value="<?= htmlspecialchars((string) ($editing['price'] ?? '')) ?>" required>
                             </div>
                             <div class="col-md-6">
-                                <label class="form-label" for="avatar">Avatar URL</label>
-                                <div class="input-group">
-                                    <input class="form-control" id="avatar" name="avatar" value="<?= htmlspecialchars($editing['avatar'] ?? '') ?>">
-                                    <button class="btn btn-secondary js-upload" type="button" data-target="avatar" data-type-media="coc_images" data-mode="replace" data-accept="image/*">Upload</button>
-                                </div>
+                                <label class="form-label" for="hall">Town Hall</label>
+                                <input class="form-control" id="hall" name="hall" type="number" min="1" max="99" step="1" value="<?= htmlspecialchars((string) ($editing ? coc_account_hall($editing) : '')) ?>" required>
+                            </div>
+                        </div>
+
+                        <div class="mb-3 mt-3">
+                            <label class="form-label" for="avatar">Avatar URL</label>
+                            <div class="input-group">
+                                <input class="form-control" id="avatar" name="avatar" value="<?= htmlspecialchars($editing['avatar'] ?? '') ?>">
+                                <button class="btn btn-secondary js-upload" type="button" data-target="avatar" data-type-media="coc_images" data-mode="replace" data-accept="image/*">Upload</button>
                             </div>
                         </div>
 
@@ -537,14 +548,14 @@ $pageTitle = $section === 'apps' ? 'App' : 'Coc';
                                 <tr>
                                     <th><?= admin_sort_link('id', 'ID', $accountSort, $accountDir) ?></th>
                                     <th><?= admin_sort_link('name', 'Acc', $accountSort, $accountDir) ?></th>
-                                    <th>Town Hall</th>
+                                    <th><?= admin_sort_link('hall', 'Town Hall', $accountSort, $accountDir) ?></th>
                                     <th><?= admin_sort_link('price', 'Giá', $accountSort, $accountDir) ?></th>
                                     <th></th>
                                 </tr>
                                 </thead>
                                 <tbody>
                                 <?php foreach ($accounts as $account):
-                                    $th = coc_townhall_level(coc_decode_json($account['data']));
+                                    $th = coc_account_hall($account);
                                     ?>
                                     <tr>
                                         <td><?= (int) $account['id'] ?></td>
@@ -561,16 +572,16 @@ $pageTitle = $section === 'apps' ? 'App' : 'Coc';
                                         <td><?= coc_money($account['price']) ?></td>
                                         <td class="text-end">
                                             <div class="d-inline-flex align-items-center justify-content-end gap-2 flex-nowrap">
-                                            <a class="btn btn-sm btn-warning" href="index.php?edit=<?= (int) $account['id'] ?>" title="Cập nhật" aria-label="Cập nhật">
-                                                <i data-lucide="pencil" style="width:16px;height:16px"></i>
-                                            </a>
-                                            <form class="js-delete" method="post" data-confirm="Xóa acc này?">
-                                                <input type="hidden" name="action" value="delete">
-                                                <input type="hidden" name="id" value="<?= (int) $account['id'] ?>">
-                                                <button class="btn btn-sm btn-danger" type="submit" title="Xóa" aria-label="Xóa">
-                                                    <i data-lucide="trash-2" style="width:16px;height:16px"></i>
-                                                </button>
-                                            </form>
+                                                <a class="btn btn-sm btn-warning" href="index.php?edit=<?= (int) $account['id'] ?>" title="Cập nhật" aria-label="Cập nhật">
+                                                    <i data-lucide="pencil" style="width:16px;height:16px"></i>
+                                                </a>
+                                                <form class="js-delete" method="post" data-confirm="Xóa acc này?">
+                                                    <input type="hidden" name="action" value="delete">
+                                                    <input type="hidden" name="id" value="<?= (int) $account['id'] ?>">
+                                                    <button class="btn btn-sm btn-danger" type="submit" title="Xóa" aria-label="Xóa">
+                                                        <i data-lucide="trash-2" style="width:16px;height:16px"></i>
+                                                    </button>
+                                                </form>
                                             </div>
                                         </td>
                                     </tr>
