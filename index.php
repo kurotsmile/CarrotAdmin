@@ -452,12 +452,12 @@ $pageTitle = $section === 'apps' ? 'App' : 'Coc';
                     </div>
                     <div class="d-flex flex-wrap gap-2">
                         <?php if ($section === 'coc'): ?>
-                            <a class="btn btn-outline-light" href="/CarrotCoc/index.php">Xem shop</a>
+                            <a class="btn btn-secondary fw-bold" href="/CarrotCoc/index.php">Xem shop</a>
                         <?php endif; ?>
                         <?php if ($editing): ?>
-                            <a class="btn btn-outline-light" href="index.php<?= $section === 'apps' ? '?section=apps' : '' ?>">Thêm mới</a>
+                            <a class="btn btn-success fw-bold" href="index.php<?= $section === 'apps' ? '?section=apps' : '' ?>">Thêm mới</a>
                         <?php endif; ?>
-                        <a class="btn btn-outline-light" href="index.php?logout=1" title="Đăng xuất">
+                        <a class="btn btn-danger fw-bold" href="index.php?logout=1" title="Đăng xuất">
                             <span class="d-inline-flex align-items-center gap-2"><i data-lucide="log-out" style="width:16px;height:16px"></i><?= htmlspecialchars($_SESSION['admin_user']) ?></span>
                         </a>
                     </div>
