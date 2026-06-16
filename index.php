@@ -45,7 +45,7 @@ if (empty($_SESSION['admin_user'])):
     <form class="glass-panel p-4" style="width:min(100%, 420px)" method="post">
         <input type="hidden" name="action" value="login">
         <div class="d-flex align-items-center gap-3 mb-4">
-            <span class="brand-mark">CA</span>
+            <img class="brand-mark" src="carrot_28.png" alt="Carrot Admin">
             <div>
                 <h1 class="h4 mb-0">Carrot Admin</h1>
                 <div class="muted-text small">Đăng nhập</div>
@@ -434,7 +434,7 @@ $pageTitle = $section === 'apps' ? 'App' : 'Coc';
     <div class="row min-vh-100">
         <aside class="col-lg-2 glass-panel m-3 p-3 align-self-start">
             <div class="d-flex align-items-center gap-3 mb-4">
-                <span class="brand-mark">CA</span>
+                <img class="brand-mark" src="carrot_28.png" alt="Carrot Admin">
                 <strong>Carrot Admin</strong>
             </div>
             <div class="list-group">
@@ -568,7 +568,7 @@ $pageTitle = $section === 'apps' ? 'App' : 'Coc';
                                             <a class="btn btn-sm btn-warning" href="index.php?edit=<?= (int) $account['id'] ?>" title="Cập nhật" aria-label="Cập nhật">
                                                 <i data-lucide="pencil" style="width:16px;height:16px"></i>
                                             </a>
-                                            <form method="post" onsubmit="return confirm('Xóa acc này?')">
+                                            <form class="js-delete" method="post" data-confirm="Xóa acc này?">
                                                 <input type="hidden" name="action" value="delete">
                                                 <input type="hidden" name="id" value="<?= (int) $account['id'] ?>">
                                                 <button class="btn btn-sm btn-danger" type="submit" title="Xóa" aria-label="Xóa">
@@ -752,7 +752,7 @@ $pageTitle = $section === 'apps' ? 'App' : 'Coc';
                                             <a class="btn btn-sm btn-warning" href="index.php?section=apps&edit=<?= urlencode($app['id']) ?>" title="Cập nhật" aria-label="Cập nhật">
                                                 <i data-lucide="pencil" style="width:16px;height:16px"></i>
                                             </a>
-                                            <form method="post" onsubmit="return confirm('Xóa app này?')">
+                                            <form class="js-delete" method="post" data-confirm="Xóa app này?">
                                                 <input type="hidden" name="action" value="delete_app">
                                                 <input type="hidden" name="id" value="<?= htmlspecialchars($app['id']) ?>">
                                                 <button class="btn btn-sm btn-danger" type="submit" title="Xóa" aria-label="Xóa">
@@ -777,6 +777,26 @@ $pageTitle = $section === 'apps' ? 'App' : 'Coc';
     </div>
 </div>
 <script>
+document.querySelectorAll('.js-delete').forEach((form) => {
+    form.addEventListener('submit', async (event) => {
+        event.preventDefault();
+
+        const result = await Swal.fire({
+            icon: 'warning',
+            title: 'Xác nhận xóa',
+            text: form.dataset.confirm || 'Bạn chắc chắn muốn xóa mục này?',
+            showCancelButton: true,
+            confirmButtonText: 'Xóa',
+            cancelButtonText: 'Hủy',
+            confirmButtonColor: '#dc3545',
+        });
+
+        if (result.isConfirmed) {
+            form.submit();
+        }
+    });
+});
+
 document.querySelectorAll('.js-upload').forEach((button) => {
     button.addEventListener('click', async () => {
         const target = document.getElementById(button.dataset.target);
