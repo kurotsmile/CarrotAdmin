@@ -452,7 +452,7 @@ $pageTitle = $section === 'apps' ? 'App' : 'Coc';
                     </div>
                     <div class="d-flex flex-wrap gap-2">
                         <?php if ($section === 'coc'): ?>
-                            <a class="btn btn-secondary fw-bold" href="/CarrotCoc/index.php">Xem shop</a>
+                            <a class="btn btn-secondary fw-bold" href="https://coc.carrot28.com/" target="_blank" rel="noopener noreferrer">Xem shop</a>
                         <?php endif; ?>
                         <?php if ($editing): ?>
                             <a class="btn btn-success fw-bold" href="index.php<?= $section === 'apps' ? '?section=apps' : '' ?>">Thêm mới</a>
@@ -535,8 +535,8 @@ $pageTitle = $section === 'apps' ? 'App' : 'Coc';
                 <div class="col-xl-7">
                     <div class="glass-panel p-4">
                         <h2 class="h5 mb-3">Danh sách acc</h2>
-                        <div class="table-responsive">
-                            <table class="table align-middle">
+                        <div class="table-responsive-sm">
+                            <table class="table table-striped table-hover table-sm align-middle">
                                 <thead>
                                 <tr>
                                     <th><?= admin_sort_link('id', 'ID', $accountSort, $accountDir) ?></th>
@@ -593,8 +593,8 @@ $pageTitle = $section === 'apps' ? 'App' : 'Coc';
             <?php if ($cocTab === 'orders'): ?>
             <div class="glass-panel p-4">
                 <h2 class="h5 mb-3">Đơn Đặt hàng</h2>
-                <div class="table-responsive">
-                    <table class="table align-middle">
+                <div class="table-responsive-sm">
+                    <table class="table table-striped table-hover table-sm align-middle">
                         <thead>
                         <tr>
                             <th><?= admin_sort_link('id', 'ID', $orderSort, $orderDir) ?></th>
@@ -717,8 +717,8 @@ $pageTitle = $section === 'apps' ? 'App' : 'Coc';
                 <div class="col-xl-7">
                     <div class="glass-panel p-4">
                         <h2 class="h5 mb-3">Danh sách app</h2>
-                        <div class="table-responsive">
-                            <table class="table align-middle">
+                        <div class="table-responsive-sm">
+                            <table class="table table-striped table-hover table-sm align-middle">
                                 <thead>
                                 <tr>
                                     <th><?= admin_sort_link('id', 'ID', $appSort, $appDir) ?></th>
