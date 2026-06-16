@@ -71,24 +71,28 @@ function admin_upload_image_to_nas(array $file, string $typeMedia): string
     return (string) $payload['url'];
 }
 
-function admin_uploaded_files(string $field): array
+function admin_ajax_upload(): void
 {
-    if (empty($_FILES[$field]) || !is_array($_FILES[$field]['name'])) {
-        return [];
+    header('Content-Type: application/json; charset=utf-8');
+
+    try {
+        $typeMedia = trim($_POST['type_media'] ?? '');
+        if (!in_array($typeMedia, ['carrot_app', 'coc_images'], true)) {
+            throw new RuntimeException('Type media không hợp lệ.');
+        }
+
+        $url = admin_upload_image_to_nas($_FILES['file'] ?? [], $typeMedia);
+        if ($url === '') {
+            throw new RuntimeException('Vui lòng chọn file để upload.');
+        }
+
+        echo json_encode(['status' => 'success', 'url' => $url], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+    } catch (Throwable $e) {
+        http_response_code(400);
+        echo json_encode(['status' => 'error', 'message' => $e->getMessage()], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
     }
 
-    $files = [];
-    foreach ($_FILES[$field]['name'] as $index => $name) {
-        $files[] = [
-            'name' => $name,
-            'type' => $_FILES[$field]['type'][$index] ?? '',
-            'tmp_name' => $_FILES[$field]['tmp_name'][$index] ?? '',
-            'error' => $_FILES[$field]['error'][$index] ?? UPLOAD_ERR_NO_FILE,
-            'size' => $_FILES[$field]['size'][$index] ?? 0,
-        ];
-    }
-
-    return $files;
+    exit;
 }
 
 function admin_fetch_app(PDO $pdo, string $id): ?array
@@ -141,6 +145,10 @@ function admin_ensure_app_table(PDO $pdo): void
     ");
 }
 
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'ajax_upload') {
+    admin_ajax_upload();
+}
+
 if (!$pdo instanceof PDO) {
     $error = 'Không thể kết nối database: ' . ($db_error ?? 'unknown error');
 } else {
@@ -173,18 +181,6 @@ if (!$pdo instanceof PDO) {
 
                 if (json_decode($data, true) === null && json_last_error() !== JSON_ERROR_NONE) {
                     throw new RuntimeException('Trường data phải là JSON hợp lệ.');
-                }
-
-                $uploadedAvatar = admin_upload_image_to_nas($_FILES['avatar_file'] ?? [], 'coc_images');
-                if ($uploadedAvatar !== '') {
-                    $avatar = $uploadedAvatar;
-                }
-
-                foreach (admin_uploaded_files('photos_files') as $photoFile) {
-                    $uploadedPhoto = admin_upload_image_to_nas($photoFile, 'coc_images');
-                    if ($uploadedPhoto !== '') {
-                        $photoUrls[] = $uploadedPhoto;
-                    }
                 }
 
                 $photos = coc_photos_to_json(implode("\n", array_unique($photoUrls)));
@@ -283,6 +279,7 @@ $pageTitle = $section === 'apps' ? 'App' : 'Coc';
     <link rel="shortcut icon" href="favicon/favicon.ico">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="/CarrotCoc/assets/css/style.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
 </head>
 <body>
 <div class="container-fluid">
@@ -349,8 +346,10 @@ $pageTitle = $section === 'apps' ? 'App' : 'Coc';
                             </div>
                             <div class="col-md-6">
                                 <label class="form-label" for="avatar">Avatar URL</label>
-                                <input class="form-control" id="avatar" name="avatar" value="<?= htmlspecialchars($editing['avatar'] ?? '') ?>">
-                                <input class="form-control mt-2" id="avatar_file" name="avatar_file" type="file" accept="image/*">
+                                <div class="input-group">
+                                    <input class="form-control" id="avatar" name="avatar" value="<?= htmlspecialchars($editing['avatar'] ?? '') ?>">
+                                    <button class="btn btn-outline-light js-upload" type="button" data-target="avatar" data-type-media="coc_images" data-mode="replace" data-accept="image/*">Upload</button>
+                                </div>
                             </div>
                         </div>
 
@@ -367,8 +366,10 @@ $pageTitle = $section === 'apps' ? 'App' : 'Coc';
 
                         <div class="mb-3 mt-3">
                             <label class="form-label" for="photos">Photos URL, mỗi dòng một ảnh</label>
-                            <textarea class="form-control" id="photos" name="photos" rows="4"><?= htmlspecialchars($photoText) ?></textarea>
-                            <input class="form-control mt-2" id="photos_files" name="photos_files[]" type="file" accept="image/*" multiple>
+                            <div class="input-group">
+                                <textarea class="form-control" id="photos" name="photos" rows="4"><?= htmlspecialchars($photoText) ?></textarea>
+                                <button class="btn btn-outline-light js-upload" type="button" data-target="photos" data-type-media="coc_images" data-mode="append" data-accept="image/*">Upload</button>
+                            </div>
                         </div>
 
                         <div class="mb-3">
@@ -541,7 +542,14 @@ $pageTitle = $section === 'apps' ? 'App' : 'Coc';
                         ?>
                             <div class="mb-3">
                                 <label class="form-label" for="<?= $field ?>"><?= $label ?></label>
-                                <input class="form-control" id="<?= $field ?>" name="<?= $field ?>" value="<?= htmlspecialchars($editing[$field] ?? '') ?>">
+                                <?php if (in_array($field, ['icon', 'apk_file', 'exe_file', 'deb_file', 'dmg_file', 'ipa_file'], true)): ?>
+                                    <div class="input-group">
+                                        <input class="form-control" id="<?= $field ?>" name="<?= $field ?>" value="<?= htmlspecialchars($editing[$field] ?? '') ?>">
+                                        <button class="btn btn-outline-light js-upload" type="button" data-target="<?= $field ?>" data-type-media="carrot_app" data-mode="replace" data-accept="<?= $field === 'icon' ? 'image/*' : '' ?>">Upload</button>
+                                    </div>
+                                <?php else: ?>
+                                    <input class="form-control" id="<?= $field ?>" name="<?= $field ?>" value="<?= htmlspecialchars($editing[$field] ?? '') ?>">
+                                <?php endif; ?>
                             </div>
                         <?php endforeach; ?>
 
@@ -605,5 +613,72 @@ $pageTitle = $section === 'apps' ? 'App' : 'Coc';
         </main>
     </div>
 </div>
+<script>
+document.querySelectorAll('.js-upload').forEach((button) => {
+    button.addEventListener('click', async () => {
+        const target = document.getElementById(button.dataset.target);
+        if (!target) {
+            return;
+        }
+
+        const accept = button.dataset.accept || '';
+        const result = await Swal.fire({
+            title: 'Upload file',
+            html: `<input id="admin-upload-file" class="swal2-file" type="file" ${accept ? `accept="${accept}"` : ''}>`,
+            showCancelButton: true,
+            confirmButtonText: 'Upload',
+            cancelButtonText: 'Hủy',
+            focusConfirm: false,
+            preConfirm: async () => {
+                const fileInput = document.getElementById('admin-upload-file');
+                const file = fileInput && fileInput.files ? fileInput.files[0] : null;
+                if (!file) {
+                    Swal.showValidationMessage('Vui lòng chọn file.');
+                    return false;
+                }
+
+                const formData = new FormData();
+                formData.append('action', 'ajax_upload');
+                formData.append('type_media', button.dataset.typeMedia || 'coc_images');
+                formData.append('file', file);
+
+                try {
+                    const response = await fetch('index.php', {
+                        method: 'POST',
+                        body: formData,
+                    });
+                    const payload = await response.json();
+                    if (!response.ok || payload.status !== 'success') {
+                        throw new Error(payload.message || 'Upload thất bại.');
+                    }
+                    return payload.url;
+                } catch (error) {
+                    Swal.showValidationMessage(error.message);
+                    return false;
+                }
+            },
+        });
+
+        if (!result.isConfirmed || !result.value) {
+            return;
+        }
+
+        if (button.dataset.mode === 'append') {
+            const current = target.value.trim();
+            target.value = current ? `${current}\n${result.value}` : result.value;
+        } else {
+            target.value = result.value;
+        }
+
+        Swal.fire({
+            icon: 'success',
+            title: 'Đã upload',
+            text: result.value,
+            timer: 1600,
+            showConfirmButton: false,
+        });
+    });
+});
+</script>
 </body>
 </html>
