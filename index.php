@@ -44,12 +44,9 @@ if (empty($_SESSION['admin_user'])):
 <div class="container min-vh-100 d-flex align-items-center justify-content-center">
     <form class="glass-panel p-4" style="width:min(100%, 420px)" method="post">
         <input type="hidden" name="action" value="login">
-        <div class="d-flex align-items-center gap-3 mb-4">
+        <div class="text-center mb-4">
             <img class="brand-mark" src="carrot_28.png" alt="Carrot Admin">
-            <div>
-                <h1 class="h4 mb-0">Carrot Admin</h1>
-                <div class="muted-text small">Đăng nhập</div>
-            </div>
+            <h1 class="h4 mt-3 mb-0">Đăng nhập</h1>
         </div>
         <?php if ($loginError): ?><div class="alert alert-warning"><?= htmlspecialchars($loginError) ?></div><?php endif; ?>
         <div class="mb-3">
@@ -435,7 +432,6 @@ $pageTitle = $section === 'apps' ? 'App' : 'Coc';
         <aside class="col-lg-2 glass-panel m-3 p-3 align-self-start">
             <div class="d-flex align-items-center gap-3 mb-4">
                 <img class="brand-mark" src="carrot_28.png" alt="Carrot Admin">
-                <strong>Carrot Admin</strong>
             </div>
             <div class="list-group">
                 <a class="list-group-item list-group-item-action <?= $section === 'apps' ? 'active' : '' ?>" href="index.php?section=apps">App</a>
