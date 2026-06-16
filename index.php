@@ -1,4 +1,74 @@
 <?php
+session_start();
+require __DIR__ . '/config/account.php';
+
+if (isset($_GET['logout'])) {
+    $_SESSION = [];
+    session_destroy();
+    header('Location: index.php');
+    exit;
+}
+
+$loginError = '';
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'login') {
+    $username = trim($_POST['username'] ?? '');
+    $password = (string) ($_POST['password'] ?? '');
+
+    if (isset($auth_users[$username]) && password_verify($password, $auth_users[$username])) {
+        session_regenerate_id(true);
+        $_SESSION['admin_user'] = $username;
+        header('Location: index.php');
+        exit;
+    }
+
+    $loginError = 'Sai tài khoản hoặc mật khẩu.';
+}
+
+if (empty($_SESSION['admin_user'])):
+?>
+<!doctype html>
+<html lang="vi">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Carrot Admin - Login</title>
+    <link rel="apple-touch-icon" sizes="180x180" href="favicon/apple-touch-icon.png">
+    <link rel="icon" type="image/png" sizes="32x32" href="favicon/favicon-32x32.png">
+    <link rel="icon" type="image/png" sizes="16x16" href="favicon/favicon-16x16.png">
+    <link rel="manifest" href="favicon/site.webmanifest">
+    <link rel="shortcut icon" href="favicon/favicon.ico">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="/CarrotCoc/assets/css/style.css" rel="stylesheet">
+</head>
+<body>
+<div class="container min-vh-100 d-flex align-items-center justify-content-center">
+    <form class="glass-panel p-4" style="width:min(100%, 420px)" method="post">
+        <input type="hidden" name="action" value="login">
+        <div class="d-flex align-items-center gap-3 mb-4">
+            <span class="brand-mark">CA</span>
+            <div>
+                <h1 class="h4 mb-0">Carrot Admin</h1>
+                <div class="muted-text small">Đăng nhập</div>
+            </div>
+        </div>
+        <?php if ($loginError): ?><div class="alert alert-warning"><?= htmlspecialchars($loginError) ?></div><?php endif; ?>
+        <div class="mb-3">
+            <label class="form-label" for="username">Username</label>
+            <input class="form-control" id="username" name="username" autocomplete="username" required autofocus>
+        </div>
+        <div class="mb-4">
+            <label class="form-label" for="password">Password</label>
+            <input class="form-control" id="password" name="password" type="password" autocomplete="current-password" required>
+        </div>
+        <button class="btn btn-success fw-bold w-100" type="submit">Đăng nhập</button>
+    </form>
+</div>
+</body>
+</html>
+<?php
+exit;
+endif;
+
 require __DIR__ . '/../CarrotCoc/config/database.php';
 require __DIR__ . '/../CarrotCoc/includes/coc_helpers.php';
 
@@ -357,6 +427,7 @@ $pageTitle = $section === 'apps' ? 'App' : 'Coc';
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="/CarrotCoc/assets/css/style.css" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
 </head>
 <body>
 <div class="container-fluid">
@@ -386,6 +457,9 @@ $pageTitle = $section === 'apps' ? 'App' : 'Coc';
                         <?php if ($editing): ?>
                             <a class="btn btn-outline-light" href="index.php<?= $section === 'apps' ? '?section=apps' : '' ?>">Thêm mới</a>
                         <?php endif; ?>
+                        <a class="btn btn-outline-light" href="index.php?logout=1" title="Đăng xuất">
+                            <span class="d-inline-flex align-items-center gap-2"><i data-lucide="log-out" style="width:16px;height:16px"></i><?= htmlspecialchars($_SESSION['admin_user']) ?></span>
+                        </a>
                     </div>
                 </div>
             </div>
@@ -491,11 +565,15 @@ $pageTitle = $section === 'apps' ? 'App' : 'Coc';
                                         <td><?= coc_money($account['price']) ?></td>
                                         <td class="text-end">
                                             <div class="d-inline-flex align-items-center justify-content-end gap-2 flex-nowrap">
-                                            <a class="btn btn-sm btn-warning fw-bold" href="index.php?edit=<?= (int) $account['id'] ?>">Cập nhật</a>
+                                            <a class="btn btn-sm btn-warning" href="index.php?edit=<?= (int) $account['id'] ?>" title="Cập nhật" aria-label="Cập nhật">
+                                                <i data-lucide="pencil" style="width:16px;height:16px"></i>
+                                            </a>
                                             <form method="post" onsubmit="return confirm('Xóa acc này?')">
                                                 <input type="hidden" name="action" value="delete">
                                                 <input type="hidden" name="id" value="<?= (int) $account['id'] ?>">
-                                                <button class="btn btn-sm btn-outline-danger" type="submit">Xóa</button>
+                                                <button class="btn btn-sm btn-danger" type="submit" title="Xóa" aria-label="Xóa">
+                                                    <i data-lucide="trash-2" style="width:16px;height:16px"></i>
+                                                </button>
                                             </form>
                                             </div>
                                         </td>
@@ -671,11 +749,15 @@ $pageTitle = $section === 'apps' ? 'App' : 'Coc';
                                         <td><?= (int) $app['priority'] ?></td>
                                         <td class="text-end">
                                             <div class="d-inline-flex align-items-center justify-content-end gap-2 flex-nowrap">
-                                            <a class="btn btn-sm btn-warning fw-bold" href="index.php?section=apps&edit=<?= urlencode($app['id']) ?>">Cập nhật</a>
+                                            <a class="btn btn-sm btn-warning" href="index.php?section=apps&edit=<?= urlencode($app['id']) ?>" title="Cập nhật" aria-label="Cập nhật">
+                                                <i data-lucide="pencil" style="width:16px;height:16px"></i>
+                                            </a>
                                             <form method="post" onsubmit="return confirm('Xóa app này?')">
                                                 <input type="hidden" name="action" value="delete_app">
                                                 <input type="hidden" name="id" value="<?= htmlspecialchars($app['id']) ?>">
-                                                <button class="btn btn-sm btn-outline-danger" type="submit">Xóa</button>
+                                                <button class="btn btn-sm btn-danger" type="submit" title="Xóa" aria-label="Xóa">
+                                                    <i data-lucide="trash-2" style="width:16px;height:16px"></i>
+                                                </button>
                                             </form>
                                             </div>
                                         </td>
@@ -760,6 +842,10 @@ document.querySelectorAll('.js-upload').forEach((button) => {
         });
     });
 });
+
+if (window.lucide) {
+    lucide.createIcons();
+}
 </script>
 </body>
 </html>
