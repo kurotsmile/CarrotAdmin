@@ -12,6 +12,12 @@ $editing = null;
 $accounts = [];
 $apps = [];
 $orders = [];
+$accountSort = 'id';
+$accountDir = 'DESC';
+$orderSort = 'created_at';
+$orderDir = 'DESC';
+$appSort = 'priority';
+$appDir = 'DESC';
 
 function admin_nas_upload_endpoint(): string
 {
@@ -111,6 +117,43 @@ function admin_excerpt(?string $text, int $limit = 70): string
     }
 
     return strlen($text) > $limit ? substr($text, 0, $limit - 3) . '...' : $text;
+}
+
+function admin_sort_state(array $allowed, string $defaultSort, string $defaultDir = 'DESC'): array
+{
+    $sort = $_GET['sort'] ?? $defaultSort;
+    $dir = strtoupper($_GET['dir'] ?? $defaultDir);
+
+    if (!isset($allowed[$sort])) {
+        $sort = $defaultSort;
+    }
+
+    if (!in_array($dir, ['ASC', 'DESC'], true)) {
+        $dir = $defaultDir;
+    }
+
+    return [$sort, $dir];
+}
+
+function admin_order_by(array $allowed, string $sort, string $dir): string
+{
+    return $allowed[$sort] . ' ' . $dir;
+}
+
+function admin_sort_link(string $key, string $label, string $activeSort, string $activeDir): string
+{
+    $params = $_GET;
+    $params['sort'] = $key;
+    $params['dir'] = ($activeSort === $key && $activeDir === 'ASC') ? 'DESC' : 'ASC';
+    unset($params['edit']);
+
+    $icon = '&harr;';
+    if ($activeSort === $key) {
+        $icon = $activeDir === 'ASC' ? '&uarr;' : '&darr;';
+    }
+
+    return '<a class="text-reset text-decoration-none d-inline-flex align-items-center gap-1" href="index.php?' .
+        htmlspecialchars(http_build_query($params)) . '">' . htmlspecialchars($label) . '<span>' . $icon . '</span></a>';
 }
 
 function admin_ensure_app_table(PDO $pdo): void
@@ -245,16 +288,50 @@ if (!$pdo instanceof PDO) {
             $editing = admin_fetch_app($pdo, $editKey);
         }
 
-        $accounts = $section === 'coc' ? $pdo->query('SELECT * FROM coc ORDER BY id DESC')->fetchAll() : [];
+        $accountSortColumns = [
+            'id' => 'id',
+            'name' => 'name',
+            'username' => 'username',
+            'price' => 'price',
+            'updated_at' => 'updated_at',
+        ];
+        [$accountSort, $accountDir] = admin_sort_state($accountSortColumns, 'id', 'DESC');
+
+        $orderSortColumns = [
+            'id' => 'coc_orders.id',
+            'account' => 'coc.name',
+            'paypal_order_id' => 'coc_orders.paypal_order_id',
+            'status' => 'coc_orders.status',
+            'amount' => 'coc_orders.amount',
+            'payer_email' => 'coc_orders.payer_email',
+            'created_at' => 'coc_orders.created_at',
+            'paid_at' => 'coc_orders.paid_at',
+        ];
+        [$orderSort, $orderDir] = admin_sort_state($orderSortColumns, 'created_at', 'DESC');
+
+        $appSortColumns = [
+            'id' => 'id',
+            'type' => 'type',
+            'status' => 'status',
+            'priority' => 'priority',
+            'created_at' => 'created_at',
+        ];
+        [$appSort, $appDir] = admin_sort_state($appSortColumns, 'priority', 'DESC');
+
+        $accounts = $section === 'coc'
+            ? $pdo->query('SELECT * FROM coc ORDER BY ' . admin_order_by($accountSortColumns, $accountSort, $accountDir))->fetchAll()
+            : [];
         $orders = ($section === 'coc' && $cocTab === 'orders')
             ? $pdo->query('
                 SELECT coc_orders.*, coc.name AS coc_name, coc.username AS coc_username
                 FROM coc_orders
                 LEFT JOIN coc ON coc.id = coc_orders.coc_id
-                ORDER BY coc_orders.created_at DESC, coc_orders.id DESC
+                ORDER BY ' . admin_order_by($orderSortColumns, $orderSort, $orderDir) . ', coc_orders.id DESC
             ')->fetchAll()
             : [];
-        $apps = $section === 'apps' ? $pdo->query('SELECT * FROM app ORDER BY priority DESC, created_at DESC, id ASC')->fetchAll() : [];
+        $apps = $section === 'apps'
+            ? $pdo->query('SELECT * FROM app ORDER BY ' . admin_order_by($appSortColumns, $appSort, $appDir) . ', id ASC')->fetchAll()
+            : [];
     } catch (Throwable $e) {
         $error = $e->getMessage();
         $accounts = [];
@@ -348,7 +425,7 @@ $pageTitle = $section === 'apps' ? 'App' : 'Coc';
                                 <label class="form-label" for="avatar">Avatar URL</label>
                                 <div class="input-group">
                                     <input class="form-control" id="avatar" name="avatar" value="<?= htmlspecialchars($editing['avatar'] ?? '') ?>">
-                                    <button class="btn btn-outline-light js-upload" type="button" data-target="avatar" data-type-media="coc_images" data-mode="replace" data-accept="image/*">Upload</button>
+                                    <button class="btn btn-secondary js-upload" type="button" data-target="avatar" data-type-media="coc_images" data-mode="replace" data-accept="image/*">Upload</button>
                                 </div>
                             </div>
                         </div>
@@ -368,7 +445,7 @@ $pageTitle = $section === 'apps' ? 'App' : 'Coc';
                             <label class="form-label" for="photos">Photos URL, mỗi dòng một ảnh</label>
                             <div class="input-group">
                                 <textarea class="form-control" id="photos" name="photos" rows="4"><?= htmlspecialchars($photoText) ?></textarea>
-                                <button class="btn btn-outline-light js-upload" type="button" data-target="photos" data-type-media="coc_images" data-mode="append" data-accept="image/*">Upload</button>
+                                <button class="btn btn-secondary js-upload" type="button" data-target="photos" data-type-media="coc_images" data-mode="append" data-accept="image/*">Upload</button>
                             </div>
                         </div>
 
@@ -388,10 +465,10 @@ $pageTitle = $section === 'apps' ? 'App' : 'Coc';
                             <table class="table align-middle">
                                 <thead>
                                 <tr>
-                                    <th>ID</th>
-                                    <th>Acc</th>
+                                    <th><?= admin_sort_link('id', 'ID', $accountSort, $accountDir) ?></th>
+                                    <th><?= admin_sort_link('name', 'Acc', $accountSort, $accountDir) ?></th>
                                     <th>Town Hall</th>
-                                    <th>Giá</th>
+                                    <th><?= admin_sort_link('price', 'Giá', $accountSort, $accountDir) ?></th>
                                     <th></th>
                                 </tr>
                                 </thead>
@@ -413,12 +490,14 @@ $pageTitle = $section === 'apps' ? 'App' : 'Coc';
                                         <td><?= $th ?: 'N/A' ?></td>
                                         <td><?= coc_money($account['price']) ?></td>
                                         <td class="text-end">
+                                            <div class="d-inline-flex align-items-center justify-content-end gap-2 flex-nowrap">
                                             <a class="btn btn-sm btn-warning fw-bold" href="index.php?edit=<?= (int) $account['id'] ?>">Cập nhật</a>
-                                            <form class="d-inline" method="post" onsubmit="return confirm('Xóa acc này?')">
+                                            <form method="post" onsubmit="return confirm('Xóa acc này?')">
                                                 <input type="hidden" name="action" value="delete">
                                                 <input type="hidden" name="id" value="<?= (int) $account['id'] ?>">
                                                 <button class="btn btn-sm btn-outline-danger" type="submit">Xóa</button>
                                             </form>
+                                            </div>
                                         </td>
                                     </tr>
                                 <?php endforeach; ?>
@@ -440,14 +519,14 @@ $pageTitle = $section === 'apps' ? 'App' : 'Coc';
                     <table class="table align-middle">
                         <thead>
                         <tr>
-                            <th>ID</th>
-                            <th>Acc</th>
-                            <th>PayPal Order</th>
-                            <th>Status</th>
-                            <th>Amount</th>
-                            <th>Payer</th>
-                            <th>Created</th>
-                            <th>Paid</th>
+                            <th><?= admin_sort_link('id', 'ID', $orderSort, $orderDir) ?></th>
+                            <th><?= admin_sort_link('account', 'Acc', $orderSort, $orderDir) ?></th>
+                            <th><?= admin_sort_link('paypal_order_id', 'PayPal Order', $orderSort, $orderDir) ?></th>
+                            <th><?= admin_sort_link('status', 'Status', $orderSort, $orderDir) ?></th>
+                            <th><?= admin_sort_link('amount', 'Amount', $orderSort, $orderDir) ?></th>
+                            <th><?= admin_sort_link('payer_email', 'Payer', $orderSort, $orderDir) ?></th>
+                            <th><?= admin_sort_link('created_at', 'Created', $orderSort, $orderDir) ?></th>
+                            <th><?= admin_sort_link('paid_at', 'Paid', $orderSort, $orderDir) ?></th>
                         </tr>
                         </thead>
                         <tbody>
@@ -545,7 +624,7 @@ $pageTitle = $section === 'apps' ? 'App' : 'Coc';
                                 <?php if (in_array($field, ['icon', 'apk_file', 'exe_file', 'deb_file', 'dmg_file', 'ipa_file'], true)): ?>
                                     <div class="input-group">
                                         <input class="form-control" id="<?= $field ?>" name="<?= $field ?>" value="<?= htmlspecialchars($editing[$field] ?? '') ?>">
-                                        <button class="btn btn-outline-light js-upload" type="button" data-target="<?= $field ?>" data-type-media="carrot_app" data-mode="replace" data-accept="<?= $field === 'icon' ? 'image/*' : '' ?>">Upload</button>
+                                        <button class="btn btn-secondary js-upload" type="button" data-target="<?= $field ?>" data-type-media="carrot_app" data-mode="replace" data-accept="<?= $field === 'icon' ? 'image/*' : '' ?>">Upload</button>
                                     </div>
                                 <?php else: ?>
                                     <input class="form-control" id="<?= $field ?>" name="<?= $field ?>" value="<?= htmlspecialchars($editing[$field] ?? '') ?>">
@@ -564,11 +643,11 @@ $pageTitle = $section === 'apps' ? 'App' : 'Coc';
                             <table class="table align-middle">
                                 <thead>
                                 <tr>
-                                    <th>ID</th>
-                                    <th>App</th>
-                                    <th>Type</th>
-                                    <th>Status</th>
-                                    <th>Priority</th>
+                                    <th><?= admin_sort_link('id', 'ID', $appSort, $appDir) ?></th>
+                                    <th><?= admin_sort_link('id', 'App', $appSort, $appDir) ?></th>
+                                    <th><?= admin_sort_link('type', 'Type', $appSort, $appDir) ?></th>
+                                    <th><?= admin_sort_link('status', 'Status', $appSort, $appDir) ?></th>
+                                    <th><?= admin_sort_link('priority', 'Priority', $appSort, $appDir) ?></th>
                                     <th></th>
                                 </tr>
                                 </thead>
@@ -591,12 +670,14 @@ $pageTitle = $section === 'apps' ? 'App' : 'Coc';
                                         <td><?= htmlspecialchars($app['status']) ?></td>
                                         <td><?= (int) $app['priority'] ?></td>
                                         <td class="text-end">
+                                            <div class="d-inline-flex align-items-center justify-content-end gap-2 flex-nowrap">
                                             <a class="btn btn-sm btn-warning fw-bold" href="index.php?section=apps&edit=<?= urlencode($app['id']) ?>">Cập nhật</a>
-                                            <form class="d-inline" method="post" onsubmit="return confirm('Xóa app này?')">
+                                            <form method="post" onsubmit="return confirm('Xóa app này?')">
                                                 <input type="hidden" name="action" value="delete_app">
                                                 <input type="hidden" name="id" value="<?= htmlspecialchars($app['id']) ?>">
                                                 <button class="btn btn-sm btn-outline-danger" type="submit">Xóa</button>
                                             </form>
+                                            </div>
                                         </td>
                                     </tr>
                                 <?php endforeach; ?>
