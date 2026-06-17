@@ -215,24 +215,21 @@ function admin_ensure_page_table(PDO $pdo): void
           id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
           slug VARCHAR(180) NOT NULL,
           lang VARCHAR(12) NOT NULL DEFAULT 'vi',
-          type VARCHAR(80) NOT NULL DEFAULT 'info',
           title VARCHAR(255) NOT NULL,
-          excerpt TEXT NULL,
           content_html LONGTEXT NOT NULL,
           seo_title VARCHAR(255) NULL,
           seo_description VARCHAR(320) NULL,
           seo_keywords VARCHAR(500) NULL,
           status ENUM('public','draft','trash') NOT NULL DEFAULT 'draft',
-          show_footer TINYINT(1) NOT NULL DEFAULT 1,
           priority INT NOT NULL DEFAULT 0,
           published_at DATETIME NULL,
           created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
           updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
           PRIMARY KEY (id),
           UNIQUE KEY uq_page_slug_lang (slug, lang),
-          KEY idx_page_type_lang_status (type, lang, status),
-          KEY idx_page_footer (show_footer, status, priority),
-          FULLTEXT KEY ft_page_seo (title, excerpt, seo_title, seo_description, seo_keywords)
+          KEY idx_page_lang_status (lang, status),
+          KEY idx_page_status_priority (status, priority),
+          FULLTEXT KEY ft_page_seo (title, seo_title, seo_description, seo_keywords)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     ");
 }
@@ -437,15 +434,12 @@ if (!$pdo instanceof PDO && $section !== 'pages') {
                 $id = (int) ($_POST['id'] ?? 0);
                 $slug = trim($_POST['slug'] ?? '');
                 $lang = trim($_POST['lang'] ?? 'vi');
-                $type = trim($_POST['type'] ?? 'info');
                 $title = trim($_POST['title'] ?? '');
-                $excerpt = trim($_POST['excerpt'] ?? '');
                 $contentHtml = trim($_POST['content_html'] ?? '');
                 $seoTitle = trim($_POST['seo_title'] ?? '');
                 $seoDescription = trim($_POST['seo_description'] ?? '');
                 $seoKeywords = trim($_POST['seo_keywords'] ?? '');
                 $status = trim($_POST['status'] ?? 'draft');
-                $showFooter = isset($_POST['show_footer']) ? 1 : 0;
                 $priority = (int) ($_POST['priority'] ?? 0);
                 $publishedAt = trim($_POST['published_at'] ?? '');
 
@@ -464,12 +458,12 @@ if (!$pdo instanceof PDO && $section !== 'pages') {
                 $publishedAt = $publishedAt !== '' ? str_replace('T', ' ', $publishedAt) . (strlen($publishedAt) === 16 ? ':00' : '') : null;
 
                 if ($id > 0) {
-                    $stmt = $homePdo->prepare('UPDATE page SET slug = ?, lang = ?, type = ?, title = ?, excerpt = ?, content_html = ?, seo_title = ?, seo_description = ?, seo_keywords = ?, status = ?, show_footer = ?, priority = ?, published_at = ? WHERE id = ?');
-                    $stmt->execute([$slug, $lang, $type, $title, $excerpt, $contentHtml, $seoTitle, $seoDescription, $seoKeywords, $status, $showFooter, $priority, $publishedAt, $id]);
+                    $stmt = $homePdo->prepare('UPDATE page SET slug = ?, lang = ?, title = ?, content_html = ?, seo_title = ?, seo_description = ?, seo_keywords = ?, status = ?, priority = ?, published_at = ? WHERE id = ?');
+                    $stmt->execute([$slug, $lang, $title, $contentHtml, $seoTitle, $seoDescription, $seoKeywords, $status, $priority, $publishedAt, $id]);
                     $message = 'Đã cập nhật page.';
                 } else {
-                    $stmt = $homePdo->prepare('INSERT INTO page (slug, lang, type, title, excerpt, content_html, seo_title, seo_description, seo_keywords, status, show_footer, priority, published_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
-                    $stmt->execute([$slug, $lang, $type, $title, $excerpt, $contentHtml, $seoTitle, $seoDescription, $seoKeywords, $status, $showFooter, $priority, $publishedAt]);
+                    $stmt = $homePdo->prepare('INSERT INTO page (slug, lang, title, content_html, seo_title, seo_description, seo_keywords, status, priority, published_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
+                    $stmt->execute([$slug, $lang, $title, $contentHtml, $seoTitle, $seoDescription, $seoKeywords, $status, $priority, $publishedAt]);
                     $message = 'Đã thêm page mới.';
                 }
             }
@@ -556,7 +550,6 @@ if (!$pdo instanceof PDO && $section !== 'pages') {
             'id' => 'id',
             'title' => 'title',
             'slug' => 'slug',
-            'type' => 'type',
             'lang' => 'lang',
             'status' => 'status',
             'priority' => 'priority',
@@ -619,10 +612,15 @@ $pageTitle = ['apps' => 'App', 'pages' => 'Page', 'bank' => 'Bank', 'coc' => 'Co
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="/CarrotCoc/assets/css/style.css" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
-    <?php if ($section === 'pages'): ?>
-    <script src="https://cdn.tiny.cloud/1/no-api-key/tinymce/7/tinymce.min.js" referrerpolicy="origin"></script>
-    <?php endif; ?>
     <script src="https://unpkg.com/lucide@latest"></script>
+    <?php if ($section === 'pages'): ?>
+    <style>
+        .simple-editor-toolbar{display:flex;flex-wrap:wrap;gap:.35rem;padding:.5rem;border:1px solid rgba(0,0,0,.15);border-bottom:0;border-radius:.375rem .375rem 0 0;background:rgba(255,255,255,.7)}
+        .simple-editor-toolbar button{min-width:36px}
+        .simple-editor-canvas{min-height:360px;padding:1rem;border:1px solid rgba(0,0,0,.15);border-radius:0 0 .375rem .375rem;background:#fff;color:#111;line-height:1.65;outline:0}
+        .simple-editor-canvas:focus{box-shadow:0 0 0 .25rem rgba(25,135,84,.25)}
+    </style>
+    <?php endif; ?>
 </head>
 <body>
 <div class="container-fluid">
@@ -995,30 +993,25 @@ $pageTitle = ['apps' => 'App', 'pages' => 'Page', 'bank' => 'Bank', 'coc' => 'Co
                         </div>
 
                         <div class="row g-3 mt-0">
-                            <div class="col-md-7">
+                            <div class="col-md-12">
                                 <label class="form-label" for="page_slug">Slug</label>
                                 <input class="form-control" id="page_slug" name="slug" pattern="[a-z0-9]+(-[a-z0-9]+)*" value="<?= htmlspecialchars($editing['slug'] ?? '') ?>" required>
-                            </div>
-                            <div class="col-md-5">
-                                <label class="form-label" for="page_type">Type</label>
-                                <input class="form-control" id="page_type" name="type" value="<?= htmlspecialchars($editing['type'] ?? 'info') ?>" list="page_type_list" required>
-                                <datalist id="page_type_list">
-                                    <option value="info">
-                                    <option value="legal">
-                                    <option value="support">
-                                    <option value="footer">
-                                </datalist>
                             </div>
                         </div>
 
                         <div class="mb-3 mt-3">
-                            <label class="form-label" for="page_excerpt">Excerpt</label>
-                            <textarea class="form-control" id="page_excerpt" name="excerpt" rows="3"><?= htmlspecialchars($editing['excerpt'] ?? '') ?></textarea>
-                        </div>
-
-                        <div class="mb-3">
                             <label class="form-label" for="page_content_html">HTML content</label>
-                            <textarea class="form-control font-monospace" id="page_content_html" name="content_html" rows="14" required><?= htmlspecialchars($editing['content_html'] ?? '') ?></textarea>
+                            <div class="simple-editor-toolbar" aria-label="Editor toolbar">
+                                <button class="btn btn-sm btn-light" type="button" data-editor-command="bold"><strong>B</strong></button>
+                                <button class="btn btn-sm btn-light" type="button" data-editor-command="italic"><em>I</em></button>
+                                <button class="btn btn-sm btn-light" type="button" data-editor-command="formatBlock" data-editor-value="h2">H2</button>
+                                <button class="btn btn-sm btn-light" type="button" data-editor-command="formatBlock" data-editor-value="p">P</button>
+                                <button class="btn btn-sm btn-light" type="button" data-editor-command="insertUnorderedList">List</button>
+                                <button class="btn btn-sm btn-light" type="button" data-editor-command="createLink">Link</button>
+                                <button class="btn btn-sm btn-light" type="button" data-editor-command="removeFormat">Clear</button>
+                            </div>
+                            <div class="simple-editor-canvas" id="page_content_editor" contenteditable="true"><?= $editing['content_html'] ?? '<p></p>' ?></div>
+                            <textarea class="form-control font-monospace d-none" id="page_content_html" name="content_html" required><?= htmlspecialchars($editing['content_html'] ?? '') ?></textarea>
                         </div>
 
                         <div class="mb-3">
@@ -1055,11 +1048,6 @@ $pageTitle = ['apps' => 'App', 'pages' => 'Page', 'bank' => 'Bank', 'coc' => 'Co
                             </div>
                         </div>
 
-                        <div class="form-check form-switch my-3">
-                            <input class="form-check-input" id="show_footer" name="show_footer" type="checkbox" value="1" <?= (int) ($editing['show_footer'] ?? 1) === 1 ? 'checked' : '' ?>>
-                            <label class="form-check-label" for="show_footer">Hiển thị ở footer theo type</label>
-                        </div>
-
                         <button class="btn <?= $editing ? 'btn-warning' : 'btn-success' ?> fw-bold w-100" type="submit"><?= $editing ? 'Lưu cập nhật' : 'Thêm page' ?></button>
                     </form>
                 </div>
@@ -1073,7 +1061,6 @@ $pageTitle = ['apps' => 'App', 'pages' => 'Page', 'bank' => 'Bank', 'coc' => 'Co
                                 <tr>
                                     <th><?= admin_sort_link('id', 'ID', $pageSort, $pageDir) ?></th>
                                     <th><?= admin_sort_link('title', 'Page', $pageSort, $pageDir) ?></th>
-                                    <th><?= admin_sort_link('type', 'Type', $pageSort, $pageDir) ?></th>
                                     <th><?= admin_sort_link('lang', 'Lang', $pageSort, $pageDir) ?></th>
                                     <th><?= admin_sort_link('status', 'Status', $pageSort, $pageDir) ?></th>
                                     <th><?= admin_sort_link('priority', 'Priority', $pageSort, $pageDir) ?></th>
@@ -1088,17 +1075,15 @@ $pageTitle = ['apps' => 'App', 'pages' => 'Page', 'bank' => 'Bank', 'coc' => 'Co
                                             <strong><?= htmlspecialchars($page['title']) ?></strong>
                                             <div class="muted-text small">
                                                 <?= htmlspecialchars($page['slug']) ?>
-                                                <?php if ((int) ($page['show_footer'] ?? 0) === 1): ?> · footer<?php endif; ?>
                                             </div>
                                         </td>
-                                        <td><?= htmlspecialchars($page['type']) ?></td>
                                         <td><?= htmlspecialchars($page['lang']) ?></td>
                                         <td><?= htmlspecialchars($page['status']) ?></td>
                                         <td><?= (int) $page['priority'] ?></td>
                                         <td class="text-end">
                                             <div class="d-inline-flex align-items-center justify-content-end gap-2 flex-nowrap">
                                                 <?php if (($page['status'] ?? '') === 'public'): ?>
-                                                    <a class="btn btn-sm btn-secondary" href="/page.php?slug=<?= urlencode($page['slug']) ?>&lang=<?= urlencode($page['lang']) ?>" target="_blank" rel="noopener noreferrer" title="Xem page" aria-label="Xem page">
+                                                    <a class="btn btn-sm btn-secondary" href="/index.php?page=<?= urlencode($page['slug']) ?>&lang=<?= urlencode($page['lang']) ?>" target="_blank" rel="noopener noreferrer" title="Xem page" aria-label="Xem page">
                                                         <i data-lucide="external-link" style="width:16px;height:16px"></i>
                                                     </a>
                                                 <?php endif; ?>
@@ -1117,7 +1102,7 @@ $pageTitle = ['apps' => 'App', 'pages' => 'Page', 'bank' => 'Bank', 'coc' => 'Co
                                     </tr>
                                 <?php endforeach; ?>
                                 <?php if (!$pages): ?>
-                                    <tr><td colspan="7" class="text-center muted-text py-4">Chưa có dữ liệu.</td></tr>
+                                    <tr><td colspan="6" class="text-center muted-text py-4">Chưa có dữ liệu.</td></tr>
                                 <?php endif; ?>
                                 </tbody>
                             </table>
@@ -1324,17 +1309,35 @@ document.querySelectorAll('.js-upload').forEach((button) => {
     });
 });
 
-if (window.tinymce && document.getElementById('page_content_html')) {
-    tinymce.init({
-        selector: '#page_content_html',
-        height: 520,
-        menubar: false,
-        plugins: 'autolink lists link image table code fullscreen preview',
-        toolbar: 'undo redo | blocks | bold italic link | alignleft aligncenter alignright | bullist numlist | image table | code preview fullscreen',
-        entity_encoding: 'raw',
-        promotion: false,
-        branding: false,
+const pageEditor = document.getElementById('page_content_editor');
+const pageEditorSource = document.getElementById('page_content_html');
+if (pageEditor && pageEditorSource) {
+    document.querySelectorAll('[data-editor-command]').forEach((button) => {
+        button.addEventListener('click', () => {
+            const command = button.dataset.editorCommand;
+            let value = button.dataset.editorValue || null;
+
+            if (command === 'createLink') {
+                value = window.prompt('URL');
+                if (!value) return;
+            }
+
+            pageEditor.focus();
+            document.execCommand(command, false, value);
+            pageEditorSource.value = pageEditor.innerHTML.trim();
+        });
     });
+
+    pageEditor.addEventListener('input', () => {
+        pageEditorSource.value = pageEditor.innerHTML.trim();
+    });
+
+    const pageForm = pageEditor.closest('form');
+    if (pageForm) {
+        pageForm.addEventListener('submit', () => {
+            pageEditorSource.value = pageEditor.innerHTML.trim();
+        });
+    }
 }
 
 if (window.lucide) {
