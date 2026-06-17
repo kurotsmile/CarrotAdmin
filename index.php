@@ -371,7 +371,6 @@ if (!$pdo instanceof PDO) {
 
             if ($section === 'bank' && $action === 'save_bank') {
                 $originalId = (int) ($_POST['original_id'] ?? 0);
-                $id = (int) ($_POST['id'] ?? 0);
                 $name = trim($_POST['name'] ?? '');
                 $avatar = trim($_POST['avatar'] ?? '');
                 $banner = trim($_POST['banner'] ?? '');
@@ -379,17 +378,17 @@ if (!$pdo instanceof PDO) {
                 $accountName = trim($_POST['account_name'] ?? '');
                 $accountNumber = trim($_POST['account_number'] ?? '');
 
-                if ($id <= 0 || $name === '' || $avatar === '' || $banner === '' || $qr === '' || $accountName === '' || $accountNumber === '') {
+                if ($name === '' || $avatar === '' || $banner === '' || $qr === '' || $accountName === '' || $accountNumber === '') {
                     throw new RuntimeException('Vui lòng nhập đủ thông tin bank.');
                 }
 
                 if ($originalId > 0) {
-                    $stmt = $pdo->prepare('UPDATE bank SET id = ?, name = ?, avatar = ?, banner = ?, qr = ?, account_name = ?, account_number = ? WHERE id = ?');
-                    $stmt->execute([$id, $name, $avatar, $banner, $qr, $accountName, $accountNumber, $originalId]);
+                    $stmt = $pdo->prepare('UPDATE bank SET name = ?, avatar = ?, banner = ?, qr = ?, account_name = ?, account_number = ? WHERE id = ?');
+                    $stmt->execute([$name, $avatar, $banner, $qr, $accountName, $accountNumber, $originalId]);
                     $message = 'Đã cập nhật bank.';
                 } else {
-                    $stmt = $pdo->prepare('INSERT INTO bank (id, name, avatar, banner, qr, account_name, account_number) VALUES (?, ?, ?, ?, ?, ?, ?)');
-                    $stmt->execute([$id, $name, $avatar, $banner, $qr, $accountName, $accountNumber]);
+                    $stmt = $pdo->prepare('INSERT INTO bank (name, avatar, banner, qr, account_name, account_number) VALUES (?, ?, ?, ?, ?, ?)');
+                    $stmt->execute([$name, $avatar, $banner, $qr, $accountName, $accountNumber]);
                     $message = 'Đã thêm bank mới.';
                 }
             }
@@ -500,8 +499,8 @@ $pageTitle = ['apps' => 'App', 'bank' => 'Bank', 'coc' => 'Coc'][$section] ?? 'C
             </div>
             <div class="list-group">
                 <a class="list-group-item list-group-item-action <?= $section === 'apps' ? 'active' : '' ?>" href="index.php?section=apps">App</a>
-                <a class="list-group-item list-group-item-action <?= $section === 'bank' ? 'active' : '' ?>" href="index.php?section=bank">Bank</a>
                 <a class="list-group-item list-group-item-action <?= $section === 'coc' ? 'active' : '' ?>" href="index.php">Coc</a>
+                <a class="list-group-item list-group-item-action <?= $section === 'bank' ? 'active' : '' ?>" href="index.php?section=bank">Bank</a>
             </div>
         </aside>
 
@@ -849,15 +848,9 @@ $pageTitle = ['apps' => 'App', 'bank' => 'Bank', 'coc' => 'Coc'][$section] ?? 'C
                         <input type="hidden" name="original_id" value="<?= (int) ($editing['id'] ?? 0) ?>">
                         <h2 class="h5 mb-3"><?= $editing ? 'Cập nhật bank' : 'Thêm bank mới' ?></h2>
 
-                        <div class="row g-3">
-                            <div class="col-md-4">
-                                <label class="form-label" for="bank_id">ID</label>
-                                <input class="form-control" id="bank_id" name="id" type="number" min="1" max="99" step="1" value="<?= htmlspecialchars((string) ($editing['id'] ?? '')) ?>" required>
-                            </div>
-                            <div class="col-md-8">
-                                <label class="form-label" for="bank_name">Name</label>
-                                <input class="form-control" id="bank_name" name="name" maxlength="50" value="<?= htmlspecialchars($editing['name'] ?? '') ?>" required>
-                            </div>
+                        <div class="mb-3">
+                            <label class="form-label" for="bank_name">Name</label>
+                            <input class="form-control" id="bank_name" name="name" maxlength="50" value="<?= htmlspecialchars($editing['name'] ?? '') ?>" required>
                         </div>
 
                         <div class="mb-3 mt-3">
