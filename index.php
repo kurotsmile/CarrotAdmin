@@ -71,7 +71,7 @@ require __DIR__ . '/../CarrotCoc/includes/coc_helpers.php';
 
 $message = '';
 $error = '';
-$allowedSections = ['apps', 'bank', 'coc'];
+$allowedSections = ['apps', 'pages', 'bank', 'coc'];
 $section = in_array($_GET['section'] ?? 'coc', $allowedSections, true) ? ($_GET['section'] ?? 'coc') : 'coc';
 $editKey = trim($_GET['edit'] ?? '');
 $editId = isset($_GET['edit']) ? (int) $_GET['edit'] : 0;
@@ -79,6 +79,7 @@ $cocTab = ($_GET['tab'] ?? 'accounts') === 'orders' ? 'orders' : 'accounts';
 $editing = null;
 $accounts = [];
 $apps = [];
+$pages = [];
 $banks = [];
 $orders = [];
 $accountSort = 'id';
@@ -87,6 +88,8 @@ $orderSort = 'created_at';
 $orderDir = 'DESC';
 $appSort = 'priority';
 $appDir = 'DESC';
+$pageSort = 'priority';
+$pageDir = 'DESC';
 $bankSort = 'id';
 $bankDir = 'DESC';
 
@@ -188,6 +191,60 @@ function admin_fetch_bank(PDO $pdo, int $id): ?array
     return $row ?: null;
 }
 
+function admin_home_pdo(): ?PDO
+{
+    $homePdo = null;
+    $homeError = null;
+    (static function () use (&$homePdo, &$homeError): void {
+        require __DIR__ . '/../CarrotHome/config/database.php';
+        $homePdo = $pdo ?? null;
+        $homeError = $db_error ?? null;
+    })();
+
+    if (!$homePdo instanceof PDO) {
+        throw new RuntimeException('Không thể kết nối CarrotHome database: ' . ($homeError ?: 'unknown error'));
+    }
+
+    return $homePdo;
+}
+
+function admin_ensure_page_table(PDO $pdo): void
+{
+    $pdo->exec("
+        CREATE TABLE IF NOT EXISTS page (
+          id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+          slug VARCHAR(180) NOT NULL,
+          lang VARCHAR(12) NOT NULL DEFAULT 'vi',
+          type VARCHAR(80) NOT NULL DEFAULT 'info',
+          title VARCHAR(255) NOT NULL,
+          excerpt TEXT NULL,
+          content_html LONGTEXT NOT NULL,
+          seo_title VARCHAR(255) NULL,
+          seo_description VARCHAR(320) NULL,
+          seo_keywords VARCHAR(500) NULL,
+          status ENUM('public','draft','trash') NOT NULL DEFAULT 'draft',
+          show_footer TINYINT(1) NOT NULL DEFAULT 1,
+          priority INT NOT NULL DEFAULT 0,
+          published_at DATETIME NULL,
+          created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+          PRIMARY KEY (id),
+          UNIQUE KEY uq_page_slug_lang (slug, lang),
+          KEY idx_page_type_lang_status (type, lang, status),
+          KEY idx_page_footer (show_footer, status, priority),
+          FULLTEXT KEY ft_page_seo (title, excerpt, seo_title, seo_description, seo_keywords)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    ");
+}
+
+function admin_fetch_page(PDO $pdo, int $id): ?array
+{
+    $stmt = $pdo->prepare('SELECT * FROM page WHERE id = ?');
+    $stmt->execute([$id]);
+    $row = $stmt->fetch();
+    return $row ?: null;
+}
+
 function admin_excerpt(?string $text, int $limit = 70): string
 {
     $text = trim((string) $text);
@@ -271,12 +328,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'ajax_
     admin_ajax_upload();
 }
 
-if (!$pdo instanceof PDO) {
+if (!$pdo instanceof PDO && $section !== 'pages') {
     $error = 'Không thể kết nối database: ' . ($db_error ?? 'unknown error');
 } else {
     try {
-        $pdo->exec(file_get_contents(__DIR__ . '/../CarrotCoc/sql/schema.sql'));
-        admin_ensure_app_table($pdo);
+        if ($pdo instanceof PDO) {
+            $pdo->exec(file_get_contents(__DIR__ . '/../CarrotCoc/sql/schema.sql'));
+            admin_ensure_app_table($pdo);
+        }
+        $homePdo = null;
+        if ($section === 'pages') {
+            $homePdo = admin_home_pdo();
+            admin_ensure_page_table($homePdo);
+        }
 
         if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $action = $_POST['action'] ?? '';
@@ -363,6 +427,53 @@ if (!$pdo instanceof PDO) {
                 }
             }
 
+            if ($section === 'pages' && $action === 'delete_page') {
+                $stmt = $homePdo->prepare('DELETE FROM page WHERE id = ?');
+                $stmt->execute([(int) ($_POST['id'] ?? 0)]);
+                $message = 'Đã xóa page.';
+            }
+
+            if ($section === 'pages' && $action === 'save_page') {
+                $id = (int) ($_POST['id'] ?? 0);
+                $slug = trim($_POST['slug'] ?? '');
+                $lang = trim($_POST['lang'] ?? 'vi');
+                $type = trim($_POST['type'] ?? 'info');
+                $title = trim($_POST['title'] ?? '');
+                $excerpt = trim($_POST['excerpt'] ?? '');
+                $contentHtml = trim($_POST['content_html'] ?? '');
+                $seoTitle = trim($_POST['seo_title'] ?? '');
+                $seoDescription = trim($_POST['seo_description'] ?? '');
+                $seoKeywords = trim($_POST['seo_keywords'] ?? '');
+                $status = trim($_POST['status'] ?? 'draft');
+                $showFooter = isset($_POST['show_footer']) ? 1 : 0;
+                $priority = (int) ($_POST['priority'] ?? 0);
+                $publishedAt = trim($_POST['published_at'] ?? '');
+
+                if ($slug === '' || $title === '' || $contentHtml === '') {
+                    throw new RuntimeException('Vui lòng nhập slug, title và nội dung HTML.');
+                }
+
+                if (!preg_match('/^[a-z0-9]+(?:-[a-z0-9]+)*$/', $slug)) {
+                    throw new RuntimeException('Slug chỉ dùng chữ thường, số và dấu gạch ngang.');
+                }
+
+                if (!in_array($status, ['public', 'draft', 'trash'], true)) {
+                    throw new RuntimeException('Status page không hợp lệ.');
+                }
+
+                $publishedAt = $publishedAt !== '' ? str_replace('T', ' ', $publishedAt) . (strlen($publishedAt) === 16 ? ':00' : '') : null;
+
+                if ($id > 0) {
+                    $stmt = $homePdo->prepare('UPDATE page SET slug = ?, lang = ?, type = ?, title = ?, excerpt = ?, content_html = ?, seo_title = ?, seo_description = ?, seo_keywords = ?, status = ?, show_footer = ?, priority = ?, published_at = ? WHERE id = ?');
+                    $stmt->execute([$slug, $lang, $type, $title, $excerpt, $contentHtml, $seoTitle, $seoDescription, $seoKeywords, $status, $showFooter, $priority, $publishedAt, $id]);
+                    $message = 'Đã cập nhật page.';
+                } else {
+                    $stmt = $homePdo->prepare('INSERT INTO page (slug, lang, type, title, excerpt, content_html, seo_title, seo_description, seo_keywords, status, show_footer, priority, published_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
+                    $stmt->execute([$slug, $lang, $type, $title, $excerpt, $contentHtml, $seoTitle, $seoDescription, $seoKeywords, $status, $showFooter, $priority, $publishedAt]);
+                    $message = 'Đã thêm page mới.';
+                }
+            }
+
             if ($section === 'bank' && $action === 'delete_bank') {
                 $stmt = $pdo->prepare('DELETE FROM bank WHERE id = ?');
                 $stmt->execute([(int) ($_POST['id'] ?? 0)]);
@@ -402,6 +513,10 @@ if (!$pdo instanceof PDO) {
             $editing = admin_fetch_app($pdo, $editKey);
         }
 
+        if ($section === 'pages' && $editId > 0) {
+            $editing = admin_fetch_page($homePdo, $editId);
+        }
+
         if ($section === 'bank' && $editId > 0) {
             $editing = admin_fetch_bank($pdo, $editId);
         }
@@ -437,6 +552,18 @@ if (!$pdo instanceof PDO) {
         ];
         [$appSort, $appDir] = admin_sort_state($appSortColumns, 'priority', 'DESC');
 
+        $pageSortColumns = [
+            'id' => 'id',
+            'title' => 'title',
+            'slug' => 'slug',
+            'type' => 'type',
+            'lang' => 'lang',
+            'status' => 'status',
+            'priority' => 'priority',
+            'updated_at' => 'updated_at',
+        ];
+        [$pageSort, $pageDir] = admin_sort_state($pageSortColumns, 'priority', 'DESC');
+
         $bankSortColumns = [
             'id' => 'id',
             'name' => 'name',
@@ -459,6 +586,9 @@ if (!$pdo instanceof PDO) {
         $apps = $section === 'apps'
             ? $pdo->query('SELECT * FROM app ORDER BY ' . admin_order_by($appSortColumns, $appSort, $appDir) . ', id ASC')->fetchAll()
             : [];
+        $pages = $section === 'pages'
+            ? $homePdo->query('SELECT * FROM page ORDER BY ' . admin_order_by($pageSortColumns, $pageSort, $pageDir) . ', id DESC')->fetchAll()
+            : [];
         $banks = $section === 'bank'
             ? $pdo->query('SELECT * FROM bank ORDER BY ' . admin_order_by($bankSortColumns, $bankSort, $bankDir))->fetchAll()
             : [];
@@ -466,13 +596,14 @@ if (!$pdo instanceof PDO) {
         $error = $e->getMessage();
         $accounts = [];
         $apps = [];
+        $pages = [];
         $banks = [];
         $orders = [];
     }
 }
 
 $photoText = ($section === 'coc' && $editing) ? implode("\n", coc_decode_photos($editing['photos'])) : '';
-$pageTitle = ['apps' => 'App', 'bank' => 'Bank', 'coc' => 'Coc'][$section] ?? 'Coc';
+$pageTitle = ['apps' => 'App', 'pages' => 'Page', 'bank' => 'Bank', 'coc' => 'Coc'][$section] ?? 'Coc';
 ?>
 <!doctype html>
 <html lang="vi">
@@ -488,6 +619,9 @@ $pageTitle = ['apps' => 'App', 'bank' => 'Bank', 'coc' => 'Coc'][$section] ?? 'C
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="/CarrotCoc/assets/css/style.css" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+    <?php if ($section === 'pages'): ?>
+    <script src="https://cdn.tiny.cloud/1/no-api-key/tinymce/7/tinymce.min.js" referrerpolicy="origin"></script>
+    <?php endif; ?>
     <script src="https://unpkg.com/lucide@latest"></script>
 </head>
 <body>
@@ -499,6 +633,7 @@ $pageTitle = ['apps' => 'App', 'bank' => 'Bank', 'coc' => 'Coc'][$section] ?? 'C
             </div>
             <div class="list-group">
                 <a class="list-group-item list-group-item-action <?= $section === 'apps' ? 'active' : '' ?>" href="index.php?section=apps">App</a>
+                <a class="list-group-item list-group-item-action <?= $section === 'pages' ? 'active' : '' ?>" href="index.php?section=pages">Page</a>
                 <a class="list-group-item list-group-item-action <?= $section === 'coc' ? 'active' : '' ?>" href="index.php">Coc</a>
                 <a class="list-group-item list-group-item-action <?= $section === 'bank' ? 'active' : '' ?>" href="index.php?section=bank">Bank</a>
             </div>
@@ -508,15 +643,15 @@ $pageTitle = ['apps' => 'App', 'bank' => 'Bank', 'coc' => 'Coc'][$section] ?? 'C
             <div class="admin-shell p-4 mb-4">
                 <div class="d-flex flex-wrap justify-content-between align-items-center gap-3">
                     <div>
-                        <p class="muted-text text-uppercase fw-bold mb-1">Quản lý <?= ['apps' => 'ứng dụng', 'bank' => 'ngân hàng', 'coc' => 'shop'][$section] ?? 'shop' ?></p>
-                        <h1 class="h3 mb-0"><?= ['apps' => 'App Carrot Home', 'bank' => 'Bank', 'coc' => 'Acc Clash of Clans'][$section] ?? 'Acc Clash of Clans' ?></h1>
+                        <p class="muted-text text-uppercase fw-bold mb-1">Quản lý <?= ['apps' => 'ứng dụng', 'pages' => 'page footer/SEO', 'bank' => 'ngân hàng', 'coc' => 'shop'][$section] ?? 'shop' ?></p>
+                        <h1 class="h3 mb-0"><?= ['apps' => 'App Carrot Home', 'pages' => 'Page Carrot Home', 'bank' => 'Bank', 'coc' => 'Acc Clash of Clans'][$section] ?? 'Acc Clash of Clans' ?></h1>
                     </div>
                     <div class="d-flex flex-wrap gap-2">
                         <?php if ($section === 'coc'): ?>
                             <a class="btn btn-secondary fw-bold" href="https://coc.carrot28.com/" target="_blank" rel="noopener noreferrer">Xem shop</a>
                         <?php endif; ?>
                         <?php if ($editing): ?>
-                            <a class="btn btn-success fw-bold" href="index.php<?= $section === 'apps' ? '?section=apps' : ($section === 'bank' ? '?section=bank' : '') ?>">Thêm mới</a>
+                            <a class="btn btn-success fw-bold" href="index.php<?= $section === 'apps' ? '?section=apps' : ($section === 'pages' ? '?section=pages' : ($section === 'bank' ? '?section=bank' : '')) ?>">Thêm mới</a>
                         <?php endif; ?>
                         <a class="btn btn-danger fw-bold" href="index.php?logout=1" title="Đăng xuất">
                             <span class="d-inline-flex align-items-center gap-2"><i data-lucide="log-out" style="width:16px;height:16px"></i><?= htmlspecialchars($_SESSION['admin_user']) ?></span>
@@ -840,6 +975,158 @@ $pageTitle = ['apps' => 'App', 'bank' => 'Bank', 'coc' => 'Coc'][$section] ?? 'C
             </div>
             <?php endif; ?>
 
+            <?php if ($section === 'pages'): ?>
+            <div class="row g-4">
+                <div class="col-xl-5">
+                    <form class="glass-panel p-4" method="post">
+                        <input type="hidden" name="action" value="save_page">
+                        <input type="hidden" name="id" value="<?= (int) ($editing['id'] ?? 0) ?>">
+                        <h2 class="h5 mb-3"><?= $editing ? 'Cập nhật page' : 'Thêm page mới' ?></h2>
+
+                        <div class="row g-3">
+                            <div class="col-md-8">
+                                <label class="form-label" for="page_title">Title</label>
+                                <input class="form-control" id="page_title" name="title" value="<?= htmlspecialchars($editing['title'] ?? '') ?>" required>
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label" for="page_lang">Lang key</label>
+                                <input class="form-control" id="page_lang" name="lang" maxlength="12" value="<?= htmlspecialchars($editing['lang'] ?? 'vi') ?>" required>
+                            </div>
+                        </div>
+
+                        <div class="row g-3 mt-0">
+                            <div class="col-md-7">
+                                <label class="form-label" for="page_slug">Slug</label>
+                                <input class="form-control" id="page_slug" name="slug" pattern="[a-z0-9]+(-[a-z0-9]+)*" value="<?= htmlspecialchars($editing['slug'] ?? '') ?>" required>
+                            </div>
+                            <div class="col-md-5">
+                                <label class="form-label" for="page_type">Type</label>
+                                <input class="form-control" id="page_type" name="type" value="<?= htmlspecialchars($editing['type'] ?? 'info') ?>" list="page_type_list" required>
+                                <datalist id="page_type_list">
+                                    <option value="info">
+                                    <option value="legal">
+                                    <option value="support">
+                                    <option value="footer">
+                                </datalist>
+                            </div>
+                        </div>
+
+                        <div class="mb-3 mt-3">
+                            <label class="form-label" for="page_excerpt">Excerpt</label>
+                            <textarea class="form-control" id="page_excerpt" name="excerpt" rows="3"><?= htmlspecialchars($editing['excerpt'] ?? '') ?></textarea>
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label" for="page_content_html">HTML content</label>
+                            <textarea class="form-control font-monospace" id="page_content_html" name="content_html" rows="14" required><?= htmlspecialchars($editing['content_html'] ?? '') ?></textarea>
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label" for="seo_title">SEO title</label>
+                            <input class="form-control" id="seo_title" name="seo_title" maxlength="255" value="<?= htmlspecialchars($editing['seo_title'] ?? '') ?>">
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label" for="seo_description">SEO description</label>
+                            <textarea class="form-control" id="seo_description" name="seo_description" maxlength="320" rows="2"><?= htmlspecialchars($editing['seo_description'] ?? '') ?></textarea>
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label" for="seo_keywords">SEO keywords</label>
+                            <input class="form-control" id="seo_keywords" name="seo_keywords" maxlength="500" value="<?= htmlspecialchars($editing['seo_keywords'] ?? '') ?>">
+                        </div>
+
+                        <div class="row g-3">
+                            <div class="col-md-4">
+                                <label class="form-label" for="page_status">Status</label>
+                                <select class="form-control" id="page_status" name="status">
+                                    <?php foreach (['draft', 'public', 'trash'] as $statusOption): ?>
+                                        <option value="<?= $statusOption ?>" <?= ($editing['status'] ?? 'draft') === $statusOption ? 'selected' : '' ?>><?= ucfirst($statusOption) ?></option>
+                                    <?php endforeach; ?>
+                                </select>
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label" for="page_priority">Priority</label>
+                                <input class="form-control" id="page_priority" name="priority" type="number" value="<?= htmlspecialchars((string) ($editing['priority'] ?? 0)) ?>">
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label" for="published_at">Published at</label>
+                                <input class="form-control" id="published_at" name="published_at" type="datetime-local" value="<?= !empty($editing['published_at']) ? htmlspecialchars(str_replace(' ', 'T', substr($editing['published_at'], 0, 16))) : '' ?>">
+                            </div>
+                        </div>
+
+                        <div class="form-check form-switch my-3">
+                            <input class="form-check-input" id="show_footer" name="show_footer" type="checkbox" value="1" <?= (int) ($editing['show_footer'] ?? 1) === 1 ? 'checked' : '' ?>>
+                            <label class="form-check-label" for="show_footer">Hiển thị ở footer theo type</label>
+                        </div>
+
+                        <button class="btn <?= $editing ? 'btn-warning' : 'btn-success' ?> fw-bold w-100" type="submit"><?= $editing ? 'Lưu cập nhật' : 'Thêm page' ?></button>
+                    </form>
+                </div>
+
+                <div class="col-xl-7">
+                    <div class="glass-panel p-4">
+                        <h2 class="h5 mb-3">Danh sách page</h2>
+                        <div class="table-responsive-sm">
+                            <table class="table table-striped table-hover table-sm align-middle">
+                                <thead>
+                                <tr>
+                                    <th><?= admin_sort_link('id', 'ID', $pageSort, $pageDir) ?></th>
+                                    <th><?= admin_sort_link('title', 'Page', $pageSort, $pageDir) ?></th>
+                                    <th><?= admin_sort_link('type', 'Type', $pageSort, $pageDir) ?></th>
+                                    <th><?= admin_sort_link('lang', 'Lang', $pageSort, $pageDir) ?></th>
+                                    <th><?= admin_sort_link('status', 'Status', $pageSort, $pageDir) ?></th>
+                                    <th><?= admin_sort_link('priority', 'Priority', $pageSort, $pageDir) ?></th>
+                                    <th></th>
+                                </tr>
+                                </thead>
+                                <tbody>
+                                <?php foreach ($pages as $page): ?>
+                                    <tr>
+                                        <td><?= (int) $page['id'] ?></td>
+                                        <td>
+                                            <strong><?= htmlspecialchars($page['title']) ?></strong>
+                                            <div class="muted-text small">
+                                                <?= htmlspecialchars($page['slug']) ?>
+                                                <?php if ((int) ($page['show_footer'] ?? 0) === 1): ?> · footer<?php endif; ?>
+                                            </div>
+                                        </td>
+                                        <td><?= htmlspecialchars($page['type']) ?></td>
+                                        <td><?= htmlspecialchars($page['lang']) ?></td>
+                                        <td><?= htmlspecialchars($page['status']) ?></td>
+                                        <td><?= (int) $page['priority'] ?></td>
+                                        <td class="text-end">
+                                            <div class="d-inline-flex align-items-center justify-content-end gap-2 flex-nowrap">
+                                                <?php if (($page['status'] ?? '') === 'public'): ?>
+                                                    <a class="btn btn-sm btn-secondary" href="/page.php?slug=<?= urlencode($page['slug']) ?>&lang=<?= urlencode($page['lang']) ?>" target="_blank" rel="noopener noreferrer" title="Xem page" aria-label="Xem page">
+                                                        <i data-lucide="external-link" style="width:16px;height:16px"></i>
+                                                    </a>
+                                                <?php endif; ?>
+                                                <a class="btn btn-sm btn-warning" href="index.php?section=pages&edit=<?= (int) $page['id'] ?>" title="Cập nhật" aria-label="Cập nhật">
+                                                    <i data-lucide="pencil" style="width:16px;height:16px"></i>
+                                                </a>
+                                                <form class="js-delete" method="post" data-confirm="Xóa page này?">
+                                                    <input type="hidden" name="action" value="delete_page">
+                                                    <input type="hidden" name="id" value="<?= (int) $page['id'] ?>">
+                                                    <button class="btn btn-sm btn-danger" type="submit" title="Xóa" aria-label="Xóa">
+                                                        <i data-lucide="trash-2" style="width:16px;height:16px"></i>
+                                                    </button>
+                                                </form>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                <?php endforeach; ?>
+                                <?php if (!$pages): ?>
+                                    <tr><td colspan="7" class="text-center muted-text py-4">Chưa có dữ liệu.</td></tr>
+                                <?php endif; ?>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <?php endif; ?>
+
             <?php if ($section === 'bank'): ?>
             <div class="row g-4">
                 <div class="col-xl-5">
@@ -1036,6 +1323,19 @@ document.querySelectorAll('.js-upload').forEach((button) => {
         });
     });
 });
+
+if (window.tinymce && document.getElementById('page_content_html')) {
+    tinymce.init({
+        selector: '#page_content_html',
+        height: 520,
+        menubar: false,
+        plugins: 'autolink lists link image table code fullscreen preview',
+        toolbar: 'undo redo | blocks | bold italic link | alignleft aligncenter alignright | bullist numlist | image table | code preview fullscreen',
+        entity_encoding: 'raw',
+        promotion: false,
+        branding: false,
+    });
+}
 
 if (window.lucide) {
     lucide.createIcons();
