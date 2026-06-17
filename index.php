@@ -71,13 +71,15 @@ require __DIR__ . '/../CarrotCoc/includes/coc_helpers.php';
 
 $message = '';
 $error = '';
-$section = ($_GET['section'] ?? 'coc') === 'apps' ? 'apps' : 'coc';
+$allowedSections = ['apps', 'bank', 'coc'];
+$section = in_array($_GET['section'] ?? 'coc', $allowedSections, true) ? ($_GET['section'] ?? 'coc') : 'coc';
 $editKey = trim($_GET['edit'] ?? '');
 $editId = isset($_GET['edit']) ? (int) $_GET['edit'] : 0;
 $cocTab = ($_GET['tab'] ?? 'accounts') === 'orders' ? 'orders' : 'accounts';
 $editing = null;
 $accounts = [];
 $apps = [];
+$banks = [];
 $orders = [];
 $accountSort = 'id';
 $accountDir = 'DESC';
@@ -85,6 +87,8 @@ $orderSort = 'created_at';
 $orderDir = 'DESC';
 $appSort = 'priority';
 $appDir = 'DESC';
+$bankSort = 'id';
+$bankDir = 'DESC';
 
 function admin_nas_upload_endpoint(): string
 {
@@ -150,7 +154,7 @@ function admin_ajax_upload(): void
 
     try {
         $typeMedia = trim($_POST['type_media'] ?? '');
-        if (!in_array($typeMedia, ['carrot_app', 'coc_images'], true)) {
+        if (!in_array($typeMedia, ['carrot_app', 'coc_images', 'bank'], true)) {
             throw new RuntimeException('Type media không hợp lệ.');
         }
 
@@ -171,6 +175,14 @@ function admin_ajax_upload(): void
 function admin_fetch_app(PDO $pdo, string $id): ?array
 {
     $stmt = $pdo->prepare('SELECT * FROM app WHERE id = ?');
+    $stmt->execute([$id]);
+    $row = $stmt->fetch();
+    return $row ?: null;
+}
+
+function admin_fetch_bank(PDO $pdo, int $id): ?array
+{
+    $stmt = $pdo->prepare('SELECT * FROM bank WHERE id = ?');
     $stmt->execute([$id]);
     $row = $stmt->fetch();
     return $row ?: null;
@@ -350,6 +362,37 @@ if (!$pdo instanceof PDO) {
                     $message = 'Đã thêm app mới.';
                 }
             }
+
+            if ($section === 'bank' && $action === 'delete_bank') {
+                $stmt = $pdo->prepare('DELETE FROM bank WHERE id = ?');
+                $stmt->execute([(int) ($_POST['id'] ?? 0)]);
+                $message = 'Đã xóa bank.';
+            }
+
+            if ($section === 'bank' && $action === 'save_bank') {
+                $originalId = (int) ($_POST['original_id'] ?? 0);
+                $id = (int) ($_POST['id'] ?? 0);
+                $name = trim($_POST['name'] ?? '');
+                $avatar = trim($_POST['avatar'] ?? '');
+                $banner = trim($_POST['banner'] ?? '');
+                $qr = trim($_POST['qr'] ?? '');
+                $accountName = trim($_POST['account_name'] ?? '');
+                $accountNumber = trim($_POST['account_number'] ?? '');
+
+                if ($id <= 0 || $name === '' || $avatar === '' || $banner === '' || $qr === '' || $accountName === '' || $accountNumber === '') {
+                    throw new RuntimeException('Vui lòng nhập đủ thông tin bank.');
+                }
+
+                if ($originalId > 0) {
+                    $stmt = $pdo->prepare('UPDATE bank SET id = ?, name = ?, avatar = ?, banner = ?, qr = ?, account_name = ?, account_number = ? WHERE id = ?');
+                    $stmt->execute([$id, $name, $avatar, $banner, $qr, $accountName, $accountNumber, $originalId]);
+                    $message = 'Đã cập nhật bank.';
+                } else {
+                    $stmt = $pdo->prepare('INSERT INTO bank (id, name, avatar, banner, qr, account_name, account_number) VALUES (?, ?, ?, ?, ?, ?, ?)');
+                    $stmt->execute([$id, $name, $avatar, $banner, $qr, $accountName, $accountNumber]);
+                    $message = 'Đã thêm bank mới.';
+                }
+            }
         }
 
         if ($section === 'coc' && $editId > 0) {
@@ -358,6 +401,10 @@ if (!$pdo instanceof PDO) {
 
         if ($section === 'apps' && $editKey !== '') {
             $editing = admin_fetch_app($pdo, $editKey);
+        }
+
+        if ($section === 'bank' && $editId > 0) {
+            $editing = admin_fetch_bank($pdo, $editId);
         }
 
         $accountSortColumns = [
@@ -391,6 +438,14 @@ if (!$pdo instanceof PDO) {
         ];
         [$appSort, $appDir] = admin_sort_state($appSortColumns, 'priority', 'DESC');
 
+        $bankSortColumns = [
+            'id' => 'id',
+            'name' => 'name',
+            'account_name' => 'account_name',
+            'account_number' => 'account_number',
+        ];
+        [$bankSort, $bankDir] = admin_sort_state($bankSortColumns, 'id', 'DESC');
+
         $accounts = $section === 'coc'
             ? $pdo->query('SELECT * FROM coc ORDER BY ' . admin_order_by($accountSortColumns, $accountSort, $accountDir))->fetchAll()
             : [];
@@ -405,16 +460,20 @@ if (!$pdo instanceof PDO) {
         $apps = $section === 'apps'
             ? $pdo->query('SELECT * FROM app ORDER BY ' . admin_order_by($appSortColumns, $appSort, $appDir) . ', id ASC')->fetchAll()
             : [];
+        $banks = $section === 'bank'
+            ? $pdo->query('SELECT * FROM bank ORDER BY ' . admin_order_by($bankSortColumns, $bankSort, $bankDir))->fetchAll()
+            : [];
     } catch (Throwable $e) {
         $error = $e->getMessage();
         $accounts = [];
         $apps = [];
+        $banks = [];
         $orders = [];
     }
 }
 
 $photoText = ($section === 'coc' && $editing) ? implode("\n", coc_decode_photos($editing['photos'])) : '';
-$pageTitle = $section === 'apps' ? 'App' : 'Coc';
+$pageTitle = ['apps' => 'App', 'bank' => 'Bank', 'coc' => 'Coc'][$section] ?? 'Coc';
 ?>
 <!doctype html>
 <html lang="vi">
@@ -441,6 +500,7 @@ $pageTitle = $section === 'apps' ? 'App' : 'Coc';
             </div>
             <div class="list-group">
                 <a class="list-group-item list-group-item-action <?= $section === 'apps' ? 'active' : '' ?>" href="index.php?section=apps">App</a>
+                <a class="list-group-item list-group-item-action <?= $section === 'bank' ? 'active' : '' ?>" href="index.php?section=bank">Bank</a>
                 <a class="list-group-item list-group-item-action <?= $section === 'coc' ? 'active' : '' ?>" href="index.php">Coc</a>
             </div>
         </aside>
@@ -449,15 +509,15 @@ $pageTitle = $section === 'apps' ? 'App' : 'Coc';
             <div class="admin-shell p-4 mb-4">
                 <div class="d-flex flex-wrap justify-content-between align-items-center gap-3">
                     <div>
-                        <p class="muted-text text-uppercase fw-bold mb-1">Quản lý <?= $section === 'apps' ? 'ứng dụng' : 'shop' ?></p>
-                        <h1 class="h3 mb-0"><?= $section === 'apps' ? 'App Carrot Home' : 'Acc Clash of Clans' ?></h1>
+                        <p class="muted-text text-uppercase fw-bold mb-1">Quản lý <?= ['apps' => 'ứng dụng', 'bank' => 'ngân hàng', 'coc' => 'shop'][$section] ?? 'shop' ?></p>
+                        <h1 class="h3 mb-0"><?= ['apps' => 'App Carrot Home', 'bank' => 'Bank', 'coc' => 'Acc Clash of Clans'][$section] ?? 'Acc Clash of Clans' ?></h1>
                     </div>
                     <div class="d-flex flex-wrap gap-2">
                         <?php if ($section === 'coc'): ?>
                             <a class="btn btn-secondary fw-bold" href="https://coc.carrot28.com/" target="_blank" rel="noopener noreferrer">Xem shop</a>
                         <?php endif; ?>
                         <?php if ($editing): ?>
-                            <a class="btn btn-success fw-bold" href="index.php<?= $section === 'apps' ? '?section=apps' : '' ?>">Thêm mới</a>
+                            <a class="btn btn-success fw-bold" href="index.php<?= $section === 'apps' ? '?section=apps' : ($section === 'bank' ? '?section=bank' : '') ?>">Thêm mới</a>
                         <?php endif; ?>
                         <a class="btn btn-danger fw-bold" href="index.php?logout=1" title="Đăng xuất">
                             <span class="d-inline-flex align-items-center gap-2"><i data-lucide="log-out" style="width:16px;height:16px"></i><?= htmlspecialchars($_SESSION['admin_user']) ?></span>
@@ -772,6 +832,120 @@ $pageTitle = $section === 'apps' ? 'App' : 'Coc';
                                 <?php endforeach; ?>
                                 <?php if (!$apps): ?>
                                     <tr><td colspan="6" class="text-center muted-text py-4">Chưa có dữ liệu.</td></tr>
+                                <?php endif; ?>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <?php endif; ?>
+
+            <?php if ($section === 'bank'): ?>
+            <div class="row g-4">
+                <div class="col-xl-5">
+                    <form class="glass-panel p-4" method="post">
+                        <input type="hidden" name="action" value="save_bank">
+                        <input type="hidden" name="original_id" value="<?= (int) ($editing['id'] ?? 0) ?>">
+                        <h2 class="h5 mb-3"><?= $editing ? 'Cập nhật bank' : 'Thêm bank mới' ?></h2>
+
+                        <div class="row g-3">
+                            <div class="col-md-4">
+                                <label class="form-label" for="bank_id">ID</label>
+                                <input class="form-control" id="bank_id" name="id" type="number" min="1" max="99" step="1" value="<?= htmlspecialchars((string) ($editing['id'] ?? '')) ?>" required>
+                            </div>
+                            <div class="col-md-8">
+                                <label class="form-label" for="bank_name">Name</label>
+                                <input class="form-control" id="bank_name" name="name" maxlength="50" value="<?= htmlspecialchars($editing['name'] ?? '') ?>" required>
+                            </div>
+                        </div>
+
+                        <div class="mb-3 mt-3">
+                            <label class="form-label" for="bank_avatar">Avatar URL</label>
+                            <div class="input-group">
+                                <input class="form-control" id="bank_avatar" name="avatar" value="<?= htmlspecialchars($editing['avatar'] ?? '') ?>" required>
+                                <button class="btn btn-secondary js-upload" type="button" data-target="bank_avatar" data-type-media="bank" data-mode="replace" data-accept="image/*">Upload</button>
+                            </div>
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label" for="bank_banner">Banner URL</label>
+                            <div class="input-group">
+                                <input class="form-control" id="bank_banner" name="banner" value="<?= htmlspecialchars($editing['banner'] ?? '') ?>" required>
+                                <button class="btn btn-secondary js-upload" type="button" data-target="bank_banner" data-type-media="bank" data-mode="replace" data-accept="image/*">Upload</button>
+                            </div>
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label" for="bank_qr">QR URL</label>
+                            <div class="input-group">
+                                <input class="form-control" id="bank_qr" name="qr" value="<?= htmlspecialchars($editing['qr'] ?? '') ?>" required>
+                                <button class="btn btn-secondary js-upload" type="button" data-target="bank_qr" data-type-media="bank" data-mode="replace" data-accept="image/*">Upload</button>
+                            </div>
+                        </div>
+
+                        <div class="row g-3">
+                            <div class="col-md-6">
+                                <label class="form-label" for="account_name">Account name</label>
+                                <input class="form-control" id="account_name" name="account_name" maxlength="20" value="<?= htmlspecialchars($editing['account_name'] ?? '') ?>" required>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label" for="account_number">Account number</label>
+                                <input class="form-control" id="account_number" name="account_number" maxlength="50" value="<?= htmlspecialchars($editing['account_number'] ?? '') ?>" required>
+                            </div>
+                        </div>
+
+                        <button class="btn <?= $editing ? 'btn-warning' : 'btn-success' ?> fw-bold w-100 mt-3" type="submit"><?= $editing ? 'Lưu cập nhật' : 'Thêm bank' ?></button>
+                    </form>
+                </div>
+
+                <div class="col-xl-7">
+                    <div class="glass-panel p-4">
+                        <h2 class="h5 mb-3">Danh sách bank</h2>
+                        <div class="table-responsive-sm">
+                            <table class="table table-striped table-hover table-sm align-middle">
+                                <thead>
+                                <tr>
+                                    <th><?= admin_sort_link('id', 'ID', $bankSort, $bankDir) ?></th>
+                                    <th><?= admin_sort_link('name', 'Bank', $bankSort, $bankDir) ?></th>
+                                    <th><?= admin_sort_link('account_name', 'Account name', $bankSort, $bankDir) ?></th>
+                                    <th><?= admin_sort_link('account_number', 'Account number', $bankSort, $bankDir) ?></th>
+                                    <th></th>
+                                </tr>
+                                </thead>
+                                <tbody>
+                                <?php foreach ($banks as $bank): ?>
+                                    <tr>
+                                        <td><?= (int) $bank['id'] ?></td>
+                                        <td>
+                                            <div class="d-flex align-items-center gap-3">
+                                                <img src="<?= htmlspecialchars($bank['avatar']) ?>" alt="" width="54" height="54" class="rounded-2 object-fit-cover">
+                                                <div>
+                                                    <strong><?= htmlspecialchars($bank['name']) ?></strong>
+                                                    <div class="muted-text small"><?= htmlspecialchars(admin_excerpt($bank['banner'] ?? '', 45)) ?></div>
+                                                </div>
+                                            </div>
+                                        </td>
+                                        <td><?= htmlspecialchars($bank['account_name']) ?></td>
+                                        <td class="font-monospace small"><?= htmlspecialchars($bank['account_number']) ?></td>
+                                        <td class="text-end">
+                                            <div class="d-inline-flex align-items-center justify-content-end gap-2 flex-nowrap">
+                                                <a class="btn btn-sm btn-warning" href="index.php?section=bank&edit=<?= (int) $bank['id'] ?>" title="Cập nhật" aria-label="Cập nhật">
+                                                    <i data-lucide="pencil" style="width:16px;height:16px"></i>
+                                                </a>
+                                                <form class="js-delete" method="post" data-confirm="Xóa bank này?">
+                                                    <input type="hidden" name="action" value="delete_bank">
+                                                    <input type="hidden" name="id" value="<?= (int) $bank['id'] ?>">
+                                                    <button class="btn btn-sm btn-danger" type="submit" title="Xóa" aria-label="Xóa">
+                                                        <i data-lucide="trash-2" style="width:16px;height:16px"></i>
+                                                    </button>
+                                                </form>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                <?php endforeach; ?>
+                                <?php if (!$banks): ?>
+                                    <tr><td colspan="5" class="text-center muted-text py-4">Chưa có dữ liệu.</td></tr>
                                 <?php endif; ?>
                                 </tbody>
                             </table>
