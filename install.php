@@ -1,0 +1,145 @@
+<?php
+session_start();
+require __DIR__ . '/config/account.php';
+require __DIR__ . '/includes/schema.php';
+
+$isCli = PHP_SAPI === 'cli';
+
+if (!$isCli && empty($_SESSION['admin_user'])) {
+    header('Location: index.php');
+    exit;
+}
+
+function install_carrot_home_pdo(): PDO
+{
+    $homePdo = null;
+    $homeError = null;
+    (static function () use (&$homePdo, &$homeError): void {
+        require __DIR__ . '/../CarrotHome/config/database.php';
+        $homePdo = $pdo ?? null;
+        $homeError = $db_error ?? null;
+    })();
+
+    if (!$homePdo instanceof PDO) {
+        throw new RuntimeException('Không thể kết nối CarrotHome database: ' . ($homeError ?: 'unknown error'));
+    }
+
+    return $homePdo;
+}
+
+function install_run_step(string $name, callable $callback): array
+{
+    try {
+        $callback();
+        return ['name' => $name, 'status' => 'success', 'message' => 'OK'];
+    } catch (Throwable $e) {
+        return ['name' => $name, 'status' => 'error', 'message' => $e->getMessage()];
+    }
+}
+
+require __DIR__ . '/../CarrotCoc/config/database.php';
+$cocPdo = $pdo ?? null;
+$cocError = $db_error ?? null;
+
+$results = [];
+$results[] = install_run_step('CarrotCoc schema.sql', static function () use ($cocPdo, $cocError): void {
+    if (!$cocPdo instanceof PDO) {
+        throw new RuntimeException($cocError ?? 'Không thể kết nối CarrotCoc database.');
+    }
+
+    $schemaFile = __DIR__ . '/../CarrotCoc/sql/schema.sql';
+    if (!is_file($schemaFile)) {
+        throw new RuntimeException('Không tìm thấy file schema: ' . $schemaFile);
+    }
+
+    $cocPdo->exec(file_get_contents($schemaFile));
+});
+
+$results[] = install_run_step('CarrotCoc app table', static function () use ($cocPdo, $cocError): void {
+    if (!$cocPdo instanceof PDO) {
+        throw new RuntimeException($cocError ?? 'Không thể kết nối CarrotCoc database.');
+    }
+
+    admin_ensure_app_table($cocPdo);
+});
+
+$results[] = install_run_step('CarrotCoc country table', static function () use ($cocPdo, $cocError): void {
+    if (!$cocPdo instanceof PDO) {
+        throw new RuntimeException($cocError ?? 'Không thể kết nối CarrotCoc database.');
+    }
+
+    admin_ensure_country_table($cocPdo);
+});
+
+$results[] = install_run_step('CarrotHome page table', static function (): void {
+    admin_ensure_page_table(install_carrot_home_pdo());
+});
+
+$hasError = array_reduce($results, static fn(bool $carry, array $result): bool => $carry || $result['status'] !== 'success', false);
+
+if ($isCli) {
+    foreach ($results as $result) {
+        echo '[' . strtoupper($result['status']) . '] ' . $result['name'] . ': ' . $result['message'] . PHP_EOL;
+    }
+    exit($hasError ? 1 : 0);
+}
+?>
+<!doctype html>
+<html lang="vi">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Carrot Admin - Install</title>
+    <link rel="apple-touch-icon" sizes="180x180" href="favicon/apple-touch-icon.png">
+    <link rel="icon" type="image/png" sizes="32x32" href="favicon/favicon-32x32.png">
+    <link rel="icon" type="image/png" sizes="16x16" href="favicon/favicon-16x16.png">
+    <link rel="manifest" href="favicon/site.webmanifest">
+    <link rel="shortcut icon" href="favicon/favicon.ico">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="/CarrotCoc/assets/css/style.css" rel="stylesheet">
+</head>
+<body>
+<div class="container py-5">
+    <div class="glass-panel p-4 mx-auto" style="max-width: 760px">
+        <div class="d-flex flex-wrap justify-content-between align-items-center gap-3 mb-4">
+            <div>
+                <p class="muted-text text-uppercase fw-bold mb-1">Carrot Admin</p>
+                <h1 class="h3 mb-0">Install / Update database</h1>
+            </div>
+            <a class="btn btn-secondary fw-bold" href="index.php">Về admin</a>
+        </div>
+
+        <?php if ($hasError): ?>
+            <div class="alert alert-warning">Có bước cập nhật bị lỗi. Vui lòng xem chi tiết bên dưới.</div>
+        <?php else: ?>
+            <div class="alert alert-success">Đã cập nhật database thành công.</div>
+        <?php endif; ?>
+
+        <div class="table-responsive-sm">
+            <table class="table table-striped table-hover align-middle">
+                <thead>
+                <tr>
+                    <th>Bước</th>
+                    <th>Status</th>
+                    <th>Message</th>
+                </tr>
+                </thead>
+                <tbody>
+                <?php foreach ($results as $result): ?>
+                    <tr>
+                        <td><?= htmlspecialchars($result['name']) ?></td>
+                        <td>
+                            <span class="badge <?= $result['status'] === 'success' ? 'text-bg-success' : 'text-bg-danger' ?>">
+                                <?= htmlspecialchars(strtoupper($result['status'])) ?>
+                            </span>
+                        </td>
+                        <td><?= htmlspecialchars($result['message']) ?></td>
+                    </tr>
+                <?php endforeach; ?>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+</body>
+</html>
