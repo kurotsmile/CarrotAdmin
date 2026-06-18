@@ -70,9 +70,114 @@ function admin_ensure_country_table(PDO $pdo): void
           created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
           updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
           PRIMARY KEY (id),
-          UNIQUE KEY uq_country_lang_key (lang_key),
+          UNIQUE KEY uq_country_lang (lang_key, lang_country),
           KEY idx_country_name (name),
           KEY idx_country_lang_country (lang_country)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     ");
+
+    $indexes = $pdo->query("SHOW INDEX FROM country")->fetchAll(PDO::FETCH_ASSOC);
+    $hasOldLangKeyIndex = false;
+    $hasLangCountryIndex = false;
+
+    foreach ($indexes as $index) {
+        if (($index['Key_name'] ?? '') === 'uq_country_lang_key') {
+            $hasOldLangKeyIndex = true;
+        }
+        if (($index['Key_name'] ?? '') === 'uq_country_lang') {
+            $hasLangCountryIndex = true;
+        }
+    }
+
+    if ($hasOldLangKeyIndex) {
+        $pdo->exec('ALTER TABLE country DROP INDEX uq_country_lang_key');
+    }
+
+    if (!$hasLangCountryIndex) {
+        $pdo->exec('ALTER TABLE country ADD UNIQUE KEY uq_country_lang (lang_key, lang_country)');
+    }
+}
+
+function admin_country_seed_rows(): array
+{
+    return [
+        ['Vietnam', 'vi', 'VN'],
+        ['United States', 'en', 'US'],
+        ['United Kingdom', 'en', 'GB'],
+        ['Australia', 'en', 'AU'],
+        ['Canada', 'en', 'CA'],
+        ['India', 'hi', 'IN'],
+        ['Japan', 'ja', 'JP'],
+        ['South Korea', 'ko', 'KR'],
+        ['China', 'zh', 'CN'],
+        ['Taiwan', 'zh', 'TW'],
+        ['Hong Kong', 'zh', 'HK'],
+        ['Singapore', 'en', 'SG'],
+        ['Malaysia', 'ms', 'MY'],
+        ['Thailand', 'th', 'TH'],
+        ['Indonesia', 'id', 'ID'],
+        ['Philippines', 'en', 'PH'],
+        ['Cambodia', 'km', 'KH'],
+        ['Laos', 'lo', 'LA'],
+        ['Myanmar', 'my', 'MM'],
+        ['Brunei', 'ms', 'BN'],
+        ['France', 'fr', 'FR'],
+        ['Germany', 'de', 'DE'],
+        ['Italy', 'it', 'IT'],
+        ['Spain', 'es', 'ES'],
+        ['Portugal', 'pt', 'PT'],
+        ['Netherlands', 'nl', 'NL'],
+        ['Belgium', 'nl', 'BE'],
+        ['Switzerland', 'de', 'CH'],
+        ['Austria', 'de', 'AT'],
+        ['Sweden', 'sv', 'SE'],
+        ['Norway', 'no', 'NO'],
+        ['Denmark', 'da', 'DK'],
+        ['Finland', 'fi', 'FI'],
+        ['Ireland', 'en', 'IE'],
+        ['Poland', 'pl', 'PL'],
+        ['Czech Republic', 'cs', 'CZ'],
+        ['Hungary', 'hu', 'HU'],
+        ['Romania', 'ro', 'RO'],
+        ['Greece', 'el', 'GR'],
+        ['Turkey', 'tr', 'TR'],
+        ['Ukraine', 'uk', 'UA'],
+        ['Russia', 'ru', 'RU'],
+        ['Brazil', 'pt', 'BR'],
+        ['Mexico', 'es', 'MX'],
+        ['Argentina', 'es', 'AR'],
+        ['Chile', 'es', 'CL'],
+        ['Colombia', 'es', 'CO'],
+        ['Peru', 'es', 'PE'],
+        ['South Africa', 'en', 'ZA'],
+        ['Egypt', 'ar', 'EG'],
+        ['Saudi Arabia', 'ar', 'SA'],
+        ['United Arab Emirates', 'ar', 'AE'],
+        ['Israel', 'he', 'IL'],
+        ['Pakistan', 'ur', 'PK'],
+        ['Bangladesh', 'bn', 'BD'],
+        ['Sri Lanka', 'si', 'LK'],
+        ['New Zealand', 'en', 'NZ'],
+    ];
+}
+
+function admin_seed_country_table(PDO $pdo): int
+{
+    $stmt = $pdo->prepare('
+        INSERT INTO country (icon, name, lang_key, lang_country)
+        VALUES (?, ?, ?, ?)
+        ON DUPLICATE KEY UPDATE
+          icon = VALUES(icon),
+          name = VALUES(name),
+          updated_at = CURRENT_TIMESTAMP
+    ');
+
+    $count = 0;
+    foreach (admin_country_seed_rows() as [$name, $langKey, $langCountry]) {
+        $icon = 'https://flagcdn.com/w80/' . strtolower($langCountry) . '.png';
+        $stmt->execute([$icon, $name, $langKey, $langCountry]);
+        $count++;
+    }
+
+    return $count;
 }

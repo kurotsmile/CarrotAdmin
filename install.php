@@ -30,8 +30,8 @@ function install_carrot_home_pdo(): PDO
 function install_run_step(string $name, callable $callback): array
 {
     try {
-        $callback();
-        return ['name' => $name, 'status' => 'success', 'message' => 'OK'];
+        $message = $callback();
+        return ['name' => $name, 'status' => 'success', 'message' => $message ?: 'OK'];
     } catch (Throwable $e) {
         return ['name' => $name, 'status' => 'error', 'message' => $e->getMessage()];
     }
@@ -69,6 +69,14 @@ $results[] = install_run_step('CarrotCoc country table', static function () use 
     }
 
     admin_ensure_country_table($cocPdo);
+});
+
+$results[] = install_run_step('CarrotCoc country seed data', static function () use ($cocPdo, $cocError): string {
+    if (!$cocPdo instanceof PDO) {
+        throw new RuntimeException($cocError ?? 'Không thể kết nối CarrotCoc database.');
+    }
+
+    return admin_seed_country_table($cocPdo) . ' countries';
 });
 
 $results[] = install_run_step('CarrotHome page table', static function (): void {
