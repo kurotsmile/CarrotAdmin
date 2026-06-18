@@ -730,12 +730,12 @@ $dashboardCards = [
         .dashboard-topbar{border:1px solid rgba(15,23,42,.08);border-radius:8px;background:rgba(255,255,255,.94);box-shadow:0 18px 48px rgba(15,23,42,.07)}
         .dashboard-eyebrow{color:#64748b;font-size:.76rem;letter-spacing:0;text-transform:uppercase}
         .dashboard-actions .btn{border-radius:8px}
-        .dashboard-grid{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:1rem}
-        .dashboard-card{border:1px solid rgba(15,23,42,.08);border-radius:8px;background:#fff;box-shadow:0 14px 36px rgba(15,23,42,.06);padding:1rem}
-        .dashboard-card-icon{display:inline-flex;align-items:center;justify-content:center;width:36px;height:36px;border-radius:8px;background:#f1f5f9;color:#172033}
-        .dashboard-card-icon i{width:18px;height:18px}
-        .dashboard-card-label{font-size:.78rem;color:#64748b;font-weight:800;text-transform:uppercase}
-        .dashboard-card-value{font-size:1.45rem;font-weight:850;line-height:1.1}
+        .dashboard-grid{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:.75rem}
+        .dashboard-card{border:1px solid rgba(15,23,42,.08);border-radius:8px;background:#fff;box-shadow:0 10px 28px rgba(15,23,42,.05);padding:.72rem .85rem}
+        .dashboard-card-icon{display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;border-radius:8px;background:#f1f5f9;color:#172033}
+        .dashboard-card-icon i{width:16px;height:16px}
+        .dashboard-card-label{font-size:.7rem;color:#64748b;font-weight:800;text-transform:uppercase}
+        .dashboard-card-value{font-size:1.18rem;font-weight:850;line-height:1.05}
         .dashboard-uptime{background:#172033;color:#fff}
         .dashboard-uptime .dashboard-card-label{color:#cbd5e1}
         .dashboard-uptime .dashboard-card-icon{background:rgba(255,255,255,.12);color:#fff}
@@ -745,7 +745,7 @@ $dashboardCards = [
         .table thead th{color:#64748b;font-size:.78rem;text-transform:uppercase}
         @media (max-width:1199px){.dashboard-grid{grid-template-columns:repeat(3,minmax(0,1fr))}}
         @media (max-width:991px){.dashboard-sidebar{position:static;min-height:auto}.dashboard-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
-        @media (max-width:575px){.dashboard-grid{grid-template-columns:1fr}.dashboard-card-value{font-size:1.25rem}}
+        @media (max-width:575px){.dashboard-grid{grid-template-columns:1fr}.dashboard-card-value{font-size:1.12rem}}
     </style>
     <?php if ($section === 'pages'): ?>
     <style>
