@@ -83,6 +83,13 @@ $pages = [];
 $banks = [];
 $countries = [];
 $orders = [];
+$dashboardMetrics = [
+    'apps' => 0,
+    'pages' => 0,
+    'coc' => 0,
+    'bank' => 0,
+    'country' => 0,
+];
 $accountSort = 'id';
 $accountDir = 'DESC';
 $orderSort = 'created_at';
@@ -95,6 +102,7 @@ $bankSort = 'id';
 $bankDir = 'DESC';
 $countrySort = 'id';
 $countryDir = 'DESC';
+$serverRuntime = admin_server_runtime();
 
 function admin_nas_upload_endpoint(): string
 {
@@ -274,6 +282,79 @@ function admin_sort_link(string $key, string $label, string $activeSort, string 
         htmlspecialchars(http_build_query($params)) . '">' . htmlspecialchars($label) . '<span>' . $icon . '</span></a>';
 }
 
+function admin_runtime_identity(): string
+{
+    $pid = function_exists('getmypid') ? (string) getmypid() : 'web';
+    $parentPid = function_exists('posix_getppid') ? (string) posix_getppid() : '';
+    return sha1(($parentPid ?: $pid) . '|' . ($_SERVER['SERVER_SOFTWARE'] ?? 'server'));
+}
+
+function admin_server_runtime(): array
+{
+    $storageDir = __DIR__ . '/storage';
+    $runtimeFile = $storageDir . '/server_runtime.json';
+    $identity = admin_runtime_identity();
+    $now = time();
+    $payload = null;
+
+    if (is_file($runtimeFile)) {
+        $payload = json_decode((string) file_get_contents($runtimeFile), true);
+    }
+
+    if (!is_array($payload) || ($payload['identity'] ?? '') !== $identity || empty($payload['started_at'])) {
+        if (!is_dir($storageDir)) {
+            @mkdir($storageDir, 0755, true);
+        }
+
+        $payload = [
+            'identity' => $identity,
+            'started_at' => $now,
+        ];
+        if (is_dir($storageDir) && is_writable($storageDir)) {
+            @file_put_contents($runtimeFile, json_encode($payload, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+        }
+    }
+
+    return [
+        'started_at' => (int) $payload['started_at'],
+        'uptime_seconds' => max(0, $now - (int) $payload['started_at']),
+    ];
+}
+
+function admin_format_uptime(int $seconds): string
+{
+    $days = intdiv($seconds, 86400);
+    $seconds %= 86400;
+    $hours = intdiv($seconds, 3600);
+    $seconds %= 3600;
+    $minutes = intdiv($seconds, 60);
+    $seconds %= 60;
+
+    if ($days > 0) {
+        return sprintf('%dd %02dh %02dm %02ds', $days, $hours, $minutes, $seconds);
+    }
+
+    return sprintf('%02dh %02dm %02ds', $hours, $minutes, $seconds);
+}
+
+function admin_count_table(PDO $pdo, string $table): int
+{
+    return (int) $pdo->query('SELECT COUNT(*) FROM ' . $table)->fetchColumn();
+}
+
+function admin_safe_count_table(?PDO $pdo, string $table): int
+{
+    if (!$pdo instanceof PDO) {
+        return 0;
+    }
+
+    try {
+        return admin_count_table($pdo, $table);
+    } catch (Throwable $e) {
+        return 0;
+    }
+}
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'ajax_upload') {
     admin_ajax_upload();
 }
@@ -285,6 +366,16 @@ if (!$pdo instanceof PDO && $section !== 'pages') {
         $homePdo = null;
         if ($section === 'pages') {
             $homePdo = admin_home_pdo();
+        }
+
+        $dashboardMetrics['apps'] = admin_safe_count_table($pdo, 'app');
+        $dashboardMetrics['coc'] = admin_safe_count_table($pdo, 'coc');
+        $dashboardMetrics['bank'] = admin_safe_count_table($pdo, 'bank');
+        $dashboardMetrics['country'] = admin_safe_count_table($pdo, 'country');
+        try {
+            $dashboardMetrics['pages'] = admin_safe_count_table($homePdo instanceof PDO ? $homePdo : admin_home_pdo(), 'page');
+        } catch (Throwable $e) {
+            $dashboardMetrics['pages'] = 0;
         }
 
         if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -598,6 +689,15 @@ if (!$pdo instanceof PDO && $section !== 'pages') {
 
 $photoText = ($section === 'coc' && $editing) ? implode("\n", coc_decode_photos($editing['photos'])) : '';
 $pageTitle = ['apps' => 'App', 'pages' => 'Page', 'bank' => 'Bank', 'coc' => 'Coc', 'country' => 'Country'][$section] ?? 'Coc';
+$sectionLabels = ['apps' => 'ứng dụng', 'pages' => 'Page/SEO', 'bank' => 'ngân hàng', 'coc' => 'shop', 'country' => 'quốc gia hỗ trợ'];
+$sectionTitles = ['apps' => 'App Carrot Home', 'pages' => 'Page Carrot Home', 'bank' => 'Bank', 'coc' => 'Acc Clash of Clans', 'country' => 'Country'];
+$dashboardCards = [
+    ['label' => 'App', 'value' => $dashboardMetrics['apps'], 'icon' => 'boxes'],
+    ['label' => 'Page', 'value' => $dashboardMetrics['pages'], 'icon' => 'file-text'],
+    ['label' => 'Coc', 'value' => $dashboardMetrics['coc'], 'icon' => 'shield'],
+    ['label' => 'Bank', 'value' => $dashboardMetrics['bank'], 'icon' => 'landmark'],
+    ['label' => 'Country', 'value' => $dashboardMetrics['country'], 'icon' => 'globe-2'],
+];
 ?>
 <!doctype html>
 <html lang="vi">
@@ -614,6 +714,39 @@ $pageTitle = ['apps' => 'App', 'pages' => 'Page', 'bank' => 'Bank', 'coc' => 'Co
     <link href="/CarrotCoc/assets/css/style.css" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        body{background:#eef2f7;color:#172033}
+        .dashboard-layout{min-height:100vh;background:linear-gradient(180deg,#f8fafc 0,#eef2f7 42%,#e9edf4 100%)}
+        .dashboard-sidebar{position:sticky;top:16px;min-height:calc(100vh - 32px);border:1px solid rgba(15,23,42,.08);border-radius:8px;background:rgba(255,255,255,.92);box-shadow:0 18px 48px rgba(15,23,42,.08)}
+        .dashboard-brand{padding:.25rem .25rem 1rem;border-bottom:1px solid rgba(15,23,42,.08)}
+        .dashboard-brand-title{font-weight:800;line-height:1.1}
+        .dashboard-brand-subtitle{font-size:.78rem;color:#64748b}
+        .dashboard-nav{gap:.35rem}
+        .dashboard-nav .list-group-item{display:flex;align-items:center;gap:.75rem;border:0;border-radius:8px;margin-bottom:.25rem;background:transparent;color:#334155;font-weight:700}
+        .dashboard-nav .list-group-item i{width:18px;height:18px;color:#64748b}
+        .dashboard-nav .list-group-item.active{background:#172033;color:#fff}
+        .dashboard-nav .list-group-item.active i{color:#fff}
+        .dashboard-main{min-width:0}
+        .dashboard-topbar{border:1px solid rgba(15,23,42,.08);border-radius:8px;background:rgba(255,255,255,.94);box-shadow:0 18px 48px rgba(15,23,42,.07)}
+        .dashboard-eyebrow{color:#64748b;font-size:.76rem;letter-spacing:0;text-transform:uppercase}
+        .dashboard-actions .btn{border-radius:8px}
+        .dashboard-grid{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:1rem}
+        .dashboard-card{border:1px solid rgba(15,23,42,.08);border-radius:8px;background:#fff;box-shadow:0 14px 36px rgba(15,23,42,.06);padding:1rem}
+        .dashboard-card-icon{display:inline-flex;align-items:center;justify-content:center;width:36px;height:36px;border-radius:8px;background:#f1f5f9;color:#172033}
+        .dashboard-card-icon i{width:18px;height:18px}
+        .dashboard-card-label{font-size:.78rem;color:#64748b;font-weight:800;text-transform:uppercase}
+        .dashboard-card-value{font-size:1.45rem;font-weight:850;line-height:1.1}
+        .dashboard-uptime{background:#172033;color:#fff}
+        .dashboard-uptime .dashboard-card-label{color:#cbd5e1}
+        .dashboard-uptime .dashboard-card-icon{background:rgba(255,255,255,.12);color:#fff}
+        .dashboard-uptime-start{font-size:.78rem;color:#cbd5e1}
+        .glass-panel,.admin-shell{border:1px solid rgba(15,23,42,.08)!important;border-radius:8px!important;background:rgba(255,255,255,.96)!important;box-shadow:0 14px 36px rgba(15,23,42,.06)!important}
+        .table{--bs-table-bg:transparent}
+        .table thead th{color:#64748b;font-size:.78rem;text-transform:uppercase}
+        @media (max-width:1199px){.dashboard-grid{grid-template-columns:repeat(3,minmax(0,1fr))}}
+        @media (max-width:991px){.dashboard-sidebar{position:static;min-height:auto}.dashboard-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+        @media (max-width:575px){.dashboard-grid{grid-template-columns:1fr}.dashboard-card-value{font-size:1.25rem}}
+    </style>
     <?php if ($section === 'pages'): ?>
     <style>
         .simple-editor-toolbar{display:flex;flex-wrap:wrap;gap:.35rem;padding:.5rem;border:1px solid rgba(0,0,0,.15);border-bottom:0;border-radius:.375rem .375rem 0 0;background:rgba(255,255,255,.7)}
@@ -624,29 +757,33 @@ $pageTitle = ['apps' => 'App', 'pages' => 'Page', 'bank' => 'Bank', 'coc' => 'Co
     <?php endif; ?>
 </head>
 <body>
-<div class="container-fluid">
-    <div class="row min-vh-100">
-        <aside class="col-lg-2 glass-panel m-3 p-3 align-self-start">
-            <div class="d-flex align-items-center gap-3 mb-4">
+<div class="container-fluid dashboard-layout">
+    <div class="row min-vh-100 g-0">
+        <aside class="col-lg-2 dashboard-sidebar m-3 p-3 align-self-start">
+            <div class="dashboard-brand d-flex align-items-center gap-3 mb-3">
                 <img class="brand-mark" src="carrot_28.png" alt="Carrot Admin">
+                <div>
+                    <div class="dashboard-brand-title">Carrot Admin</div>
+                    <div class="dashboard-brand-subtitle">Dashboard</div>
+                </div>
             </div>
-            <div class="list-group">
-                <a class="list-group-item list-group-item-action <?= $section === 'apps' ? 'active' : '' ?>" href="index.php?section=apps">App</a>
-                <a class="list-group-item list-group-item-action <?= $section === 'pages' ? 'active' : '' ?>" href="index.php?section=pages">Page</a>
-                <a class="list-group-item list-group-item-action <?= $section === 'coc' ? 'active' : '' ?>" href="index.php">Coc</a>
-                <a class="list-group-item list-group-item-action <?= $section === 'bank' ? 'active' : '' ?>" href="index.php?section=bank">Bank</a>
-                <a class="list-group-item list-group-item-action <?= $section === 'country' ? 'active' : '' ?>" href="index.php?section=country">Country</a>
+            <div class="list-group dashboard-nav">
+                <a class="list-group-item list-group-item-action <?= $section === 'apps' ? 'active' : '' ?>" href="index.php?section=apps"><i data-lucide="boxes"></i><span>App</span></a>
+                <a class="list-group-item list-group-item-action <?= $section === 'pages' ? 'active' : '' ?>" href="index.php?section=pages"><i data-lucide="file-text"></i><span>Page</span></a>
+                <a class="list-group-item list-group-item-action <?= $section === 'coc' ? 'active' : '' ?>" href="index.php"><i data-lucide="shield"></i><span>Coc</span></a>
+                <a class="list-group-item list-group-item-action <?= $section === 'bank' ? 'active' : '' ?>" href="index.php?section=bank"><i data-lucide="landmark"></i><span>Bank</span></a>
+                <a class="list-group-item list-group-item-action <?= $section === 'country' ? 'active' : '' ?>" href="index.php?section=country"><i data-lucide="globe-2"></i><span>Country</span></a>
             </div>
         </aside>
 
-        <main class="col p-3 p-lg-4">
-            <div class="admin-shell p-4 mb-4">
+        <main class="col dashboard-main p-3 p-lg-4">
+            <div class="dashboard-topbar p-4 mb-4">
                 <div class="d-flex flex-wrap justify-content-between align-items-center gap-3">
                     <div>
-                        <p class="muted-text text-uppercase fw-bold mb-1">Quản lý <?= ['apps' => 'ứng dụng', 'pages' => 'Page/SEO', 'bank' => 'ngân hàng', 'coc' => 'shop', 'country' => 'quốc gia hỗ trợ'][$section] ?? 'shop' ?></p>
-                        <h1 class="h3 mb-0"><?= ['apps' => 'App Carrot Home', 'pages' => 'Page Carrot Home', 'bank' => 'Bank', 'coc' => 'Acc Clash of Clans', 'country' => 'Country'][$section] ?? 'Acc Clash of Clans' ?></h1>
+                        <p class="dashboard-eyebrow fw-bold mb-1">Quản lý <?= $sectionLabels[$section] ?? 'shop' ?></p>
+                        <h1 class="h3 mb-0"><?= $sectionTitles[$section] ?? 'Acc Clash of Clans' ?></h1>
                     </div>
-                    <div class="d-flex flex-wrap gap-2">
+                    <div class="dashboard-actions d-flex flex-wrap gap-2">
                         <?php if ($section === 'coc'): ?>
                             <a class="btn btn-secondary fw-bold" href="https://coc.carrot28.com/" target="_blank" rel="noopener noreferrer">Xem shop</a>
                         <?php endif; ?>
@@ -657,6 +794,26 @@ $pageTitle = ['apps' => 'App', 'pages' => 'Page', 'bank' => 'Bank', 'coc' => 'Co
                             <span class="d-inline-flex align-items-center gap-2"><i data-lucide="log-out" style="width:16px;height:16px"></i><?= htmlspecialchars($_SESSION['admin_user']) ?></span>
                         </a>
                     </div>
+                </div>
+            </div>
+
+            <div class="dashboard-grid mb-4">
+                <?php foreach ($dashboardCards as $card): ?>
+                    <div class="dashboard-card">
+                        <div class="d-flex align-items-center justify-content-between gap-3 mb-3">
+                            <div class="dashboard-card-label"><?= htmlspecialchars($card['label']) ?></div>
+                            <span class="dashboard-card-icon"><i data-lucide="<?= htmlspecialchars($card['icon']) ?>"></i></span>
+                        </div>
+                        <div class="dashboard-card-value"><?= number_format((int) $card['value']) ?></div>
+                    </div>
+                <?php endforeach; ?>
+                <div class="dashboard-card dashboard-uptime">
+                    <div class="d-flex align-items-center justify-content-between gap-3 mb-3">
+                        <div class="dashboard-card-label">XAMPP uptime</div>
+                        <span class="dashboard-card-icon"><i data-lucide="timer"></i></span>
+                    </div>
+                    <div class="dashboard-card-value font-monospace" id="server_uptime" data-started-at="<?= (int) $serverRuntime['started_at'] ?>"><?= htmlspecialchars(admin_format_uptime($serverRuntime['uptime_seconds'])) ?></div>
+                    <div class="dashboard-uptime-start mt-2">Start: <?= htmlspecialchars(date('Y-m-d H:i:s', $serverRuntime['started_at'])) ?></div>
                 </div>
             </div>
 
@@ -1431,6 +1588,30 @@ if (pageEditor && pageEditorSource) {
             pageEditorSource.value = pageEditor.innerHTML.trim();
         });
     }
+}
+
+const serverUptime = document.getElementById('server_uptime');
+if (serverUptime) {
+    const startedAt = Number(serverUptime.dataset.startedAt || 0) * 1000;
+    const formatUptime = (totalSeconds) => {
+        let seconds = Math.max(0, Math.floor(totalSeconds));
+        const days = Math.floor(seconds / 86400);
+        seconds %= 86400;
+        const hours = Math.floor(seconds / 3600);
+        seconds %= 3600;
+        const minutes = Math.floor(seconds / 60);
+        seconds %= 60;
+        const pad = (value) => String(value).padStart(2, '0');
+        return days > 0
+            ? `${days}d ${pad(hours)}h ${pad(minutes)}m ${pad(seconds)}s`
+            : `${pad(hours)}h ${pad(minutes)}m ${pad(seconds)}s`;
+    };
+    const refreshUptime = () => {
+        serverUptime.textContent = formatUptime((Date.now() - startedAt) / 1000);
+    };
+
+    refreshUptime();
+    window.setInterval(refreshUptime, 1000);
 }
 
 if (window.lucide) {
