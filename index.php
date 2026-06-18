@@ -71,7 +71,7 @@ require __DIR__ . '/../CarrotCoc/includes/coc_helpers.php';
 
 $message = '';
 $error = '';
-$allowedSections = ['apps', 'pages', 'bank', 'coc'];
+$allowedSections = ['apps', 'pages', 'bank', 'coc', 'country'];
 $section = in_array($_GET['section'] ?? 'coc', $allowedSections, true) ? ($_GET['section'] ?? 'coc') : 'coc';
 $editKey = trim($_GET['edit'] ?? '');
 $editId = isset($_GET['edit']) ? (int) $_GET['edit'] : 0;
@@ -81,6 +81,7 @@ $accounts = [];
 $apps = [];
 $pages = [];
 $banks = [];
+$countries = [];
 $orders = [];
 $accountSort = 'id';
 $accountDir = 'DESC';
@@ -92,6 +93,8 @@ $pageSort = 'priority';
 $pageDir = 'DESC';
 $bankSort = 'id';
 $bankDir = 'DESC';
+$countrySort = 'id';
+$countryDir = 'DESC';
 
 function admin_nas_upload_endpoint(): string
 {
@@ -157,7 +160,7 @@ function admin_ajax_upload(): void
 
     try {
         $typeMedia = trim($_POST['type_media'] ?? '');
-        if (!in_array($typeMedia, ['carrot_app', 'coc_images', 'bank'], true)) {
+        if (!in_array($typeMedia, ['carrot_app', 'coc_images', 'bank', 'country'], true)) {
             throw new RuntimeException('Type media không hợp lệ.');
         }
 
@@ -186,6 +189,14 @@ function admin_fetch_app(PDO $pdo, string $id): ?array
 function admin_fetch_bank(PDO $pdo, int $id): ?array
 {
     $stmt = $pdo->prepare('SELECT * FROM bank WHERE id = ?');
+    $stmt->execute([$id]);
+    $row = $stmt->fetch();
+    return $row ?: null;
+}
+
+function admin_fetch_country(PDO $pdo, int $id): ?array
+{
+    $stmt = $pdo->prepare('SELECT * FROM country WHERE id = ?');
     $stmt->execute([$id]);
     $row = $stmt->fetch();
     return $row ?: null;
@@ -321,6 +332,25 @@ function admin_ensure_app_table(PDO $pdo): void
     ");
 }
 
+function admin_ensure_country_table(PDO $pdo): void
+{
+    $pdo->exec("
+        CREATE TABLE IF NOT EXISTS country (
+          id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+          icon LONGTEXT DEFAULT NULL,
+          name VARCHAR(120) NOT NULL,
+          lang_key VARCHAR(24) NOT NULL,
+          lang_country VARCHAR(24) NOT NULL,
+          created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+          PRIMARY KEY (id),
+          UNIQUE KEY uq_country_lang_key (lang_key),
+          KEY idx_country_name (name),
+          KEY idx_country_lang_country (lang_country)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    ");
+}
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'ajax_upload') {
     admin_ajax_upload();
 }
@@ -332,6 +362,7 @@ if (!$pdo instanceof PDO && $section !== 'pages') {
         if ($pdo instanceof PDO) {
             $pdo->exec(file_get_contents(__DIR__ . '/../CarrotCoc/sql/schema.sql'));
             admin_ensure_app_table($pdo);
+            admin_ensure_country_table($pdo);
         }
         $homePdo = null;
         if ($section === 'pages') {
@@ -497,6 +528,42 @@ if (!$pdo instanceof PDO && $section !== 'pages') {
                     $message = 'Đã thêm bank mới.';
                 }
             }
+
+            if ($section === 'country' && $action === 'delete_country') {
+                $stmt = $pdo->prepare('DELETE FROM country WHERE id = ?');
+                $stmt->execute([(int) ($_POST['id'] ?? 0)]);
+                $message = 'Đã xóa country.';
+            }
+
+            if ($section === 'country' && $action === 'save_country') {
+                $id = (int) ($_POST['id'] ?? 0);
+                $icon = trim($_POST['icon'] ?? '');
+                $name = trim($_POST['name'] ?? '');
+                $langKey = trim($_POST['lang_key'] ?? '');
+                $langCountry = strtoupper(trim($_POST['lang_country'] ?? ''));
+
+                if ($icon === '' || $name === '' || $langKey === '' || $langCountry === '') {
+                    throw new RuntimeException('Vui lòng nhập đủ icon, name, lang_key và lang_country.');
+                }
+
+                if (!preg_match('/^[a-z]{2,3}(?:[-_][A-Z]{2})?$/', $langKey)) {
+                    throw new RuntimeException('Lang key nên có dạng vi, en, en-US hoặc en_US.');
+                }
+
+                if (!preg_match('/^[A-Z]{2}$/', $langCountry)) {
+                    throw new RuntimeException('Lang country nên là mã quốc gia 2 chữ hoa, ví dụ VN, US, JP.');
+                }
+
+                if ($id > 0) {
+                    $stmt = $pdo->prepare('UPDATE country SET icon = ?, name = ?, lang_key = ?, lang_country = ? WHERE id = ?');
+                    $stmt->execute([$icon, $name, $langKey, $langCountry, $id]);
+                    $message = 'Đã cập nhật country.';
+                } else {
+                    $stmt = $pdo->prepare('INSERT INTO country (icon, name, lang_key, lang_country) VALUES (?, ?, ?, ?)');
+                    $stmt->execute([$icon, $name, $langKey, $langCountry]);
+                    $message = 'Đã thêm country mới.';
+                }
+            }
         }
 
         if ($section === 'coc' && $editId > 0) {
@@ -513,6 +580,10 @@ if (!$pdo instanceof PDO && $section !== 'pages') {
 
         if ($section === 'bank' && $editId > 0) {
             $editing = admin_fetch_bank($pdo, $editId);
+        }
+
+        if ($section === 'country' && $editId > 0) {
+            $editing = admin_fetch_country($pdo, $editId);
         }
 
         $accountSortColumns = [
@@ -565,6 +636,15 @@ if (!$pdo instanceof PDO && $section !== 'pages') {
         ];
         [$bankSort, $bankDir] = admin_sort_state($bankSortColumns, 'id', 'DESC');
 
+        $countrySortColumns = [
+            'id' => 'id',
+            'name' => 'name',
+            'lang_key' => 'lang_key',
+            'lang_country' => 'lang_country',
+            'updated_at' => 'updated_at',
+        ];
+        [$countrySort, $countryDir] = admin_sort_state($countrySortColumns, 'id', 'DESC');
+
         $accounts = $section === 'coc'
             ? $pdo->query('SELECT * FROM coc ORDER BY ' . admin_order_by($accountSortColumns, $accountSort, $accountDir))->fetchAll()
             : [];
@@ -585,18 +665,22 @@ if (!$pdo instanceof PDO && $section !== 'pages') {
         $banks = $section === 'bank'
             ? $pdo->query('SELECT * FROM bank ORDER BY ' . admin_order_by($bankSortColumns, $bankSort, $bankDir))->fetchAll()
             : [];
+        $countries = $section === 'country'
+            ? $pdo->query('SELECT * FROM country ORDER BY ' . admin_order_by($countrySortColumns, $countrySort, $countryDir))->fetchAll()
+            : [];
     } catch (Throwable $e) {
         $error = $e->getMessage();
         $accounts = [];
         $apps = [];
         $pages = [];
         $banks = [];
+        $countries = [];
         $orders = [];
     }
 }
 
 $photoText = ($section === 'coc' && $editing) ? implode("\n", coc_decode_photos($editing['photos'])) : '';
-$pageTitle = ['apps' => 'App', 'pages' => 'Page', 'bank' => 'Bank', 'coc' => 'Coc'][$section] ?? 'Coc';
+$pageTitle = ['apps' => 'App', 'pages' => 'Page', 'bank' => 'Bank', 'coc' => 'Coc', 'country' => 'Country'][$section] ?? 'Coc';
 ?>
 <!doctype html>
 <html lang="vi">
@@ -634,6 +718,7 @@ $pageTitle = ['apps' => 'App', 'pages' => 'Page', 'bank' => 'Bank', 'coc' => 'Co
                 <a class="list-group-item list-group-item-action <?= $section === 'pages' ? 'active' : '' ?>" href="index.php?section=pages">Page</a>
                 <a class="list-group-item list-group-item-action <?= $section === 'coc' ? 'active' : '' ?>" href="index.php">Coc</a>
                 <a class="list-group-item list-group-item-action <?= $section === 'bank' ? 'active' : '' ?>" href="index.php?section=bank">Bank</a>
+                <a class="list-group-item list-group-item-action <?= $section === 'country' ? 'active' : '' ?>" href="index.php?section=country">Country</a>
             </div>
         </aside>
 
@@ -641,15 +726,15 @@ $pageTitle = ['apps' => 'App', 'pages' => 'Page', 'bank' => 'Bank', 'coc' => 'Co
             <div class="admin-shell p-4 mb-4">
                 <div class="d-flex flex-wrap justify-content-between align-items-center gap-3">
                     <div>
-                        <p class="muted-text text-uppercase fw-bold mb-1">Quản lý <?= ['apps' => 'ứng dụng', 'pages' => 'page footer/SEO', 'bank' => 'ngân hàng', 'coc' => 'shop'][$section] ?? 'shop' ?></p>
-                        <h1 class="h3 mb-0"><?= ['apps' => 'App Carrot Home', 'pages' => 'Page Carrot Home', 'bank' => 'Bank', 'coc' => 'Acc Clash of Clans'][$section] ?? 'Acc Clash of Clans' ?></h1>
+                        <p class="muted-text text-uppercase fw-bold mb-1">Quản lý <?= ['apps' => 'ứng dụng', 'pages' => 'page footer/SEO', 'bank' => 'ngân hàng', 'coc' => 'shop', 'country' => 'quốc gia hỗ trợ'][$section] ?? 'shop' ?></p>
+                        <h1 class="h3 mb-0"><?= ['apps' => 'App Carrot Home', 'pages' => 'Page Carrot Home', 'bank' => 'Bank', 'coc' => 'Acc Clash of Clans', 'country' => 'Country'][$section] ?? 'Acc Clash of Clans' ?></h1>
                     </div>
                     <div class="d-flex flex-wrap gap-2">
                         <?php if ($section === 'coc'): ?>
                             <a class="btn btn-secondary fw-bold" href="https://coc.carrot28.com/" target="_blank" rel="noopener noreferrer">Xem shop</a>
                         <?php endif; ?>
                         <?php if ($editing): ?>
-                            <a class="btn btn-success fw-bold" href="index.php<?= $section === 'apps' ? '?section=apps' : ($section === 'pages' ? '?section=pages' : ($section === 'bank' ? '?section=bank' : '')) ?>">Thêm mới</a>
+                            <a class="btn btn-success fw-bold" href="index.php<?= $section === 'apps' ? '?section=apps' : ($section === 'pages' ? '?section=pages' : ($section === 'bank' ? '?section=bank' : ($section === 'country' ? '?section=country' : ''))) ?>">Thêm mới</a>
                         <?php endif; ?>
                         <a class="btn btn-danger fw-bold" href="index.php?logout=1" title="Đăng xuất">
                             <span class="d-inline-flex align-items-center gap-2"><i data-lucide="log-out" style="width:16px;height:16px"></i><?= htmlspecialchars($_SESSION['admin_user']) ?></span>
@@ -1210,6 +1295,97 @@ $pageTitle = ['apps' => 'App', 'pages' => 'Page', 'bank' => 'Bank', 'coc' => 'Co
                                     </tr>
                                 <?php endforeach; ?>
                                 <?php if (!$banks): ?>
+                                    <tr><td colspan="5" class="text-center muted-text py-4">Chưa có dữ liệu.</td></tr>
+                                <?php endif; ?>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <?php endif; ?>
+
+            <?php if ($section === 'country'): ?>
+            <div class="row g-4">
+                <div class="col-xl-5">
+                    <form class="glass-panel p-4" method="post">
+                        <input type="hidden" name="action" value="save_country">
+                        <input type="hidden" name="id" value="<?= (int) ($editing['id'] ?? 0) ?>">
+                        <h2 class="h5 mb-3"><?= $editing ? 'Cập nhật country' : 'Thêm country mới' ?></h2>
+
+                        <div class="mb-3">
+                            <label class="form-label" for="country_name">Name</label>
+                            <input class="form-control" id="country_name" name="name" maxlength="120" value="<?= htmlspecialchars($editing['name'] ?? '') ?>" required>
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label" for="country_icon">Icon URL</label>
+                            <div class="input-group">
+                                <input class="form-control" id="country_icon" name="icon" value="<?= htmlspecialchars($editing['icon'] ?? '') ?>" required>
+                                <button class="btn btn-secondary js-upload" type="button" data-target="country_icon" data-type-media="country" data-mode="replace" data-accept="image/*">Upload</button>
+                            </div>
+                        </div>
+
+                        <div class="row g-3">
+                            <div class="col-md-6">
+                                <label class="form-label" for="country_lang_key">Lang key</label>
+                                <input class="form-control" id="country_lang_key" name="lang_key" maxlength="24" placeholder="vi" value="<?= htmlspecialchars($editing['lang_key'] ?? '') ?>" required>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label" for="country_lang_country">Lang country</label>
+                                <input class="form-control text-uppercase" id="country_lang_country" name="lang_country" maxlength="24" placeholder="VN" value="<?= htmlspecialchars($editing['lang_country'] ?? '') ?>" required>
+                            </div>
+                        </div>
+
+                        <button class="btn <?= $editing ? 'btn-warning' : 'btn-success' ?> fw-bold w-100 mt-3" type="submit"><?= $editing ? 'Lưu cập nhật' : 'Thêm country' ?></button>
+                    </form>
+                </div>
+
+                <div class="col-xl-7">
+                    <div class="glass-panel p-4">
+                        <h2 class="h5 mb-3">Danh sách country</h2>
+                        <div class="table-responsive-sm">
+                            <table class="table table-striped table-hover table-sm align-middle">
+                                <thead>
+                                <tr>
+                                    <th><?= admin_sort_link('id', 'ID', $countrySort, $countryDir) ?></th>
+                                    <th><?= admin_sort_link('name', 'Country', $countrySort, $countryDir) ?></th>
+                                    <th><?= admin_sort_link('lang_key', 'Lang key', $countrySort, $countryDir) ?></th>
+                                    <th><?= admin_sort_link('lang_country', 'Lang country', $countrySort, $countryDir) ?></th>
+                                    <th></th>
+                                </tr>
+                                </thead>
+                                <tbody>
+                                <?php foreach ($countries as $country): ?>
+                                    <tr>
+                                        <td><?= (int) $country['id'] ?></td>
+                                        <td>
+                                            <div class="d-flex align-items-center gap-3">
+                                                <?php if (!empty($country['icon'])): ?>
+                                                    <img src="<?= htmlspecialchars($country['icon']) ?>" alt="" width="54" height="54" class="rounded-2 object-fit-cover">
+                                                <?php endif; ?>
+                                                <strong><?= htmlspecialchars($country['name']) ?></strong>
+                                            </div>
+                                        </td>
+                                        <td class="font-monospace small"><?= htmlspecialchars($country['lang_key']) ?></td>
+                                        <td class="font-monospace small"><?= htmlspecialchars($country['lang_country']) ?></td>
+                                        <td class="text-end">
+                                            <div class="d-inline-flex align-items-center justify-content-end gap-2 flex-nowrap">
+                                                <a class="btn btn-sm btn-warning" href="index.php?section=country&edit=<?= (int) $country['id'] ?>" title="Cập nhật" aria-label="Cập nhật">
+                                                    <i data-lucide="pencil" style="width:16px;height:16px"></i>
+                                                </a>
+                                                <form class="js-delete" method="post" data-confirm="Xóa country này?">
+                                                    <input type="hidden" name="action" value="delete_country">
+                                                    <input type="hidden" name="id" value="<?= (int) $country['id'] ?>">
+                                                    <button class="btn btn-sm btn-danger" type="submit" title="Xóa" aria-label="Xóa">
+                                                        <i data-lucide="trash-2" style="width:16px;height:16px"></i>
+                                                    </button>
+                                                </form>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                <?php endforeach; ?>
+                                <?php if (!$countries): ?>
                                     <tr><td colspan="5" class="text-center muted-text py-4">Chưa có dữ liệu.</td></tr>
                                 <?php endif; ?>
                                 </tbody>
