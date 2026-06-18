@@ -762,10 +762,6 @@ $dashboardCards = [
         <aside class="col-lg-2 dashboard-sidebar m-3 p-3 align-self-start">
             <div class="dashboard-brand d-flex align-items-center gap-3 mb-3">
                 <img class="brand-mark" src="carrot_28.png" alt="Carrot Admin">
-                <div>
-                    <div class="dashboard-brand-title">Carrot Admin</div>
-                    <div class="dashboard-brand-subtitle">Dashboard</div>
-                </div>
             </div>
             <div class="list-group dashboard-nav">
                 <a class="list-group-item list-group-item-action <?= $section === 'apps' ? 'active' : '' ?>" href="index.php?section=apps"><i data-lucide="boxes"></i><span>App</span></a>
