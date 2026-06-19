@@ -84,11 +84,15 @@ $results[] = install_run_step('CarrotCoc visit daily IP table', static function 
         throw new RuntimeException($cocError ?? 'Không thể kết nối CarrotCoc database.');
     }
 
-    admin_ensure_visit_daily_ip_table($cocPdo);
+    admin_ensure_visit_daily_ip_table($cocPdo, 'coc');
 });
 
 $results[] = install_run_step('CarrotHome page table', static function (): void {
     admin_ensure_page_table(install_carrot_home_pdo());
+});
+
+$results[] = install_run_step('CarrotHome visit daily IP table', static function (): void {
+    admin_ensure_visit_daily_ip_table(install_carrot_home_pdo(), 'home');
 });
 
 $hasError = array_reduce($results, static fn(bool $carry, array $result): bool => $carry || $result['status'] !== 'success', false);

@@ -98,11 +98,13 @@ function admin_ensure_country_table(PDO $pdo): void
     }
 }
 
-function admin_ensure_visit_daily_ip_table(PDO $pdo): void
+function admin_ensure_visit_daily_ip_table(PDO $pdo, string $defaultSite = 'web'): void
 {
+    $defaultSite = preg_replace('/[^a-z0-9_-]/i', '', $defaultSite) ?: 'web';
     $pdo->exec("
         CREATE TABLE IF NOT EXISTS visit_daily_ip (
           id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+          site VARCHAR(32) NOT NULL DEFAULT '{$defaultSite}',
           visit_date DATE NOT NULL,
           ip_address VARBINARY(16) NOT NULL,
           ip_text VARCHAR(45) NOT NULL,
@@ -115,11 +117,52 @@ function admin_ensure_visit_daily_ip_table(PDO $pdo): void
           created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
           updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
           PRIMARY KEY (id),
-          UNIQUE KEY uq_visit_daily_ip (visit_date, ip_address),
+          UNIQUE KEY uq_visit_daily_ip (site, visit_date, ip_address),
+          KEY idx_visit_site_date (site, visit_date),
           KEY idx_visit_date (visit_date),
           KEY idx_visit_last_seen_at (last_seen_at)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     ");
+
+    $columns = $pdo->query('SHOW COLUMNS FROM visit_daily_ip')->fetchAll(PDO::FETCH_ASSOC);
+    $hasSite = false;
+    foreach ($columns as $column) {
+        if (($column['Field'] ?? '') === 'site') {
+            $hasSite = true;
+            break;
+        }
+    }
+
+    if (!$hasSite) {
+        $pdo->exec("ALTER TABLE visit_daily_ip ADD site VARCHAR(32) NOT NULL DEFAULT '{$defaultSite}' AFTER id");
+    }
+
+    $indexes = $pdo->query('SHOW INDEX FROM visit_daily_ip')->fetchAll(PDO::FETCH_ASSOC);
+    $uniqueColumns = [];
+    foreach ($indexes as $index) {
+        if (($index['Key_name'] ?? '') === 'uq_visit_daily_ip') {
+            $uniqueColumns[(int) ($index['Seq_in_index'] ?? 0)] = $index['Column_name'] ?? '';
+        }
+    }
+    ksort($uniqueColumns);
+
+    if (array_values($uniqueColumns) !== ['site', 'visit_date', 'ip_address']) {
+        if ($uniqueColumns) {
+            $pdo->exec('ALTER TABLE visit_daily_ip DROP INDEX uq_visit_daily_ip');
+        }
+        $pdo->exec('ALTER TABLE visit_daily_ip ADD UNIQUE KEY uq_visit_daily_ip (site, visit_date, ip_address)');
+    }
+
+    $hasSiteDateIndex = false;
+    foreach ($indexes as $index) {
+        if (($index['Key_name'] ?? '') === 'idx_visit_site_date') {
+            $hasSiteDateIndex = true;
+            break;
+        }
+    }
+    if (!$hasSiteDateIndex) {
+        $pdo->exec('ALTER TABLE visit_daily_ip ADD KEY idx_visit_site_date (site, visit_date)');
+    }
 }
 
 function admin_country_seed_rows(): array

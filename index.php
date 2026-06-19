@@ -90,6 +90,18 @@ $dashboardMetrics = [
     'bank' => 0,
     'country' => 0,
 ];
+$trafficMetrics = [
+    'coc' => [],
+    'home' => [],
+    'total' => [
+        'today_unique' => 0,
+        'today_hits' => 0,
+        'week_unique' => 0,
+        'week_hits' => 0,
+        'total_unique' => 0,
+        'total_hits' => 0,
+    ],
+];
 $accountSort = 'id';
 $accountDir = 'DESC';
 $orderSort = 'created_at';
@@ -355,6 +367,63 @@ function admin_safe_count_table(?PDO $pdo, string $table): int
     }
 }
 
+function admin_empty_visit_metrics(): array
+{
+    return [
+        'today_unique' => 0,
+        'today_hits' => 0,
+        'week_unique' => 0,
+        'week_hits' => 0,
+        'total_unique' => 0,
+        'total_hits' => 0,
+    ];
+}
+
+function admin_visit_metrics(?PDO $pdo, string $site): array
+{
+    if (!$pdo instanceof PDO) {
+        return admin_empty_visit_metrics();
+    }
+
+    try {
+        $stmt = $pdo->prepare("
+            SELECT
+              SUM(CASE WHEN visit_date = CURRENT_DATE THEN 1 ELSE 0 END) AS today_unique,
+              SUM(CASE WHEN visit_date = CURRENT_DATE THEN hits ELSE 0 END) AS today_hits,
+              SUM(CASE WHEN visit_date >= DATE_SUB(CURRENT_DATE, INTERVAL 6 DAY) THEN 1 ELSE 0 END) AS week_unique,
+              SUM(CASE WHEN visit_date >= DATE_SUB(CURRENT_DATE, INTERVAL 6 DAY) THEN hits ELSE 0 END) AS week_hits,
+              COUNT(*) AS total_unique,
+              COALESCE(SUM(hits), 0) AS total_hits
+            FROM visit_daily_ip
+            WHERE site = :site
+        ");
+        $stmt->execute([':site' => $site]);
+        $row = $stmt->fetch() ?: [];
+    } catch (Throwable $e) {
+        return admin_empty_visit_metrics();
+    }
+
+    return [
+        'today_unique' => (int) ($row['today_unique'] ?? 0),
+        'today_hits' => (int) ($row['today_hits'] ?? 0),
+        'week_unique' => (int) ($row['week_unique'] ?? 0),
+        'week_hits' => (int) ($row['week_hits'] ?? 0),
+        'total_unique' => (int) ($row['total_unique'] ?? 0),
+        'total_hits' => (int) ($row['total_hits'] ?? 0),
+    ];
+}
+
+function admin_sum_visit_metrics(array $items): array
+{
+    $total = admin_empty_visit_metrics();
+    foreach ($items as $item) {
+        foreach ($total as $key => $value) {
+            $total[$key] += (int) ($item[$key] ?? 0);
+        }
+    }
+    return $total;
+}
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'ajax_upload') {
     admin_ajax_upload();
 }
@@ -374,11 +443,16 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages'], true)) {
             $dashboardMetrics['coc'] = admin_safe_count_table($pdo, 'coc');
             $dashboardMetrics['bank'] = admin_safe_count_table($pdo, 'bank');
             $dashboardMetrics['country'] = admin_safe_count_table($pdo, 'country');
+            $overviewHomePdo = null;
             try {
-                $dashboardMetrics['pages'] = admin_safe_count_table(admin_home_pdo(), 'page');
+                $overviewHomePdo = admin_home_pdo();
+                $dashboardMetrics['pages'] = admin_safe_count_table($overviewHomePdo, 'page');
             } catch (Throwable $e) {
                 $dashboardMetrics['pages'] = 0;
             }
+            $trafficMetrics['coc'] = admin_visit_metrics($pdo, 'coc');
+            $trafficMetrics['home'] = admin_visit_metrics($overviewHomePdo, 'home');
+            $trafficMetrics['total'] = admin_sum_visit_metrics([$trafficMetrics['coc'], $trafficMetrics['home']]);
         }
 
         if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -700,6 +774,12 @@ $dashboardCards = [
     ['label' => 'Coc', 'value' => $dashboardMetrics['coc'], 'icon' => 'shield'],
     ['label' => 'Bank', 'value' => $dashboardMetrics['bank'], 'icon' => 'landmark'],
     ['label' => 'Country', 'value' => $dashboardMetrics['country'], 'icon' => 'globe-2'],
+    ['label' => 'IP hôm nay', 'value' => $trafficMetrics['total']['today_unique'], 'icon' => 'activity'],
+];
+$trafficRows = [
+    ['label' => 'COC Shop', 'url' => 'https://coc.carrot28.com/', 'metrics' => $trafficMetrics['coc']],
+    ['label' => 'CarrotHome', 'url' => 'https://home.carrot28.com/', 'metrics' => $trafficMetrics['home']],
+    ['label' => 'Tổng cộng', 'url' => '', 'metrics' => $trafficMetrics['total']],
 ];
 ?>
 <!doctype html>
@@ -743,6 +823,10 @@ $dashboardCards = [
         .dashboard-uptime .dashboard-card-label{color:#cbd5e1}
         .dashboard-uptime .dashboard-card-icon{background:rgba(255,255,255,.12);color:#fff}
         .dashboard-uptime-start{font-size:.78rem;color:#cbd5e1}
+        .overview-panel-title{display:flex;align-items:center;gap:.6rem;font-weight:850}
+        .overview-panel-title i{width:18px;height:18px}
+        .traffic-site-link{font-weight:800;color:#172033;text-decoration:none}
+        .traffic-site-link:hover{text-decoration:underline}
         .glass-panel,.admin-shell{border:1px solid rgba(15,23,42,.08)!important;border-radius:8px!important;background:rgba(255,255,255,.96)!important;box-shadow:0 14px 36px rgba(15,23,42,.06)!important}
         .table{--bs-table-bg:transparent}
         .table thead th{color:#64748b;font-size:.78rem;text-transform:uppercase}
@@ -818,6 +902,48 @@ $dashboardCards = [
                     <div class="dashboard-uptime-start mt-2">Start: <?= htmlspecialchars(date('Y-m-d H:i:s', $serverRuntime['started_at'])) ?></div>
                 </div>
                 <?php endif; ?>
+            </div>
+
+            <div class="glass-panel p-4 mb-4">
+                <div class="d-flex flex-wrap align-items-center justify-content-between gap-3 mb-3">
+                    <h2 class="h5 mb-0 overview-panel-title"><i data-lucide="chart-no-axes-combined"></i><span>Lưu lượng truy cập</span></h2>
+                    <span class="dashboard-eyebrow fw-bold">IP không lặp trong ngày</span>
+                </div>
+                <div class="table-responsive-sm">
+                    <table class="table table-striped table-hover table-sm align-middle mb-0">
+                        <thead>
+                        <tr>
+                            <th>Site</th>
+                            <th class="text-end">IP hôm nay</th>
+                            <th class="text-end">Hits hôm nay</th>
+                            <th class="text-end">IP 7 ngày</th>
+                            <th class="text-end">Hits 7 ngày</th>
+                            <th class="text-end">Tổng IP/ngày</th>
+                            <th class="text-end">Tổng hits</th>
+                        </tr>
+                        </thead>
+                        <tbody>
+                        <?php foreach ($trafficRows as $row): ?>
+                            <?php $metrics = $row['metrics']; ?>
+                            <tr>
+                                <td>
+                                    <?php if ($row['url']): ?>
+                                        <a class="traffic-site-link" href="<?= htmlspecialchars($row['url']) ?>" target="_blank" rel="noopener noreferrer"><?= htmlspecialchars($row['label']) ?></a>
+                                    <?php else: ?>
+                                        <strong><?= htmlspecialchars($row['label']) ?></strong>
+                                    <?php endif; ?>
+                                </td>
+                                <td class="text-end"><?= number_format((int) $metrics['today_unique']) ?></td>
+                                <td class="text-end"><?= number_format((int) $metrics['today_hits']) ?></td>
+                                <td class="text-end"><?= number_format((int) $metrics['week_unique']) ?></td>
+                                <td class="text-end"><?= number_format((int) $metrics['week_hits']) ?></td>
+                                <td class="text-end"><?= number_format((int) $metrics['total_unique']) ?></td>
+                                <td class="text-end"><?= number_format((int) $metrics['total_hits']) ?></td>
+                            </tr>
+                        <?php endforeach; ?>
+                        </tbody>
+                    </table>
+                </div>
             </div>
             <?php endif; ?>
 
