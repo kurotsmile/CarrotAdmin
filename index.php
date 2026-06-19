@@ -71,8 +71,8 @@ require __DIR__ . '/../CarrotCoc/includes/coc_helpers.php';
 
 $message = '';
 $error = '';
-$allowedSections = ['apps', 'pages', 'bank', 'coc', 'country'];
-$section = in_array($_GET['section'] ?? 'coc', $allowedSections, true) ? ($_GET['section'] ?? 'coc') : 'coc';
+$allowedSections = ['overview', 'apps', 'pages', 'bank', 'coc', 'country'];
+$section = in_array($_GET['section'] ?? 'overview', $allowedSections, true) ? ($_GET['section'] ?? 'overview') : 'overview';
 $editKey = trim($_GET['edit'] ?? '');
 $editId = isset($_GET['edit']) ? (int) $_GET['edit'] : 0;
 $cocTab = ($_GET['tab'] ?? 'accounts') === 'orders' ? 'orders' : 'accounts';
@@ -102,7 +102,7 @@ $bankSort = 'id';
 $bankDir = 'DESC';
 $countrySort = 'id';
 $countryDir = 'DESC';
-$serverRuntime = admin_server_runtime();
+$serverRuntime = null;
 
 function admin_nas_upload_endpoint(): string
 {
@@ -359,7 +359,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'ajax_
     admin_ajax_upload();
 }
 
-if (!$pdo instanceof PDO && $section !== 'pages') {
+if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages'], true)) {
     $error = 'Không thể kết nối database: ' . ($db_error ?? 'unknown error');
 } else {
     try {
@@ -368,14 +368,17 @@ if (!$pdo instanceof PDO && $section !== 'pages') {
             $homePdo = admin_home_pdo();
         }
 
-        $dashboardMetrics['apps'] = admin_safe_count_table($pdo, 'app');
-        $dashboardMetrics['coc'] = admin_safe_count_table($pdo, 'coc');
-        $dashboardMetrics['bank'] = admin_safe_count_table($pdo, 'bank');
-        $dashboardMetrics['country'] = admin_safe_count_table($pdo, 'country');
-        try {
-            $dashboardMetrics['pages'] = admin_safe_count_table($homePdo instanceof PDO ? $homePdo : admin_home_pdo(), 'page');
-        } catch (Throwable $e) {
-            $dashboardMetrics['pages'] = 0;
+        if ($section === 'overview') {
+            $serverRuntime = admin_server_runtime();
+            $dashboardMetrics['apps'] = admin_safe_count_table($pdo, 'app');
+            $dashboardMetrics['coc'] = admin_safe_count_table($pdo, 'coc');
+            $dashboardMetrics['bank'] = admin_safe_count_table($pdo, 'bank');
+            $dashboardMetrics['country'] = admin_safe_count_table($pdo, 'country');
+            try {
+                $dashboardMetrics['pages'] = admin_safe_count_table(admin_home_pdo(), 'page');
+            } catch (Throwable $e) {
+                $dashboardMetrics['pages'] = 0;
+            }
         }
 
         if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -688,9 +691,9 @@ if (!$pdo instanceof PDO && $section !== 'pages') {
 }
 
 $photoText = ($section === 'coc' && $editing) ? implode("\n", coc_decode_photos($editing['photos'])) : '';
-$pageTitle = ['apps' => 'App', 'pages' => 'Page', 'bank' => 'Bank', 'coc' => 'Coc', 'country' => 'Country'][$section] ?? 'Coc';
-$sectionLabels = ['apps' => 'ứng dụng', 'pages' => 'Page/SEO', 'bank' => 'ngân hàng', 'coc' => 'shop', 'country' => 'quốc gia hỗ trợ'];
-$sectionTitles = ['apps' => 'App Carrot Home', 'pages' => 'Page Carrot Home', 'bank' => 'Bank', 'coc' => 'Acc Clash of Clans', 'country' => 'Country'];
+$pageTitle = ['overview' => 'Tổng quan', 'apps' => 'App', 'pages' => 'Page', 'bank' => 'Bank', 'coc' => 'Coc', 'country' => 'Country'][$section] ?? 'Tổng quan';
+$sectionLabels = ['overview' => 'tổng quan', 'apps' => 'ứng dụng', 'pages' => 'Page/SEO', 'bank' => 'ngân hàng', 'coc' => 'shop', 'country' => 'quốc gia hỗ trợ'];
+$sectionTitles = ['overview' => 'Tổng quan', 'apps' => 'App Carrot Home', 'pages' => 'Page Carrot Home', 'bank' => 'Bank', 'coc' => 'Acc Clash of Clans', 'country' => 'Country'];
 $dashboardCards = [
     ['label' => 'App', 'value' => $dashboardMetrics['apps'], 'icon' => 'boxes'],
     ['label' => 'Page', 'value' => $dashboardMetrics['pages'], 'icon' => 'file-text'],
@@ -764,9 +767,10 @@ $dashboardCards = [
                 <img class="brand-mark" src="carrot_28.png" alt="Carrot Admin">
             </div>
             <div class="list-group dashboard-nav">
+                <a class="list-group-item list-group-item-action <?= $section === 'overview' ? 'active' : '' ?>" href="index.php"><i data-lucide="layout-dashboard"></i><span>Tổng quan</span></a>
                 <a class="list-group-item list-group-item-action <?= $section === 'apps' ? 'active' : '' ?>" href="index.php?section=apps"><i data-lucide="boxes"></i><span>App</span></a>
                 <a class="list-group-item list-group-item-action <?= $section === 'pages' ? 'active' : '' ?>" href="index.php?section=pages"><i data-lucide="file-text"></i><span>Page</span></a>
-                <a class="list-group-item list-group-item-action <?= $section === 'coc' ? 'active' : '' ?>" href="index.php"><i data-lucide="shield"></i><span>Coc</span></a>
+                <a class="list-group-item list-group-item-action <?= $section === 'coc' ? 'active' : '' ?>" href="index.php?section=coc"><i data-lucide="shield"></i><span>Coc</span></a>
                 <a class="list-group-item list-group-item-action <?= $section === 'bank' ? 'active' : '' ?>" href="index.php?section=bank"><i data-lucide="landmark"></i><span>Bank</span></a>
                 <a class="list-group-item list-group-item-action <?= $section === 'country' ? 'active' : '' ?>" href="index.php?section=country"><i data-lucide="globe-2"></i><span>Country</span></a>
             </div>
@@ -784,7 +788,7 @@ $dashboardCards = [
                             <a class="btn btn-secondary fw-bold" href="https://coc.carrot28.com/" target="_blank" rel="noopener noreferrer">Xem shop</a>
                         <?php endif; ?>
                         <?php if ($editing): ?>
-                            <a class="btn btn-success fw-bold" href="index.php<?= $section === 'apps' ? '?section=apps' : ($section === 'pages' ? '?section=pages' : ($section === 'bank' ? '?section=bank' : ($section === 'country' ? '?section=country' : ''))) ?>">Thêm mới</a>
+                            <a class="btn btn-success fw-bold" href="index.php<?= $section === 'apps' ? '?section=apps' : ($section === 'pages' ? '?section=pages' : ($section === 'bank' ? '?section=bank' : ($section === 'country' ? '?section=country' : '?section=coc'))) ?>">Thêm mới</a>
                         <?php endif; ?>
                         <a class="btn btn-danger fw-bold" href="index.php?logout=1" title="Đăng xuất">
                             <span class="d-inline-flex align-items-center gap-2"><i data-lucide="log-out" style="width:16px;height:16px"></i><?= htmlspecialchars($_SESSION['admin_user']) ?></span>
@@ -793,6 +797,7 @@ $dashboardCards = [
                 </div>
             </div>
 
+            <?php if ($section === 'overview'): ?>
             <div class="dashboard-grid mb-4">
                 <?php foreach ($dashboardCards as $card): ?>
                     <div class="dashboard-card">
@@ -803,6 +808,7 @@ $dashboardCards = [
                         <div class="dashboard-card-value"><?= number_format((int) $card['value']) ?></div>
                     </div>
                 <?php endforeach; ?>
+                <?php if (is_array($serverRuntime)): ?>
                 <div class="dashboard-card dashboard-uptime">
                     <div class="d-flex align-items-center justify-content-between gap-3 mb-3">
                         <div class="dashboard-card-label">XAMPP uptime</div>
@@ -811,7 +817,9 @@ $dashboardCards = [
                     <div class="dashboard-card-value font-monospace" id="server_uptime" data-started-at="<?= (int) $serverRuntime['started_at'] ?>"><?= htmlspecialchars(admin_format_uptime($serverRuntime['uptime_seconds'])) ?></div>
                     <div class="dashboard-uptime-start mt-2">Start: <?= htmlspecialchars(date('Y-m-d H:i:s', $serverRuntime['started_at'])) ?></div>
                 </div>
+                <?php endif; ?>
             </div>
+            <?php endif; ?>
 
             <?php if ($message): ?><div class="alert alert-success"><?= htmlspecialchars($message) ?></div><?php endif; ?>
             <?php if ($error): ?><div class="alert alert-warning"><?= htmlspecialchars($error) ?></div><?php endif; ?>
@@ -819,10 +827,10 @@ $dashboardCards = [
             <?php if ($section === 'coc'): ?>
             <ul class="nav nav-tabs mb-4">
                 <li class="nav-item">
-                    <a class="nav-link <?= $cocTab === 'accounts' ? 'active' : '' ?>" href="index.php?tab=accounts">Các Tài khoản</a>
+                    <a class="nav-link <?= $cocTab === 'accounts' ? 'active' : '' ?>" href="index.php?section=coc&tab=accounts">Các Tài khoản</a>
                 </li>
                 <li class="nav-item">
-                    <a class="nav-link <?= $cocTab === 'orders' ? 'active' : '' ?>" href="index.php?tab=orders">Đơn Đặt hàng</a>
+                    <a class="nav-link <?= $cocTab === 'orders' ? 'active' : '' ?>" href="index.php?section=coc&tab=orders">Đơn Đặt hàng</a>
                 </li>
             </ul>
 
@@ -919,7 +927,7 @@ $dashboardCards = [
                                         <td><?= coc_money($account['price']) ?></td>
                                         <td class="text-end">
                                             <div class="d-inline-flex align-items-center justify-content-end gap-2 flex-nowrap">
-                                                <a class="btn btn-sm btn-warning" href="index.php?edit=<?= (int) $account['id'] ?>" title="Cập nhật" aria-label="Cập nhật">
+                                                <a class="btn btn-sm btn-warning" href="index.php?section=coc&edit=<?= (int) $account['id'] ?>" title="Cập nhật" aria-label="Cập nhật">
                                                     <i data-lucide="pencil" style="width:16px;height:16px"></i>
                                                 </a>
                                                 <form class="js-delete" method="post" data-confirm="Xóa acc này?">

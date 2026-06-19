@@ -98,6 +98,30 @@ function admin_ensure_country_table(PDO $pdo): void
     }
 }
 
+function admin_ensure_visit_daily_ip_table(PDO $pdo): void
+{
+    $pdo->exec("
+        CREATE TABLE IF NOT EXISTS visit_daily_ip (
+          id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+          visit_date DATE NOT NULL,
+          ip_address VARBINARY(16) NOT NULL,
+          ip_text VARCHAR(45) NOT NULL,
+          first_seen_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          last_seen_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          hits INT UNSIGNED NOT NULL DEFAULT 1,
+          user_agent VARCHAR(512) DEFAULT NULL,
+          referer VARCHAR(1024) DEFAULT NULL,
+          request_path VARCHAR(1024) DEFAULT NULL,
+          created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+          PRIMARY KEY (id),
+          UNIQUE KEY uq_visit_daily_ip (visit_date, ip_address),
+          KEY idx_visit_date (visit_date),
+          KEY idx_visit_last_seen_at (last_seen_at)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    ");
+}
+
 function admin_country_seed_rows(): array
 {
     return [

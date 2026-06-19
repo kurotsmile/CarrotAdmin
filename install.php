@@ -79,6 +79,14 @@ $results[] = install_run_step('CarrotCoc country seed data', static function () 
     return admin_seed_country_table($cocPdo) . ' countries';
 });
 
+$results[] = install_run_step('CarrotCoc visit daily IP table', static function () use ($cocPdo, $cocError): void {
+    if (!$cocPdo instanceof PDO) {
+        throw new RuntimeException($cocError ?? 'Không thể kết nối CarrotCoc database.');
+    }
+
+    admin_ensure_visit_daily_ip_table($cocPdo);
+});
+
 $results[] = install_run_step('CarrotHome page table', static function (): void {
     admin_ensure_page_table(install_carrot_home_pdo());
 });
