@@ -86,6 +86,7 @@ $banks = [];
 $countries = [];
 $languageOptions = [];
 $labelTranslationMap = [];
+$labelKeyOptions = [];
 $textLabels = [];
 $orders = [];
 $dashboardMetrics = [
@@ -941,6 +942,8 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages'], true)) {
                     $labelTranslationMap[$labelKey][$langKey] = (string) ($label['value'] ?? '');
                 }
             }
+            $labelKeyOptions = array_keys($labelTranslationMap);
+            sort($labelKeyOptions, SORT_NATURAL | SORT_FLAG_CASE);
         }
     } catch (Throwable $e) {
         $error = $e->getMessage();
@@ -951,6 +954,7 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages'], true)) {
         $countries = [];
         $languageOptions = [];
         $labelTranslationMap = [];
+        $labelKeyOptions = [];
         $textLabels = [];
         $orders = [];
     }
@@ -986,7 +990,15 @@ $trafficRows = [
     <link rel="manifest" href="favicon/site.webmanifest">
     <link rel="shortcut icon" href="favicon/favicon.ico">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <?php if ($section === 'country' && $countryTab === 'labels'): ?>
+    <link href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/select2-bootstrap-5-theme@1.3.0/dist/select2-bootstrap-5-theme.min.css" rel="stylesheet">
+    <?php endif; ?>
     <link href="/CarrotCoc/assets/css/style.css" rel="stylesheet">
+    <?php if ($section === 'country' && $countryTab === 'labels'): ?>
+    <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
+    <?php endif; ?>
     <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
     <style>
@@ -1815,13 +1827,24 @@ $trafficRows = [
 
                         <div class="mb-3">
                             <label class="form-label" for="label_key">Key</label>
-                            <input class="form-control font-monospace" id="label_key" name="key" maxlength="120" placeholder="nav.explore" value="<?= htmlspecialchars($editingLabel['key'] ?? '') ?>" required>
+                            <?php $labelKeyValue = (string) ($editingLabel['key'] ?? ''); ?>
+                            <select class="form-control font-monospace js-label-key-select" id="label_key" name="key" required>
+                                <?php if ($labelKeyValue === ''): ?>
+                                    <option value=""></option>
+                                <?php endif; ?>
+                                <?php if ($labelKeyValue !== '' && !in_array($labelKeyValue, $labelKeyOptions, true)): ?>
+                                    <option value="<?= htmlspecialchars($labelKeyValue) ?>" selected><?= htmlspecialchars($labelKeyValue) ?></option>
+                                <?php endif; ?>
+                                <?php foreach ($labelKeyOptions as $labelKeyOption): ?>
+                                    <option value="<?= htmlspecialchars($labelKeyOption) ?>" <?= $labelKeyOption === $labelKeyValue ? 'selected' : '' ?>><?= htmlspecialchars($labelKeyOption) ?></option>
+                                <?php endforeach; ?>
+                            </select>
                         </div>
 
                         <div class="mb-3">
                             <label class="form-label" for="label_lang_key">Lang key</label>
                             <?php $labelLangValue = (string) ($editingLabel['lang_key'] ?? 'vi'); ?>
-                            <select class="form-control" id="label_lang_key" name="lang_key" required>
+                            <select class="form-control js-label-lang-select" id="label_lang_key" name="lang_key" required>
                                 <option value="">Chọn lang</option>
                                 <?= admin_language_select_options($languageOptions, $labelLangValue) ?>
                             </select>
@@ -2063,6 +2086,34 @@ document.querySelectorAll('.js-label-translations').forEach((button) => {
         }
     });
 });
+
+if (window.jQuery && jQuery.fn.select2) {
+    jQuery('.js-label-key-select').select2({
+        theme: 'bootstrap-5',
+        tags: true,
+        width: '100%',
+        placeholder: 'Chọn hoặc nhập key mới',
+        allowClear: true,
+        createTag: (params) => {
+            const term = jQuery.trim(params.term || '');
+            if (!term) {
+                return null;
+            }
+
+            return {
+                id: term,
+                text: term,
+                newTag: true,
+            };
+        },
+    });
+
+    jQuery('.js-label-lang-select').select2({
+        theme: 'bootstrap-5',
+        width: '100%',
+        placeholder: 'Chọn lang',
+    });
+}
 
 const pageEditor = document.getElementById('page_content_editor');
 const pageEditorSource = document.getElementById('page_content_html');
