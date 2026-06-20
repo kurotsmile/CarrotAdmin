@@ -1372,7 +1372,7 @@ $trafficRows = [
                                         <td class="text-end">
                                             <div class="d-inline-flex align-items-center justify-content-end gap-2 flex-nowrap">
                                                 <?php if (($page['status'] ?? '') === 'public'): ?>
-                                                    <a class="btn btn-sm btn-secondary" href="/index.php?page=<?= urlencode($page['slug']) ?>&lang=<?= urlencode($page['lang']) ?>" target="_blank" rel="noopener noreferrer" title="Xem page" aria-label="Xem page">
+                                                    <a class="btn btn-sm btn-secondary" href="https://home.carrot28.com/index.php?page=<?= urlencode($page['slug']) ?>&lang=<?= urlencode($page['lang']) ?>" target="_blank" rel="noopener noreferrer" title="Xem page" aria-label="Xem page">
                                                         <i data-lucide="external-link" style="width:16px;height:16px"></i>
                                                     </a>
                                                 <?php endif; ?>
