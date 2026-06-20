@@ -87,6 +87,7 @@ $countries = [];
 $languageOptions = [];
 $labelTranslationMap = [];
 $labelKeyOptions = [];
+$pageSlugOptions = [];
 $textLabels = [];
 $orders = [];
 $dashboardMetrics = [
@@ -990,6 +991,10 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages'], true)) {
         $pages = $section === 'pages'
             ? $homePdo->query('SELECT * FROM page ORDER BY ' . admin_order_by($pageSortColumns, $pageSort, $pageDir) . ', id DESC')->fetchAll()
             : [];
+        if ($section === 'pages') {
+            $pageSlugOptions = array_values(array_unique(array_filter(array_map(static fn(array $page): string => (string) ($page['slug'] ?? ''), $pages))));
+            sort($pageSlugOptions, SORT_NATURAL | SORT_FLAG_CASE);
+        }
         $banks = $section === 'bank'
             ? $pdo->query('SELECT * FROM bank ORDER BY ' . admin_order_by($bankSortColumns, $bankSort, $bankDir))->fetchAll()
             : [];
@@ -1020,6 +1025,7 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages'], true)) {
         $languageOptions = [];
         $labelTranslationMap = [];
         $labelKeyOptions = [];
+        $pageSlugOptions = [];
         $textLabels = [];
         $orders = [];
         $trafficIpRows = [];
@@ -1043,6 +1049,7 @@ $trafficRows = [
     ['label' => 'CarrotHome', 'url' => 'https://home.carrot28.com/', 'metrics' => $trafficMetrics['home']],
     ['label' => 'Tổng cộng', 'url' => '', 'metrics' => $trafficMetrics['total']],
 ];
+$useSelect2 = $section === 'pages' || ($section === 'country' && $countryTab === 'labels');
 ?>
 <!doctype html>
 <html lang="vi">
@@ -1056,12 +1063,12 @@ $trafficRows = [
     <link rel="manifest" href="favicon/site.webmanifest">
     <link rel="shortcut icon" href="favicon/favicon.ico">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
-    <?php if ($section === 'country' && $countryTab === 'labels'): ?>
+    <?php if ($useSelect2): ?>
     <link href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/select2-bootstrap-5-theme@1.3.0/dist/select2-bootstrap-5-theme.min.css" rel="stylesheet">
     <?php endif; ?>
     <link href="/CarrotCoc/assets/css/style.css" rel="stylesheet">
-    <?php if ($section === 'country' && $countryTab === 'labels'): ?>
+    <?php if ($useSelect2): ?>
     <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
     <?php endif; ?>
@@ -1594,7 +1601,7 @@ $trafficRows = [
                             <div class="col-md-4">
                                 <label class="form-label" for="page_lang">Lang key</label>
                                 <?php $pageLangValue = (string) ($editing['lang'] ?? 'vi'); ?>
-                                <select class="form-control" id="page_lang" name="lang" required>
+                                <select class="form-control js-page-lang-select" id="page_lang" name="lang" required>
                                     <option value="">Chọn lang</option>
                                     <?= admin_language_select_options($languageOptions, $pageLangValue) ?>
                                 </select>
@@ -1604,7 +1611,18 @@ $trafficRows = [
                         <div class="row g-3 mt-0">
                             <div class="col-md-12">
                                 <label class="form-label" for="page_slug">Slug</label>
-                                <input class="form-control" id="page_slug" name="slug" pattern="[a-z0-9]+(-[a-z0-9]+)*" value="<?= htmlspecialchars($editing['slug'] ?? '') ?>" required>
+                                <?php $pageSlugValue = (string) ($editing['slug'] ?? ''); ?>
+                                <select class="form-control font-monospace js-page-slug-select" id="page_slug" name="slug" required>
+                                    <?php if ($pageSlugValue === ''): ?>
+                                        <option value=""></option>
+                                    <?php endif; ?>
+                                    <?php if ($pageSlugValue !== '' && !in_array($pageSlugValue, $pageSlugOptions, true)): ?>
+                                        <option value="<?= htmlspecialchars($pageSlugValue) ?>" selected><?= htmlspecialchars($pageSlugValue) ?></option>
+                                    <?php endif; ?>
+                                    <?php foreach ($pageSlugOptions as $pageSlugOption): ?>
+                                        <option value="<?= htmlspecialchars($pageSlugOption) ?>" <?= $pageSlugOption === $pageSlugValue ? 'selected' : '' ?>><?= htmlspecialchars($pageSlugOption) ?></option>
+                                    <?php endforeach; ?>
+                                </select>
                             </div>
                         </div>
 
@@ -2190,6 +2208,43 @@ document.querySelectorAll('.js-label-translations').forEach((button) => {
 });
 
 if (window.jQuery && jQuery.fn.select2) {
+    const normalizeSlug = (value) => jQuery.trim(value || '')
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-+|-+$/g, '');
+
+    jQuery('.js-page-slug-select').select2({
+        theme: 'bootstrap-5',
+        tags: true,
+        width: '100%',
+        placeholder: 'Chọn hoặc nhập slug mới',
+        allowClear: true,
+        createTag: (params) => {
+            const slug = normalizeSlug(params.term);
+            if (!slug) {
+                return null;
+            }
+
+            return {
+                id: slug,
+                text: slug,
+                newTag: true,
+            };
+        },
+    }).on('select2:select change', function () {
+        const slug = normalizeSlug(this.value);
+        if (slug && slug !== this.value) {
+            const option = new Option(slug, slug, true, true);
+            jQuery(this).append(option).trigger('change.select2');
+        }
+    });
+
+    jQuery('.js-page-lang-select').select2({
+        theme: 'bootstrap-5',
+        width: '100%',
+        placeholder: 'Chọn lang',
+    });
+
     jQuery('.js-label-key-select').select2({
         theme: 'bootstrap-5',
         tags: true,
@@ -2302,6 +2357,7 @@ if (pageSlugInput && pageLangInput && pageIdInput) {
     };
 
     pageSlugInput.addEventListener('input', checkExistingPage);
+    pageSlugInput.addEventListener('change', checkExistingPage);
     pageSlugInput.addEventListener('blur', checkExistingPage);
     pageLangInput.addEventListener('change', checkExistingPage);
 }
