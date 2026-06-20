@@ -84,6 +84,7 @@ $apps = [];
 $pages = [];
 $banks = [];
 $countries = [];
+$languageOptions = [];
 $textLabels = [];
 $orders = [];
 $dashboardMetrics = [
@@ -233,6 +234,54 @@ function admin_fetch_text_label(PDO $pdo, int $id): ?array
     $stmt->execute([$id]);
     $row = $stmt->fetch();
     return $row ?: null;
+}
+
+function admin_fetch_language_options(?PDO $pdo): array
+{
+    if (!$pdo instanceof PDO) {
+        return [];
+    }
+
+    try {
+        return $pdo->query('
+            SELECT lang_key, lang_country, name
+            FROM country
+            ORDER BY name ASC, lang_key ASC
+        ')->fetchAll();
+    } catch (Throwable $e) {
+        return [];
+    }
+}
+
+function admin_language_select_options(array $languageOptions, string $selectedValue): string
+{
+    $html = '';
+    $hasSelectedValue = $selectedValue === '';
+
+    foreach ($languageOptions as $language) {
+        $langKey = (string) ($language['lang_key'] ?? '');
+        if ($langKey === '') {
+            continue;
+        }
+
+        $isSelected = $langKey === $selectedValue;
+        $hasSelectedValue = $hasSelectedValue || $isSelected;
+        $labelParts = [$langKey];
+        if (!empty($language['name'])) {
+            $labelParts[] = (string) $language['name'];
+        } elseif (!empty($language['lang_country'])) {
+            $labelParts[] = (string) $language['lang_country'];
+        }
+
+        $html .= '<option value="' . htmlspecialchars($langKey) . '"' . ($isSelected ? ' selected' : '') . '>' .
+            htmlspecialchars(implode(' - ', $labelParts)) . '</option>';
+    }
+
+    if (!$hasSelectedValue) {
+        $html = '<option value="' . htmlspecialchars($selectedValue) . '" selected>' . htmlspecialchars($selectedValue . ' - Giá trị hiện tại') . '</option>' . $html;
+    }
+
+    return $html;
 }
 
 function admin_home_pdo(): ?PDO
@@ -468,6 +517,10 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages'], true)) {
             $trafficMetrics['total'] = admin_sum_visit_metrics([$trafficMetrics['coc'], $trafficMetrics['home']]);
         }
 
+        if (in_array($section, ['pages', 'country'], true)) {
+            $languageOptions = admin_fetch_language_options($pdo instanceof PDO ? $pdo : null);
+        }
+
         if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $action = $_POST['action'] ?? '';
 
@@ -584,6 +637,10 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages'], true)) {
                     throw new RuntimeException('Status page không hợp lệ.');
                 }
 
+                if ($languageOptions && !in_array($lang, array_column($languageOptions, 'lang_key'), true)) {
+                    throw new RuntimeException('Lang key không có trong danh sách country.');
+                }
+
                 $publishedAt = $publishedAt !== '' ? str_replace('T', ' ', $publishedAt) . (strlen($publishedAt) === 16 ? ':00' : '') : null;
 
                 if ($id > 0) {
@@ -685,6 +742,10 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages'], true)) {
 
                 if (!preg_match('/^[a-z]{2,3}(?:[-_][A-Za-z]{2})?$/', $langKey)) {
                     throw new RuntimeException('Lang key nên có dạng vi, en, en-US hoặc en_US.');
+                }
+
+                if ($languageOptions && !in_array($langKey, array_column($languageOptions, 'lang_key'), true)) {
+                    throw new RuntimeException('Lang key không có trong danh sách country.');
                 }
 
                 if ($id > 0) {
@@ -823,6 +884,7 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages'], true)) {
         $pages = [];
         $banks = [];
         $countries = [];
+        $languageOptions = [];
         $textLabels = [];
         $orders = [];
     }
@@ -1341,7 +1403,11 @@ $trafficRows = [
                             </div>
                             <div class="col-md-4">
                                 <label class="form-label" for="page_lang">Lang key</label>
-                                <input class="form-control" id="page_lang" name="lang" maxlength="12" value="<?= htmlspecialchars($editing['lang'] ?? 'vi') ?>" required>
+                                <?php $pageLangValue = (string) ($editing['lang'] ?? 'vi'); ?>
+                                <select class="form-control" id="page_lang" name="lang" required>
+                                    <option value="">Chọn lang</option>
+                                    <?= admin_language_select_options($languageOptions, $pageLangValue) ?>
+                                </select>
                             </div>
                         </div>
 
@@ -1688,7 +1754,11 @@ $trafficRows = [
 
                         <div class="mb-3">
                             <label class="form-label" for="label_lang_key">Lang key</label>
-                            <input class="form-control" id="label_lang_key" name="lang_key" maxlength="24" placeholder="vi" value="<?= htmlspecialchars($editingLabel['lang_key'] ?? 'vi') ?>" required>
+                            <?php $labelLangValue = (string) ($editingLabel['lang_key'] ?? 'vi'); ?>
+                            <select class="form-control" id="label_lang_key" name="lang_key" required>
+                                <option value="">Chọn lang</option>
+                                <?= admin_language_select_options($languageOptions, $labelLangValue) ?>
+                            </select>
                         </div>
 
                         <div class="mb-3">
