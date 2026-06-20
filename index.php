@@ -126,6 +126,10 @@ $textLabelSort = 'key';
 $textLabelDir = 'ASC';
 $serverRuntime = null;
 
+if (($_GET['duplicate'] ?? '') === 'page') {
+    $message = 'Page với slug và lang này đã tồn tại. Đã mở dữ liệu hiện có để chỉnh sửa.';
+}
+
 function admin_nas_upload_endpoint(): string
 {
     return 'https://nas.carrot28.com/index.php?api=upload_image';
@@ -711,6 +715,12 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages'], true)) {
 
                 if ($languageOptions && !in_array($lang, array_column($languageOptions, 'lang_key'), true)) {
                     throw new RuntimeException('Lang key không có trong danh sách country.');
+                }
+
+                $existingPage = admin_fetch_page_by_slug_lang($homePdo, $slug, $lang);
+                if ($existingPage && (int) $existingPage['id'] !== $id) {
+                    header('Location: index.php?section=pages&edit=' . (int) $existingPage['id'] . '&duplicate=page');
+                    exit;
                 }
 
                 if ($id > 0) {
