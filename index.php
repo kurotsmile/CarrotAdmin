@@ -312,6 +312,19 @@ function admin_fetch_page(PDO $pdo, int $id): ?array
     return $row ?: null;
 }
 
+function admin_fetch_page_by_slug_lang(PDO $pdo, string $slug, string $lang): ?array
+{
+    $stmt = $pdo->prepare('
+        SELECT id, slug, lang, title
+        FROM page
+        WHERE slug = ? AND lang = ?
+        LIMIT 1
+    ');
+    $stmt->execute([$slug, $lang]);
+    $row = $stmt->fetch();
+    return $row ?: null;
+}
+
 function admin_excerpt(?string $text, int $limit = 70): string
 {
     $text = trim((string) $text);
@@ -661,6 +674,21 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages'], true)) {
                 $stmt = $homePdo->prepare('DELETE FROM page WHERE id = ?');
                 $stmt->execute([(int) ($_POST['id'] ?? 0)]);
                 $message = 'Đã xóa page.';
+            }
+
+            if ($section === 'pages' && $action === 'ajax_find_page') {
+                header('Content-Type: application/json; charset=utf-8');
+                $slug = trim($_POST['slug'] ?? '');
+                $lang = trim($_POST['lang'] ?? 'vi');
+
+                if ($slug === '' || $lang === '') {
+                    echo json_encode(['status' => 'success', 'page' => null], JSON_UNESCAPED_UNICODE);
+                    exit;
+                }
+
+                $page = admin_fetch_page_by_slug_lang($homePdo, $slug, $lang);
+                echo json_encode(['status' => 'success', 'page' => $page], JSON_UNESCAPED_UNICODE);
+                exit;
             }
 
             if ($section === 'pages' && $action === 'save_page') {
@@ -2218,6 +2246,64 @@ if (pageEditor && pageEditorSource) {
             pageEditorSource.value = pageEditor.innerHTML.trim();
         });
     }
+}
+
+const pageSlugInput = document.getElementById('page_slug');
+const pageLangInput = document.getElementById('page_lang');
+const pageIdInput = pageSlugInput ? pageSlugInput.closest('form')?.querySelector('input[name="id"]') : null;
+if (pageSlugInput && pageLangInput && pageIdInput) {
+    let pageLookupTimer = null;
+    let lastPageLookup = '';
+
+    const checkExistingPage = () => {
+        window.clearTimeout(pageLookupTimer);
+        pageLookupTimer = window.setTimeout(async () => {
+            const slug = pageSlugInput.value.trim();
+            const lang = pageLangInput.value.trim();
+            const currentId = Number(pageIdInput.value || 0);
+            const lookupKey = `${slug}|${lang}|${currentId}`;
+
+            if (!slug || !lang || lookupKey === lastPageLookup) {
+                return;
+            }
+            lastPageLookup = lookupKey;
+
+            const formData = new FormData();
+            formData.append('action', 'ajax_find_page');
+            formData.append('slug', slug);
+            formData.append('lang', lang);
+
+            try {
+                const response = await fetch('index.php?section=pages', {
+                    method: 'POST',
+                    body: formData,
+                });
+                const payload = await response.json();
+                const page = payload.page || null;
+                if (!response.ok || payload.status !== 'success' || !page || Number(page.id) === currentId) {
+                    return;
+                }
+
+                const result = await Swal.fire({
+                    icon: 'info',
+                    title: 'Page đã tồn tại',
+                    text: `Slug "${slug}" với lang "${lang}" đã có dữ liệu. Mở page này để chỉnh sửa?`,
+                    showCancelButton: true,
+                    confirmButtonText: 'Mở để edit',
+                    cancelButtonText: 'Ở lại',
+                });
+
+                if (result.isConfirmed) {
+                    window.location.href = `index.php?section=pages&edit=${encodeURIComponent(page.id)}`;
+                }
+            } catch (error) {
+            }
+        }, 350);
+    };
+
+    pageSlugInput.addEventListener('input', checkExistingPage);
+    pageSlugInput.addEventListener('blur', checkExistingPage);
+    pageLangInput.addEventListener('change', checkExistingPage);
 }
 
 const serverUptime = document.getElementById('server_uptime');
