@@ -85,6 +85,7 @@ $pages = [];
 $banks = [];
 $countries = [];
 $languageOptions = [];
+$labelTranslationMap = [];
 $textLabels = [];
 $orders = [];
 $dashboardMetrics = [
@@ -758,6 +759,61 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages'], true)) {
                     $message = 'Đã thêm nhãn mới.';
                 }
             }
+
+            if ($section === 'country' && $action === 'save_text_label_batch') {
+                $labelKey = trim($_POST['key'] ?? '');
+                $translations = $_POST['translations'] ?? [];
+
+                if ($labelKey === '') {
+                    throw new RuntimeException('Vui lòng chọn key cần cập nhật.');
+                }
+
+                if (!preg_match('/^[a-z0-9]+(?:[._-][a-z0-9]+)*$/', $labelKey)) {
+                    throw new RuntimeException('Key chỉ dùng chữ thường, số, dấu chấm, gạch ngang hoặc gạch dưới.');
+                }
+
+                if (!is_array($translations)) {
+                    throw new RuntimeException('Danh sách bản dịch không hợp lệ.');
+                }
+
+                $allowedLangKeys = array_column($languageOptions, 'lang_key');
+                $pdo->beginTransaction();
+                try {
+                    foreach ($translations as $langKey => $value) {
+                        $langKey = trim((string) $langKey);
+                        $value = trim((string) $value);
+
+                        if (!in_array($langKey, $allowedLangKeys, true)) {
+                            continue;
+                        }
+
+                        if ($value === '') {
+                            $stmt = $pdo->prepare('DELETE FROM text_label WHERE `key` = ? AND lang_key = ?');
+                            $stmt->execute([$labelKey, $langKey]);
+                            continue;
+                        }
+
+                        $stmt = $pdo->prepare('
+                            INSERT INTO text_label (`key`, lang_key, value)
+                            VALUES (?, ?, ?)
+                            ON DUPLICATE KEY UPDATE value = VALUES(value)
+                        ');
+                        $stmt->execute([$labelKey, $langKey, $value]);
+                    }
+                    $pdo->commit();
+                } catch (Throwable $e) {
+                    $pdo->rollBack();
+                    throw $e;
+                }
+
+                if (($_POST['ajax'] ?? '') === '1') {
+                    header('Content-Type: application/json; charset=utf-8');
+                    echo json_encode(['status' => 'success', 'message' => 'Đã cập nhật danh sách phiên dịch.'], JSON_UNESCAPED_UNICODE);
+                    exit;
+                }
+
+                $message = 'Đã cập nhật danh sách phiên dịch.';
+            }
         }
 
         if ($section === 'coc' && $editId > 0) {
@@ -877,6 +933,15 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages'], true)) {
         $textLabels = ($section === 'country' && $countryTab === 'labels')
             ? $pdo->query('SELECT * FROM text_label ORDER BY ' . admin_order_by($textLabelSortColumns, $textLabelSort, $textLabelDir) . ', lang_key ASC')->fetchAll()
             : [];
+        if ($section === 'country' && $countryTab === 'labels') {
+            foreach ($textLabels as $label) {
+                $labelKey = (string) ($label['key'] ?? '');
+                $langKey = (string) ($label['lang_key'] ?? '');
+                if ($labelKey !== '' && $langKey !== '') {
+                    $labelTranslationMap[$labelKey][$langKey] = (string) ($label['value'] ?? '');
+                }
+            }
+        }
     } catch (Throwable $e) {
         $error = $e->getMessage();
         $accounts = [];
@@ -885,6 +950,7 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages'], true)) {
         $banks = [];
         $countries = [];
         $languageOptions = [];
+        $labelTranslationMap = [];
         $textLabels = [];
         $orders = [];
     }
@@ -1793,6 +1859,9 @@ $trafficRows = [
                                         <td><?= htmlspecialchars(admin_excerpt($label['value'], 90)) ?></td>
                                         <td class="text-end">
                                             <div class="d-inline-flex align-items-center justify-content-end gap-2 flex-nowrap">
+                                                <button class="btn btn-sm btn-secondary js-label-translations" type="button" data-label-key="<?= htmlspecialchars($label['key']) ?>" title="Dịch nhanh theo country" aria-label="Dịch nhanh theo country">
+                                                    <i data-lucide="table-2" style="width:16px;height:16px"></i>
+                                                </button>
                                                 <a class="btn btn-sm btn-warning" href="index.php?section=country&tab=labels&edit=<?= (int) $label['id'] ?>" title="Cập nhật" aria-label="Cập nhật">
                                                     <i data-lucide="pencil" style="width:16px;height:16px"></i>
                                                 </a>
@@ -1905,6 +1974,93 @@ document.querySelectorAll('.js-upload').forEach((button) => {
             timer: 1600,
             showConfirmButton: false,
         });
+    });
+});
+
+const labelLanguages = <?= json_encode($languageOptions, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?>;
+const labelTranslations = <?= json_encode($labelTranslationMap, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?>;
+const escapeHtml = (value) => String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+
+document.querySelectorAll('.js-label-translations').forEach((button) => {
+    button.addEventListener('click', async () => {
+        const labelKey = button.dataset.labelKey || '';
+        const currentTranslations = labelTranslations[labelKey] || {};
+        const rows = labelLanguages.map((language) => {
+            const langKey = language.lang_key || '';
+            const countryName = language.name || language.lang_country || '';
+            return `
+                <tr>
+                    <td class="text-start font-monospace small">${escapeHtml(langKey)}</td>
+                    <td class="text-start">${escapeHtml(countryName)}</td>
+                    <td>
+                        <textarea class="form-control form-control-sm js-translation-input" data-lang-key="${escapeHtml(langKey)}" rows="2">${escapeHtml(currentTranslations[langKey] || '')}</textarea>
+                    </td>
+                </tr>
+            `;
+        }).join('');
+
+        const result = await Swal.fire({
+            title: `Dịch nhanh: ${labelKey}`,
+            html: `
+                <div class="table-responsive" style="max-height:60vh">
+                    <table class="table table-sm align-middle">
+                        <thead>
+                            <tr>
+                                <th class="text-start">Lang</th>
+                                <th class="text-start">Country</th>
+                                <th class="text-start">Value</th>
+                            </tr>
+                        </thead>
+                        <tbody>${rows || '<tr><td colspan="3" class="text-center text-muted py-4">Chưa có country/lang.</td></tr>'}</tbody>
+                    </table>
+                </div>
+            `,
+            width: 'min(920px, 96vw)',
+            showCancelButton: true,
+            confirmButtonText: 'Lưu tất cả',
+            cancelButtonText: 'Hủy',
+            focusConfirm: false,
+            preConfirm: async () => {
+                const formData = new FormData();
+                formData.append('action', 'save_text_label_batch');
+                formData.append('ajax', '1');
+                formData.append('key', labelKey);
+
+                document.querySelectorAll('.swal2-container .js-translation-input').forEach((input) => {
+                    formData.append(`translations[${input.dataset.langKey}]`, input.value);
+                });
+
+                try {
+                    const response = await fetch('index.php?section=country&tab=labels', {
+                        method: 'POST',
+                        body: formData,
+                    });
+                    const payload = await response.json();
+                    if (!response.ok || payload.status !== 'success') {
+                        throw new Error(payload.message || 'Cập nhật thất bại.');
+                    }
+                    return payload;
+                } catch (error) {
+                    Swal.showValidationMessage(error.message);
+                    return false;
+                }
+            },
+        });
+
+        if (result.isConfirmed) {
+            await Swal.fire({
+                icon: 'success',
+                title: 'Đã cập nhật',
+                timer: 900,
+                showConfirmButton: false,
+            });
+            window.location.reload();
+        }
     });
 });
 
