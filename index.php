@@ -108,6 +108,7 @@ $trafficMetrics = [
         'total_hits' => 0,
     ],
 ];
+$trafficIpRows = [];
 $accountSort = 'id';
 $accountDir = 'DESC';
 $orderSort = 'created_at';
@@ -488,6 +489,43 @@ function admin_sum_visit_metrics(array $items): array
     return $total;
 }
 
+function admin_visit_ip_rows(?PDO $pdo, string $site, string $label): array
+{
+    if (!$pdo instanceof PDO) {
+        return [];
+    }
+
+    try {
+        $stmt = $pdo->prepare("
+            SELECT
+              ip_text,
+              SUM(CASE WHEN visit_date = CURRENT_DATE THEN hits ELSE 0 END) AS today_hits,
+              SUM(CASE WHEN visit_date >= DATE_SUB(CURRENT_DATE, INTERVAL 6 DAY) THEN hits ELSE 0 END) AS week_hits,
+              COALESCE(SUM(hits), 0) AS total_hits,
+              COUNT(*) AS visit_days,
+              MAX(last_seen_at) AS last_seen_at,
+              SUBSTRING_INDEX(GROUP_CONCAT(request_path ORDER BY last_seen_at DESC SEPARATOR '\\n'), '\\n', 1) AS request_path,
+              SUBSTRING_INDEX(GROUP_CONCAT(user_agent ORDER BY last_seen_at DESC SEPARATOR '\\n'), '\\n', 1) AS user_agent
+            FROM visit_daily_ip
+            WHERE site = :site
+            GROUP BY ip_text
+            ORDER BY total_hits DESC, last_seen_at DESC
+            LIMIT 100
+        ");
+        $stmt->execute([':site' => $site]);
+        $rows = $stmt->fetchAll();
+    } catch (Throwable $e) {
+        return [];
+    }
+
+    foreach ($rows as &$row) {
+        $row['site_label'] = $label;
+    }
+    unset($row);
+
+    return $rows;
+}
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'ajax_upload') {
     admin_ajax_upload();
 }
@@ -517,6 +555,17 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages'], true)) {
             $trafficMetrics['coc'] = admin_visit_metrics($pdo, 'coc');
             $trafficMetrics['home'] = admin_visit_metrics($overviewHomePdo, 'home');
             $trafficMetrics['total'] = admin_sum_visit_metrics([$trafficMetrics['coc'], $trafficMetrics['home']]);
+            $trafficIpRows = array_merge(
+                admin_visit_ip_rows($pdo, 'coc', 'COC Shop'),
+                admin_visit_ip_rows($overviewHomePdo, 'home', 'CarrotHome')
+            );
+            usort($trafficIpRows, static function (array $a, array $b): int {
+                $hitsCompare = (int) ($b['total_hits'] ?? 0) <=> (int) ($a['total_hits'] ?? 0);
+                if ($hitsCompare !== 0) {
+                    return $hitsCompare;
+                }
+                return strcmp((string) ($b['last_seen_at'] ?? ''), (string) ($a['last_seen_at'] ?? ''));
+            });
         }
 
         if (in_array($section, ['pages', 'country'], true)) {
@@ -945,6 +994,7 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages'], true)) {
         $labelKeyOptions = [];
         $textLabels = [];
         $orders = [];
+        $trafficIpRows = [];
     }
 }
 
@@ -1019,6 +1069,10 @@ $trafficRows = [
         .overview-panel-title i{width:18px;height:18px}
         .traffic-site-link{font-weight:800;color:#172033;text-decoration:none}
         .traffic-site-link:hover{text-decoration:underline}
+        .traffic-view{display:none}
+        .traffic-view.active{display:block}
+        .traffic-toggle{border:1px solid rgba(15,23,42,.12);border-radius:8px;padding:.25rem;background:#f8fafc}
+        .traffic-toggle .btn{border-radius:6px;font-weight:800}
         .glass-panel,.admin-shell{border:1px solid rgba(15,23,42,.08)!important;border-radius:8px!important;background:rgba(255,255,255,.96)!important;box-shadow:0 14px 36px rgba(15,23,42,.06)!important}
         .table{--bs-table-bg:transparent}
         .table thead th{color:#64748b;font-size:.78rem;text-transform:uppercase}
@@ -1099,9 +1153,14 @@ $trafficRows = [
             <div class="glass-panel p-4 mb-4">
                 <div class="d-flex flex-wrap align-items-center justify-content-between gap-3 mb-3">
                     <h2 class="h5 mb-0 overview-panel-title"><i data-lucide="chart-no-axes-combined"></i><span>Lưu lượng truy cập</span></h2>
-                    <span class="dashboard-eyebrow fw-bold">IP không lặp trong ngày</span>
+                    <div class="traffic-toggle btn-group" role="group" aria-label="Chuyển chế độ thống kê">
+                        <button class="btn btn-sm btn-dark active js-traffic-toggle" type="button" data-traffic-view="site">Theo site</button>
+                        <button class="btn btn-sm btn-light js-traffic-toggle" type="button" data-traffic-view="ip">Theo IP</button>
+                    </div>
                 </div>
-                <div class="table-responsive-sm">
+                <div class="traffic-view active" data-traffic-panel="site">
+                    <div class="dashboard-eyebrow fw-bold mb-2">IP không lặp trong ngày</div>
+                    <div class="table-responsive-sm">
                     <table class="table table-striped table-hover table-sm align-middle mb-0">
                         <thead>
                         <tr>
@@ -1135,6 +1194,43 @@ $trafficRows = [
                         <?php endforeach; ?>
                         </tbody>
                     </table>
+                    </div>
+                </div>
+                <div class="traffic-view" data-traffic-panel="ip">
+                    <div class="dashboard-eyebrow fw-bold mb-2">Tối đa 100 IP mỗi site, sắp xếp theo tổng hits</div>
+                    <div class="table-responsive-sm">
+                    <table class="table table-striped table-hover table-sm align-middle mb-0">
+                        <thead>
+                        <tr>
+                            <th>IP</th>
+                            <th>Site</th>
+                            <th class="text-end">Hits hôm nay</th>
+                            <th class="text-end">Hits 7 ngày</th>
+                            <th class="text-end">Tổng hits</th>
+                            <th class="text-end">Số ngày</th>
+                            <th>Gần nhất</th>
+                            <th>Request gần nhất</th>
+                        </tr>
+                        </thead>
+                        <tbody>
+                        <?php foreach ($trafficIpRows as $ipRow): ?>
+                            <tr>
+                                <td class="font-monospace small"><?= htmlspecialchars($ipRow['ip_text'] ?? '') ?></td>
+                                <td><?= htmlspecialchars($ipRow['site_label'] ?? '') ?></td>
+                                <td class="text-end"><?= number_format((int) ($ipRow['today_hits'] ?? 0)) ?></td>
+                                <td class="text-end"><?= number_format((int) ($ipRow['week_hits'] ?? 0)) ?></td>
+                                <td class="text-end"><?= number_format((int) ($ipRow['total_hits'] ?? 0)) ?></td>
+                                <td class="text-end"><?= number_format((int) ($ipRow['visit_days'] ?? 0)) ?></td>
+                                <td class="small"><?= htmlspecialchars($ipRow['last_seen_at'] ?? '') ?></td>
+                                <td class="small"><?= htmlspecialchars(admin_excerpt($ipRow['request_path'] ?? '', 80)) ?></td>
+                            </tr>
+                        <?php endforeach; ?>
+                        <?php if (!$trafficIpRows): ?>
+                            <tr><td colspan="8" class="text-center muted-text py-4">Chưa có dữ liệu IP.</td></tr>
+                        <?php endif; ?>
+                        </tbody>
+                    </table>
+                    </div>
                 </div>
             </div>
             <?php endif; ?>
@@ -1959,6 +2055,21 @@ document.querySelectorAll('.js-upload').forEach((button) => {
             text: result.value,
             timer: 1600,
             showConfirmButton: false,
+        });
+    });
+});
+
+document.querySelectorAll('.js-traffic-toggle').forEach((button) => {
+    button.addEventListener('click', () => {
+        const view = button.dataset.trafficView || 'site';
+        document.querySelectorAll('.js-traffic-toggle').forEach((item) => {
+            const isActive = item === button;
+            item.classList.toggle('active', isActive);
+            item.classList.toggle('btn-dark', isActive);
+            item.classList.toggle('btn-light', !isActive);
+        });
+        document.querySelectorAll('[data-traffic-panel]').forEach((panel) => {
+            panel.classList.toggle('active', panel.dataset.trafficPanel === view);
         });
     });
 });
