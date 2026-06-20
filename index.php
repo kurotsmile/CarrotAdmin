@@ -252,9 +252,15 @@ function admin_fetch_language_options(?PDO $pdo): array
 
     try {
         return $pdo->query('
-            SELECT lang_key, lang_country, name
+            SELECT
+              lang_key,
+              MIN(lang_country) AS lang_country,
+              GROUP_CONCAT(name ORDER BY name ASC SEPARATOR ", ") AS countries,
+              COUNT(*) AS country_count
             FROM country
-            ORDER BY name ASC, lang_key ASC
+            WHERE lang_key <> ""
+            GROUP BY lang_key
+            ORDER BY lang_key ASC
         ')->fetchAll();
     } catch (Throwable $e) {
         return [];
@@ -275,7 +281,9 @@ function admin_language_select_options(array $languageOptions, string $selectedV
         $isSelected = $langKey === $selectedValue;
         $hasSelectedValue = $hasSelectedValue || $isSelected;
         $labelParts = [$langKey];
-        if (!empty($language['name'])) {
+        if (!empty($language['countries'])) {
+            $labelParts[] = (string) $language['countries'];
+        } elseif (!empty($language['name'])) {
             $labelParts[] = (string) $language['name'];
         } elseif (!empty($language['lang_country'])) {
             $labelParts[] = (string) $language['lang_country'];
@@ -2145,7 +2153,7 @@ document.querySelectorAll('.js-label-translations').forEach((button) => {
         const currentTranslations = labelTranslations[labelKey] || {};
         const rows = labelLanguages.map((language) => {
             const langKey = language.lang_key || '';
-            const countryName = language.name || language.lang_country || '';
+            const countryName = language.countries || language.name || language.lang_country || '';
             return `
                 <tr>
                     <td class="text-start font-monospace small">${escapeHtml(langKey)}</td>
@@ -2165,11 +2173,11 @@ document.querySelectorAll('.js-label-translations').forEach((button) => {
                         <thead>
                             <tr>
                                 <th class="text-start">Lang</th>
-                                <th class="text-start">Country</th>
+                                <th class="text-start">Country dùng chung</th>
                                 <th class="text-start">Value</th>
                             </tr>
                         </thead>
-                        <tbody>${rows || '<tr><td colspan="3" class="text-center text-muted py-4">Chưa có country/lang.</td></tr>'}</tbody>
+                        <tbody>${rows || '<tr><td colspan="3" class="text-center text-muted py-4">Chưa có lang.</td></tr>'}</tbody>
                     </table>
                 </div>
             `,
