@@ -98,6 +98,24 @@ function admin_ensure_country_table(PDO $pdo): void
     }
 }
 
+function admin_ensure_text_label_table(PDO $pdo): void
+{
+    $pdo->exec("
+        CREATE TABLE IF NOT EXISTS text_label (
+          id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+          `key` VARCHAR(120) NOT NULL,
+          lang_key VARCHAR(24) NOT NULL,
+          value TEXT NOT NULL,
+          created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+          PRIMARY KEY (id),
+          UNIQUE KEY uq_text_label_key_lang (`key`, lang_key),
+          KEY idx_text_label_lang_key (lang_key),
+          KEY idx_text_label_key (`key`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    ");
+}
+
 function admin_ensure_visit_daily_ip_table(PDO $pdo, string $defaultSite = 'web'): void
 {
     $defaultSite = preg_replace('/[^a-z0-9_-]/i', '', $defaultSite) ?: 'web';

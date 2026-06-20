@@ -76,12 +76,15 @@ $section = in_array($_GET['section'] ?? 'overview', $allowedSections, true) ? ($
 $editKey = trim($_GET['edit'] ?? '');
 $editId = isset($_GET['edit']) ? (int) $_GET['edit'] : 0;
 $cocTab = ($_GET['tab'] ?? 'accounts') === 'orders' ? 'orders' : 'accounts';
+$countryTab = ($_GET['tab'] ?? 'countries') === 'labels' ? 'labels' : 'countries';
 $editing = null;
+$editingLabel = null;
 $accounts = [];
 $apps = [];
 $pages = [];
 $banks = [];
 $countries = [];
+$textLabels = [];
 $orders = [];
 $dashboardMetrics = [
     'apps' => 0,
@@ -114,6 +117,8 @@ $bankSort = 'id';
 $bankDir = 'DESC';
 $countrySort = 'id';
 $countryDir = 'DESC';
+$textLabelSort = 'key';
+$textLabelDir = 'ASC';
 $serverRuntime = null;
 
 function admin_nas_upload_endpoint(): string
@@ -217,6 +222,14 @@ function admin_fetch_bank(PDO $pdo, int $id): ?array
 function admin_fetch_country(PDO $pdo, int $id): ?array
 {
     $stmt = $pdo->prepare('SELECT * FROM country WHERE id = ?');
+    $stmt->execute([$id]);
+    $row = $stmt->fetch();
+    return $row ?: null;
+}
+
+function admin_fetch_text_label(PDO $pdo, int $id): ?array
+{
+    $stmt = $pdo->prepare('SELECT * FROM text_label WHERE id = ?');
     $stmt->execute([$id]);
     $row = $stmt->fetch();
     return $row ?: null;
@@ -620,6 +633,12 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages'], true)) {
                 $message = 'Đã xóa country.';
             }
 
+            if ($section === 'country' && $action === 'delete_text_label') {
+                $stmt = $pdo->prepare('DELETE FROM text_label WHERE id = ?');
+                $stmt->execute([(int) ($_POST['id'] ?? 0)]);
+                $message = 'Đã xóa nhãn.';
+            }
+
             if ($section === 'country' && $action === 'save_country') {
                 $id = (int) ($_POST['id'] ?? 0);
                 $icon = trim($_POST['icon'] ?? '');
@@ -649,6 +668,35 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages'], true)) {
                     $message = 'Đã thêm country mới.';
                 }
             }
+
+            if ($section === 'country' && $action === 'save_text_label') {
+                $id = (int) ($_POST['id'] ?? 0);
+                $labelKey = trim($_POST['key'] ?? '');
+                $langKey = trim($_POST['lang_key'] ?? '');
+                $value = trim($_POST['value'] ?? '');
+
+                if ($labelKey === '' || $langKey === '' || $value === '') {
+                    throw new RuntimeException('Vui lòng nhập đủ key, lang_key và value.');
+                }
+
+                if (!preg_match('/^[a-z0-9]+(?:[._-][a-z0-9]+)*$/', $labelKey)) {
+                    throw new RuntimeException('Key chỉ dùng chữ thường, số, dấu chấm, gạch ngang hoặc gạch dưới.');
+                }
+
+                if (!preg_match('/^[a-z]{2,3}(?:[-_][A-Za-z]{2})?$/', $langKey)) {
+                    throw new RuntimeException('Lang key nên có dạng vi, en, en-US hoặc en_US.');
+                }
+
+                if ($id > 0) {
+                    $stmt = $pdo->prepare('UPDATE text_label SET `key` = ?, lang_key = ?, value = ? WHERE id = ?');
+                    $stmt->execute([$labelKey, $langKey, $value, $id]);
+                    $message = 'Đã cập nhật nhãn.';
+                } else {
+                    $stmt = $pdo->prepare('INSERT INTO text_label (`key`, lang_key, value) VALUES (?, ?, ?)');
+                    $stmt->execute([$labelKey, $langKey, $value]);
+                    $message = 'Đã thêm nhãn mới.';
+                }
+            }
         }
 
         if ($section === 'coc' && $editId > 0) {
@@ -667,8 +715,12 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages'], true)) {
             $editing = admin_fetch_bank($pdo, $editId);
         }
 
-        if ($section === 'country' && $editId > 0) {
+        if ($section === 'country' && $countryTab === 'countries' && $editId > 0) {
             $editing = admin_fetch_country($pdo, $editId);
+        }
+
+        if ($section === 'country' && $countryTab === 'labels' && $editId > 0) {
+            $editingLabel = admin_fetch_text_label($pdo, $editId);
         }
 
         $accountSortColumns = [
@@ -730,6 +782,14 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages'], true)) {
         ];
         [$countrySort, $countryDir] = admin_sort_state($countrySortColumns, 'id', 'DESC');
 
+        $textLabelSortColumns = [
+            'id' => 'id',
+            'key' => '`key`',
+            'lang_key' => 'lang_key',
+            'updated_at' => 'updated_at',
+        ];
+        [$textLabelSort, $textLabelDir] = admin_sort_state($textLabelSortColumns, 'key', 'ASC');
+
         $accounts = $section === 'coc'
             ? $pdo->query('SELECT * FROM coc ORDER BY ' . admin_order_by($accountSortColumns, $accountSort, $accountDir))->fetchAll()
             : [];
@@ -753,6 +813,9 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages'], true)) {
         $countries = $section === 'country'
             ? $pdo->query('SELECT * FROM country ORDER BY ' . admin_order_by($countrySortColumns, $countrySort, $countryDir))->fetchAll()
             : [];
+        $textLabels = ($section === 'country' && $countryTab === 'labels')
+            ? $pdo->query('SELECT * FROM text_label ORDER BY ' . admin_order_by($textLabelSortColumns, $textLabelSort, $textLabelDir) . ', lang_key ASC')->fetchAll()
+            : [];
     } catch (Throwable $e) {
         $error = $e->getMessage();
         $accounts = [];
@@ -760,6 +823,7 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages'], true)) {
         $pages = [];
         $banks = [];
         $countries = [];
+        $textLabels = [];
         $orders = [];
     }
 }
@@ -1510,6 +1574,15 @@ $trafficRows = [
             <?php endif; ?>
 
             <?php if ($section === 'country'): ?>
+            <ul class="nav nav-tabs mb-4">
+                <li class="nav-item">
+                    <a class="nav-link <?= $countryTab === 'countries' ? 'active' : '' ?>" href="index.php?section=country&tab=countries">Quốc gia</a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link <?= $countryTab === 'labels' ? 'active' : '' ?>" href="index.php?section=country&tab=labels">Nhãn đa ngôn ngữ</a>
+                </li>
+            </ul>
+            <?php if ($countryTab === 'countries'): ?>
             <div class="row g-4">
                 <div class="col-xl-5">
                     <form class="glass-panel p-4" method="post">
@@ -1598,6 +1671,82 @@ $trafficRows = [
                     </div>
                 </div>
             </div>
+            <?php endif; ?>
+
+            <?php if ($countryTab === 'labels'): ?>
+            <div class="row g-4">
+                <div class="col-xl-5">
+                    <form class="glass-panel p-4" method="post">
+                        <input type="hidden" name="action" value="save_text_label">
+                        <input type="hidden" name="id" value="<?= (int) ($editingLabel['id'] ?? 0) ?>">
+                        <h2 class="h5 mb-3"><?= $editingLabel ? 'Cập nhật nhãn' : 'Thêm nhãn mới' ?></h2>
+
+                        <div class="mb-3">
+                            <label class="form-label" for="label_key">Key</label>
+                            <input class="form-control font-monospace" id="label_key" name="key" maxlength="120" placeholder="nav.explore" value="<?= htmlspecialchars($editingLabel['key'] ?? '') ?>" required>
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label" for="label_lang_key">Lang key</label>
+                            <input class="form-control" id="label_lang_key" name="lang_key" maxlength="24" placeholder="vi" value="<?= htmlspecialchars($editingLabel['lang_key'] ?? 'vi') ?>" required>
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label" for="label_value">Value default</label>
+                            <textarea class="form-control" id="label_value" name="value" rows="4" required><?= htmlspecialchars($editingLabel['value'] ?? '') ?></textarea>
+                        </div>
+
+                        <button class="btn <?= $editingLabel ? 'btn-warning' : 'btn-success' ?> fw-bold w-100" type="submit"><?= $editingLabel ? 'Lưu cập nhật' : 'Thêm nhãn' ?></button>
+                    </form>
+                </div>
+
+                <div class="col-xl-7">
+                    <div class="glass-panel p-4">
+                        <h2 class="h5 mb-3">Danh sách nhãn đa ngôn ngữ</h2>
+                        <div class="table-responsive-sm">
+                            <table class="table table-striped table-hover table-sm align-middle">
+                                <thead>
+                                <tr>
+                                    <th><?= admin_sort_link('id', 'ID', $textLabelSort, $textLabelDir) ?></th>
+                                    <th><?= admin_sort_link('key', 'Key', $textLabelSort, $textLabelDir) ?></th>
+                                    <th><?= admin_sort_link('lang_key', 'Lang key', $textLabelSort, $textLabelDir) ?></th>
+                                    <th>Value</th>
+                                    <th></th>
+                                </tr>
+                                </thead>
+                                <tbody>
+                                <?php foreach ($textLabels as $label): ?>
+                                    <tr>
+                                        <td><?= (int) $label['id'] ?></td>
+                                        <td class="font-monospace small"><?= htmlspecialchars($label['key']) ?></td>
+                                        <td class="font-monospace small"><?= htmlspecialchars($label['lang_key']) ?></td>
+                                        <td><?= htmlspecialchars(admin_excerpt($label['value'], 90)) ?></td>
+                                        <td class="text-end">
+                                            <div class="d-inline-flex align-items-center justify-content-end gap-2 flex-nowrap">
+                                                <a class="btn btn-sm btn-warning" href="index.php?section=country&tab=labels&edit=<?= (int) $label['id'] ?>" title="Cập nhật" aria-label="Cập nhật">
+                                                    <i data-lucide="pencil" style="width:16px;height:16px"></i>
+                                                </a>
+                                                <form class="js-delete" method="post" data-confirm="Xóa nhãn này?">
+                                                    <input type="hidden" name="action" value="delete_text_label">
+                                                    <input type="hidden" name="id" value="<?= (int) $label['id'] ?>">
+                                                    <button class="btn btn-sm btn-danger" type="submit" title="Xóa" aria-label="Xóa">
+                                                        <i data-lucide="trash-2" style="width:16px;height:16px"></i>
+                                                    </button>
+                                                </form>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                <?php endforeach; ?>
+                                <?php if (!$textLabels): ?>
+                                    <tr><td colspan="5" class="text-center muted-text py-4">Chưa có dữ liệu.</td></tr>
+                                <?php endif; ?>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <?php endif; ?>
             <?php endif; ?>
         </main>
     </div>
