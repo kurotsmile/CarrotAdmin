@@ -12,18 +12,32 @@ function admin_ensure_page_table(PDO $pdo): void
           seo_title VARCHAR(255) NULL,
           seo_description VARCHAR(320) NULL,
           seo_keywords VARCHAR(500) NULL,
-          status ENUM('public','draft','trash') NOT NULL DEFAULT 'draft',
-          priority INT NOT NULL DEFAULT 0,
-          published_at DATETIME NULL,
           created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
           updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
           PRIMARY KEY (id),
           UNIQUE KEY uq_page_slug_lang (slug, lang),
-          KEY idx_page_lang_status (lang, status),
-          KEY idx_page_status_priority (status, priority),
+          KEY idx_page_lang (lang),
           FULLTEXT KEY ft_page_seo (title, seo_title, seo_description, seo_keywords)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     ");
+
+    $indexes = $pdo->query("SHOW INDEX FROM page")->fetchAll(PDO::FETCH_ASSOC);
+    $indexNames = array_unique(array_column($indexes, 'Key_name'));
+    foreach (['idx_page_lang_status', 'idx_page_status_priority'] as $oldIndex) {
+        if (in_array($oldIndex, $indexNames, true)) {
+            $pdo->exec('ALTER TABLE page DROP INDEX ' . $oldIndex);
+        }
+    }
+    if (!in_array('idx_page_lang', $indexNames, true)) {
+        $pdo->exec('ALTER TABLE page ADD KEY idx_page_lang (lang)');
+    }
+
+    $columns = $pdo->query("SHOW COLUMNS FROM page")->fetchAll(PDO::FETCH_COLUMN);
+    foreach (['status', 'priority', 'published_at'] as $oldColumn) {
+        if (in_array($oldColumn, $columns, true)) {
+            $pdo->exec('ALTER TABLE page DROP COLUMN ' . $oldColumn);
+        }
+    }
 }
 
 function admin_ensure_app_table(PDO $pdo): void

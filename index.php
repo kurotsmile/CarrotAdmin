@@ -114,7 +114,7 @@ $orderSort = 'created_at';
 $orderDir = 'DESC';
 $appSort = 'priority';
 $appDir = 'DESC';
-$pageSort = 'priority';
+$pageSort = 'updated_at';
 $pageDir = 'DESC';
 $bankSort = 'id';
 $bankDir = 'DESC';
@@ -623,10 +623,6 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages'], true)) {
                 $seoTitle = trim($_POST['seo_title'] ?? '');
                 $seoDescription = trim($_POST['seo_description'] ?? '');
                 $seoKeywords = trim($_POST['seo_keywords'] ?? '');
-                $status = trim($_POST['status'] ?? 'draft');
-                $priority = (int) ($_POST['priority'] ?? 0);
-                $publishedAt = trim($_POST['published_at'] ?? '');
-
                 if ($slug === '' || $title === '' || $contentHtml === '') {
                     throw new RuntimeException('Vui lòng nhập slug, title và nội dung HTML.');
                 }
@@ -635,23 +631,17 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages'], true)) {
                     throw new RuntimeException('Slug chỉ dùng chữ thường, số và dấu gạch ngang.');
                 }
 
-                if (!in_array($status, ['public', 'draft', 'trash'], true)) {
-                    throw new RuntimeException('Status page không hợp lệ.');
-                }
-
                 if ($languageOptions && !in_array($lang, array_column($languageOptions, 'lang_key'), true)) {
                     throw new RuntimeException('Lang key không có trong danh sách country.');
                 }
 
-                $publishedAt = $publishedAt !== '' ? str_replace('T', ' ', $publishedAt) . (strlen($publishedAt) === 16 ? ':00' : '') : null;
-
                 if ($id > 0) {
-                    $stmt = $homePdo->prepare('UPDATE page SET slug = ?, lang = ?, title = ?, content_html = ?, seo_title = ?, seo_description = ?, seo_keywords = ?, status = ?, priority = ?, published_at = ? WHERE id = ?');
-                    $stmt->execute([$slug, $lang, $title, $contentHtml, $seoTitle, $seoDescription, $seoKeywords, $status, $priority, $publishedAt, $id]);
+                    $stmt = $homePdo->prepare('UPDATE page SET slug = ?, lang = ?, title = ?, content_html = ?, seo_title = ?, seo_description = ?, seo_keywords = ? WHERE id = ?');
+                    $stmt->execute([$slug, $lang, $title, $contentHtml, $seoTitle, $seoDescription, $seoKeywords, $id]);
                     $message = 'Đã cập nhật page.';
                 } else {
-                    $stmt = $homePdo->prepare('INSERT INTO page (slug, lang, title, content_html, seo_title, seo_description, seo_keywords, status, priority, published_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
-                    $stmt->execute([$slug, $lang, $title, $contentHtml, $seoTitle, $seoDescription, $seoKeywords, $status, $priority, $publishedAt]);
+                    $stmt = $homePdo->prepare('INSERT INTO page (slug, lang, title, content_html, seo_title, seo_description, seo_keywords) VALUES (?, ?, ?, ?, ?, ?, ?)');
+                    $stmt->execute([$slug, $lang, $title, $contentHtml, $seoTitle, $seoDescription, $seoKeywords]);
                     $message = 'Đã thêm page mới.';
                 }
             }
@@ -877,11 +867,9 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages'], true)) {
             'title' => 'title',
             'slug' => 'slug',
             'lang' => 'lang',
-            'status' => 'status',
-            'priority' => 'priority',
             'updated_at' => 'updated_at',
         ];
-        [$pageSort, $pageDir] = admin_sort_state($pageSortColumns, 'priority', 'DESC');
+        [$pageSort, $pageDir] = admin_sort_state($pageSortColumns, 'updated_at', 'DESC');
 
         $bankSortColumns = [
             'id' => 'id',
@@ -1526,26 +1514,7 @@ $trafficRows = [
                             <input class="form-control" id="seo_keywords" name="seo_keywords" maxlength="500" value="<?= htmlspecialchars($editing['seo_keywords'] ?? '') ?>">
                         </div>
 
-                        <div class="row g-3">
-                            <div class="col-md-4">
-                                <label class="form-label" for="page_status">Status</label>
-                                <select class="form-control" id="page_status" name="status">
-                                    <?php foreach (['draft', 'public', 'trash'] as $statusOption): ?>
-                                        <option value="<?= $statusOption ?>" <?= ($editing['status'] ?? 'draft') === $statusOption ? 'selected' : '' ?>><?= ucfirst($statusOption) ?></option>
-                                    <?php endforeach; ?>
-                                </select>
-                            </div>
-                            <div class="col-md-4">
-                                <label class="form-label" for="page_priority">Priority</label>
-                                <input class="form-control" id="page_priority" name="priority" type="number" value="<?= htmlspecialchars((string) ($editing['priority'] ?? 0)) ?>">
-                            </div>
-                            <div class="col-md-4">
-                                <label class="form-label" for="published_at">Published at</label>
-                                <input class="form-control" id="published_at" name="published_at" type="datetime-local" value="<?= !empty($editing['published_at']) ? htmlspecialchars(str_replace(' ', 'T', substr($editing['published_at'], 0, 16))) : '' ?>">
-                            </div>
-                        </div>
-
-                        <button class="btn <?= $editing ? 'btn-warning' : 'btn-success' ?> fw-bold w-100" type="submit"><?= $editing ? 'Lưu cập nhật' : 'Thêm page' ?></button>
+                        <button class="btn <?= $editing ? 'btn-warning' : 'btn-success' ?> fw-bold w-100 mt-4" type="submit"><?= $editing ? 'Lưu cập nhật' : 'Thêm page' ?></button>
                     </form>
                 </div>
 
@@ -1559,8 +1528,6 @@ $trafficRows = [
                                     <th><?= admin_sort_link('id', 'ID', $pageSort, $pageDir) ?></th>
                                     <th><?= admin_sort_link('title', 'Page', $pageSort, $pageDir) ?></th>
                                     <th><?= admin_sort_link('lang', 'Lang', $pageSort, $pageDir) ?></th>
-                                    <th><?= admin_sort_link('status', 'Status', $pageSort, $pageDir) ?></th>
-                                    <th><?= admin_sort_link('priority', 'Priority', $pageSort, $pageDir) ?></th>
                                     <th></th>
                                 </tr>
                                 </thead>
@@ -1575,15 +1542,11 @@ $trafficRows = [
                                             </div>
                                         </td>
                                         <td><?= htmlspecialchars($page['lang']) ?></td>
-                                        <td><?= htmlspecialchars($page['status']) ?></td>
-                                        <td><?= (int) $page['priority'] ?></td>
                                         <td class="text-end">
                                             <div class="d-inline-flex align-items-center justify-content-end gap-2 flex-nowrap">
-                                                <?php if (($page['status'] ?? '') === 'public'): ?>
-                                                    <a class="btn btn-sm btn-secondary" href="https://home.carrot28.com/index.php?page=<?= urlencode($page['slug']) ?>&lang=<?= urlencode($page['lang']) ?>" target="_blank" rel="noopener noreferrer" title="Xem page" aria-label="Xem page">
-                                                        <i data-lucide="external-link" style="width:16px;height:16px"></i>
-                                                    </a>
-                                                <?php endif; ?>
+                                                <a class="btn btn-sm btn-secondary" href="https://home.carrot28.com/index.php?page=<?= urlencode($page['slug']) ?>&lang=<?= urlencode($page['lang']) ?>" target="_blank" rel="noopener noreferrer" title="Xem page" aria-label="Xem page">
+                                                    <i data-lucide="external-link" style="width:16px;height:16px"></i>
+                                                </a>
                                                 <a class="btn btn-sm btn-warning" href="index.php?section=pages&edit=<?= (int) $page['id'] ?>" title="Cập nhật" aria-label="Cập nhật">
                                                     <i data-lucide="pencil" style="width:16px;height:16px"></i>
                                                 </a>
@@ -1599,7 +1562,7 @@ $trafficRows = [
                                     </tr>
                                 <?php endforeach; ?>
                                 <?php if (!$pages): ?>
-                                    <tr><td colspan="6" class="text-center muted-text py-4">Chưa có dữ liệu.</td></tr>
+                                    <tr><td colspan="4" class="text-center muted-text py-4">Chưa có dữ liệu.</td></tr>
                                 <?php endif; ?>
                                 </tbody>
                             </table>
