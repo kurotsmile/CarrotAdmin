@@ -2151,15 +2151,31 @@ document.querySelectorAll('.js-label-translations').forEach((button) => {
     button.addEventListener('click', async () => {
         const labelKey = button.dataset.labelKey || '';
         const currentTranslations = labelTranslations[labelKey] || {};
+        const englishValue = currentTranslations.en || '';
         const rows = labelLanguages.map((language) => {
             const langKey = language.lang_key || '';
             const countryName = language.countries || language.name || language.lang_country || '';
+            const translateUrl = englishValue && langKey !== 'en'
+                ? `https://translate.google.com/?${new URLSearchParams({
+                    hl: 'vi',
+                    pl: 'translate',
+                    sl: 'en',
+                    tl: langKey,
+                    text: englishValue,
+                    op: 'translate',
+                }).toString()}`
+                : '';
             return `
                 <tr>
                     <td class="text-start font-monospace small">${escapeHtml(langKey)}</td>
                     <td class="text-start">${escapeHtml(countryName)}</td>
                     <td>
                         <textarea class="form-control form-control-sm js-translation-input" data-lang-key="${escapeHtml(langKey)}" rows="2">${escapeHtml(currentTranslations[langKey] || '')}</textarea>
+                    </td>
+                    <td class="text-end">
+                        ${translateUrl ? `<a class="btn btn-sm btn-secondary" href="${escapeHtml(translateUrl)}" target="_blank" rel="noopener noreferrer" title="Dịch từ en" aria-label="Dịch từ en">
+                            <i data-lucide="languages" style="width:16px;height:16px"></i>
+                        </a>` : ''}
                     </td>
                 </tr>
             `;
@@ -2175,9 +2191,10 @@ document.querySelectorAll('.js-label-translations').forEach((button) => {
                                 <th class="text-start">Lang</th>
                                 <th class="text-start">Country dùng chung</th>
                                 <th class="text-start">Value</th>
+                                <th class="text-end">Action</th>
                             </tr>
                         </thead>
-                        <tbody>${rows || '<tr><td colspan="3" class="text-center text-muted py-4">Chưa có lang.</td></tr>'}</tbody>
+                        <tbody>${rows || '<tr><td colspan="4" class="text-center text-muted py-4">Chưa có lang.</td></tr>'}</tbody>
                     </table>
                 </div>
             `,
@@ -2186,6 +2203,11 @@ document.querySelectorAll('.js-label-translations').forEach((button) => {
             confirmButtonText: 'Lưu tất cả',
             cancelButtonText: 'Hủy',
             focusConfirm: false,
+            didOpen: () => {
+                if (window.lucide) {
+                    lucide.createIcons();
+                }
+            },
             preConfirm: async () => {
                 const formData = new FormData();
                 formData.append('action', 'save_text_label_batch');
@@ -2222,6 +2244,7 @@ document.querySelectorAll('.js-label-translations').forEach((button) => {
             });
             window.location.reload();
         }
+
     });
 });
 
