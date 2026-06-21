@@ -124,6 +124,11 @@ $countrySort = 'id';
 $countryDir = 'DESC';
 $textLabelSort = 'key';
 $textLabelDir = 'ASC';
+$textLabelSearch = trim($_GET['label_q'] ?? '');
+$textLabelPage = max(1, (int) ($_GET['label_page'] ?? 1));
+$textLabelPerPage = 25;
+$textLabelTotal = 0;
+$textLabelTotalPages = 1;
 $serverRuntime = null;
 
 if (($_GET['duplicate'] ?? '') === 'page') {
@@ -375,6 +380,7 @@ function admin_sort_link(string $key, string $label, string $activeSort, string 
     $params['sort'] = $key;
     $params['dir'] = ($activeSort === $key && $activeDir === 'ASC') ? 'DESC' : 'ASC';
     unset($params['edit']);
+    unset($params['label_page']);
 
     $icon = '&harr;';
     if ($activeSort === $key) {
@@ -383,6 +389,11 @@ function admin_sort_link(string $key, string $label, string $activeSort, string 
 
     return '<a class="text-reset text-decoration-none d-inline-flex align-items-center gap-1" href="index.php?' .
         htmlspecialchars(http_build_query($params)) . '">' . htmlspecialchars($label) . '<span>' . $icon . '</span></a>';
+}
+
+function admin_page_url(array $params): string
+{
+    return 'index.php?' . htmlspecialchars(http_build_query($params));
 }
 
 function admin_runtime_identity(): string
@@ -1020,10 +1031,37 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages'], true)) {
             ? $pdo->query('SELECT * FROM country ORDER BY ' . admin_order_by($countrySortColumns, $countrySort, $countryDir))->fetchAll()
             : [];
         $textLabels = ($section === 'country' && $countryTab === 'labels')
-            ? $pdo->query('SELECT * FROM text_label ORDER BY ' . admin_order_by($textLabelSortColumns, $textLabelSort, $textLabelDir) . ', lang_key ASC')->fetchAll()
+            ? []
             : [];
         if ($section === 'country' && $countryTab === 'labels') {
-            foreach ($textLabels as $label) {
+            $labelSearchWhere = '';
+            $labelSearchParams = [];
+            if ($textLabelSearch !== '') {
+                $labelSearchWhere = ' WHERE `key` LIKE :label_q';
+                $labelSearchParams[':label_q'] = '%' . $textLabelSearch . '%';
+            }
+
+            $countStmt = $pdo->prepare('SELECT COUNT(*) FROM text_label' . $labelSearchWhere);
+            $countStmt->execute($labelSearchParams);
+            $textLabelTotal = (int) $countStmt->fetchColumn();
+            $textLabelTotalPages = max(1, (int) ceil($textLabelTotal / $textLabelPerPage));
+            $textLabelPage = min($textLabelPage, $textLabelTotalPages);
+            $textLabelOffset = ($textLabelPage - 1) * $textLabelPerPage;
+
+            $labelStmt = $pdo->prepare(
+                'SELECT * FROM text_label' . $labelSearchWhere .
+                ' ORDER BY ' . admin_order_by($textLabelSortColumns, $textLabelSort, $textLabelDir) . ', lang_key ASC LIMIT :limit OFFSET :offset'
+            );
+            foreach ($labelSearchParams as $paramKey => $paramValue) {
+                $labelStmt->bindValue($paramKey, $paramValue);
+            }
+            $labelStmt->bindValue(':limit', $textLabelPerPage, PDO::PARAM_INT);
+            $labelStmt->bindValue(':offset', $textLabelOffset, PDO::PARAM_INT);
+            $labelStmt->execute();
+            $textLabels = $labelStmt->fetchAll();
+
+            $allLabelRows = $pdo->query('SELECT `key`, lang_key, value FROM text_label ORDER BY `key` ASC, lang_key ASC')->fetchAll();
+            foreach ($allLabelRows as $label) {
                 $labelKey = (string) ($label['key'] ?? '');
                 $langKey = (string) ($label['lang_key'] ?? '');
                 if ($labelKey !== '' && $langKey !== '') {
@@ -1045,6 +1083,8 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages'], true)) {
         $labelKeyOptions = [];
         $pageSlugOptions = [];
         $textLabels = [];
+        $textLabelTotal = 0;
+        $textLabelTotalPages = 1;
         $orders = [];
         $trafficIpRows = [];
     }
@@ -1984,7 +2024,31 @@ $useSelect2 = $section === 'pages' || ($section === 'country' && $countryTab ===
 
                 <div class="col-xl-7">
                     <div class="glass-panel p-4">
-                        <h2 class="h5 mb-3">Danh sách nhãn đa ngôn ngữ</h2>
+                        <div class="d-flex flex-wrap align-items-center justify-content-between gap-3 mb-3">
+                            <h2 class="h5 mb-0">Danh sách nhãn đa ngôn ngữ</h2>
+                            <form class="d-flex gap-2" method="get">
+                                <input type="hidden" name="section" value="country">
+                                <input type="hidden" name="tab" value="labels">
+                                <input class="form-control form-control-sm" name="label_q" value="<?= htmlspecialchars($textLabelSearch) ?>" placeholder="Search key">
+                                <button class="btn btn-sm btn-secondary" type="submit" title="Search" aria-label="Search">
+                                    <i data-lucide="search" style="width:16px;height:16px"></i>
+                                </button>
+                                <?php if ($textLabelSearch !== ''): ?>
+                                    <a class="btn btn-sm btn-light" href="index.php?section=country&tab=labels" title="Clear" aria-label="Clear">
+                                        <i data-lucide="x" style="width:16px;height:16px"></i>
+                                    </a>
+                                <?php endif; ?>
+                            </form>
+                        </div>
+                        <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2">
+                            <div class="muted-text small">
+                                <?= number_format($textLabelTotal) ?> nhãn
+                                <?php if ($textLabelSearch !== ''): ?>
+                                    cho key "<?= htmlspecialchars($textLabelSearch) ?>"
+                                <?php endif; ?>
+                            </div>
+                            <div class="muted-text small">Trang <?= number_format($textLabelPage) ?>/<?= number_format($textLabelTotalPages) ?></div>
+                        </div>
                         <div class="table-responsive-sm">
                             <table class="table table-striped table-hover table-sm align-middle">
                                 <thead>
@@ -2028,6 +2092,25 @@ $useSelect2 = $section === 'pages' || ($section === 'country' && $countryTab ===
                                 </tbody>
                             </table>
                         </div>
+                        <?php if ($textLabelTotalPages > 1): ?>
+                            <?php
+                            $labelPageParams = $_GET;
+                            unset($labelPageParams['edit']);
+                            $labelPageParams['section'] = 'country';
+                            $labelPageParams['tab'] = 'labels';
+                            ?>
+                            <nav class="d-flex flex-wrap justify-content-end gap-2 mt-3" aria-label="Phân trang nhãn">
+                                <a class="btn btn-sm btn-light <?= $textLabelPage <= 1 ? 'disabled' : '' ?>" href="<?= admin_page_url(array_merge($labelPageParams, ['label_page' => max(1, $textLabelPage - 1)])) ?>">Trước</a>
+                                <?php
+                                $pageStart = max(1, $textLabelPage - 2);
+                                $pageEnd = min($textLabelTotalPages, $textLabelPage + 2);
+                                for ($pageNumber = $pageStart; $pageNumber <= $pageEnd; $pageNumber++):
+                                ?>
+                                    <a class="btn btn-sm <?= $pageNumber === $textLabelPage ? 'btn-dark' : 'btn-light' ?>" href="<?= admin_page_url(array_merge($labelPageParams, ['label_page' => $pageNumber])) ?>"><?= number_format($pageNumber) ?></a>
+                                <?php endfor; ?>
+                                <a class="btn btn-sm btn-light <?= $textLabelPage >= $textLabelTotalPages ? 'disabled' : '' ?>" href="<?= admin_page_url(array_merge($labelPageParams, ['label_page' => min($textLabelTotalPages, $textLabelPage + 1)])) ?>">Sau</a>
+                            </nav>
+                        <?php endif; ?>
                     </div>
                 </div>
             </div>
