@@ -111,11 +111,30 @@
 
                 <div class="col-xl-7">
                     <div class="glass-panel p-4">
-                        <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
+                        <div class="d-flex flex-wrap align-items-center justify-content-between gap-3 mb-3">
                             <h2 class="h5 mb-0">Danh sách app</h2>
+                            <form class="d-flex gap-2" method="get">
+                                <input type="hidden" name="section" value="apps">
+                                <input class="form-control form-control-sm" name="app_q" value="<?= htmlspecialchars($appSearch) ?>" placeholder="Search app">
+                                <button class="btn btn-sm btn-secondary" type="submit" title="Search" aria-label="Search">
+                                    <i data-lucide="search" style="width:16px;height:16px"></i>
+                                </button>
+                                <?php if ($appSearch !== ''): ?>
+                                    <a class="btn btn-sm btn-light" href="index.php?section=apps" title="Clear" aria-label="Clear">
+                                        <i data-lucide="x" style="width:16px;height:16px"></i>
+                                    </a>
+                                <?php endif; ?>
+                            </form>
+                        </div>
+                        <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2">
+                            <div class="muted-text small">
+                                <?= number_format($appTotal) ?> app
+                                <?php if ($appSearch !== ''): ?>
+                                    cho từ khóa "<?= htmlspecialchars($appSearch) ?>"
+                                <?php endif; ?>
+                            </div>
                             <div class="muted-text small">Trang <?= number_format($appPage) ?>/<?= number_format($appTotalPages) ?></div>
                         </div>
-                        <div class="muted-text small mb-2"><?= number_format($appTotal) ?> app</div>
                         <div class="table-responsive-sm">
                             <table class="table table-striped table-hover table-sm align-middle">
                                 <thead>
