@@ -1,4 +1,41 @@
             <?php if ($section === 'pages'): ?>
+            <?php
+            $pageSearch = trim($_GET['page_q'] ?? '');
+            $pageListPage = max(1, (int) ($_GET['page_page'] ?? 1));
+            $pagePerPage = 25;
+            $pageTotal = 0;
+            $pageTotalPages = 1;
+            if ($homePdo instanceof PDO) {
+                $pageSearchWhere = '';
+                $pageSearchParams = [];
+                if ($pageSearch !== '') {
+                    $pageSearchWhere = ' WHERE title LIKE :page_title_q OR slug LIKE :page_slug_q OR lang LIKE :page_lang_q OR seo_title LIKE :page_seo_title_q OR seo_description LIKE :page_seo_description_q';
+                    $pageSearchValue = '%' . $pageSearch . '%';
+                    $pageSearchParams = [
+                        ':page_title_q' => $pageSearchValue,
+                        ':page_slug_q' => $pageSearchValue,
+                        ':page_lang_q' => $pageSearchValue,
+                        ':page_seo_title_q' => $pageSearchValue,
+                        ':page_seo_description_q' => $pageSearchValue,
+                    ];
+                }
+
+                $pageCountStmt = $homePdo->prepare('SELECT COUNT(*) FROM page' . $pageSearchWhere);
+                $pageCountStmt->execute($pageSearchParams);
+                $pageTotal = (int) $pageCountStmt->fetchColumn();
+                $pageTotalPages = max(1, (int) ceil($pageTotal / $pagePerPage));
+                $pageListPage = min($pageListPage, $pageTotalPages);
+                $pageOffset = ($pageListPage - 1) * $pagePerPage;
+                $pageStmt = $homePdo->prepare('SELECT * FROM page' . $pageSearchWhere . ' ORDER BY ' . admin_order_by($pageSortColumns, $pageSort, $pageDir) . ', id DESC LIMIT :limit OFFSET :offset');
+                foreach ($pageSearchParams as $paramKey => $paramValue) {
+                    $pageStmt->bindValue($paramKey, $paramValue);
+                }
+                $pageStmt->bindValue(':limit', $pagePerPage, PDO::PARAM_INT);
+                $pageStmt->bindValue(':offset', $pageOffset, PDO::PARAM_INT);
+                $pageStmt->execute();
+                $pages = $pageStmt->fetchAll();
+            }
+            ?>
             <div class="row g-4">
                 <div class="col-xl-5">
                     <form class="glass-panel p-4" method="post">
@@ -75,7 +112,30 @@
 
                 <div class="col-xl-7">
                     <div class="glass-panel p-4">
-                        <h2 class="h5 mb-3">Danh sách page</h2>
+                        <div class="d-flex flex-wrap align-items-center justify-content-between gap-3 mb-3">
+                            <h2 class="h5 mb-0">Danh sách page</h2>
+                            <form class="d-flex gap-2" method="get">
+                                <input type="hidden" name="section" value="pages">
+                                <input class="form-control form-control-sm" name="page_q" value="<?= htmlspecialchars($pageSearch) ?>" placeholder="Search page">
+                                <button class="btn btn-sm btn-secondary" type="submit" title="Search" aria-label="Search">
+                                    <i data-lucide="search" style="width:16px;height:16px"></i>
+                                </button>
+                                <?php if ($pageSearch !== ''): ?>
+                                    <a class="btn btn-sm btn-light" href="index.php?section=pages" title="Clear" aria-label="Clear">
+                                        <i data-lucide="x" style="width:16px;height:16px"></i>
+                                    </a>
+                                <?php endif; ?>
+                            </form>
+                        </div>
+                        <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2">
+                            <div class="muted-text small">
+                                <?= number_format($pageTotal) ?> page
+                                <?php if ($pageSearch !== ''): ?>
+                                    cho từ khóa "<?= htmlspecialchars($pageSearch) ?>"
+                                <?php endif; ?>
+                            </div>
+                            <div class="muted-text small">Trang <?= number_format($pageListPage) ?>/<?= number_format($pageTotalPages) ?></div>
+                        </div>
                         <div class="table-responsive-sm">
                             <table class="table table-striped table-hover table-sm align-middle">
                                 <thead>
@@ -122,6 +182,24 @@
                                 </tbody>
                             </table>
                         </div>
+                        <?php if ($pageTotalPages > 1): ?>
+                            <?php
+                            $pagePageParams = $_GET;
+                            unset($pagePageParams['edit']);
+                            $pagePageParams['section'] = 'pages';
+                            ?>
+                            <nav class="d-flex flex-wrap justify-content-end gap-2 mt-3" aria-label="Phân trang page">
+                                <a class="btn btn-sm btn-light <?= $pageListPage <= 1 ? 'disabled' : '' ?>" href="<?= admin_page_url(array_merge($pagePageParams, ['page_page' => max(1, $pageListPage - 1)])) ?>">Trước</a>
+                                <?php
+                                $pageStart = max(1, $pageListPage - 2);
+                                $pageEnd = min($pageTotalPages, $pageListPage + 2);
+                                for ($pageNumber = $pageStart; $pageNumber <= $pageEnd; $pageNumber++):
+                                ?>
+                                    <a class="btn btn-sm <?= $pageNumber === $pageListPage ? 'btn-dark' : 'btn-light' ?>" href="<?= admin_page_url(array_merge($pagePageParams, ['page_page' => $pageNumber])) ?>"><?= number_format($pageNumber) ?></a>
+                                <?php endfor; ?>
+                                <a class="btn btn-sm btn-light <?= $pageListPage >= $pageTotalPages ? 'disabled' : '' ?>" href="<?= admin_page_url(array_merge($pagePageParams, ['page_page' => min($pageTotalPages, $pageListPage + 1)])) ?>">Sau</a>
+                            </nav>
+                        <?php endif; ?>
                     </div>
                 </div>
             </div>
