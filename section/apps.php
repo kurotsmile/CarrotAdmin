@@ -9,8 +9,14 @@
                 $appSearchWhere = '';
                 $appSearchParams = [];
                 if ($appSearch !== '') {
-                    $appSearchWhere = ' WHERE id LIKE :app_q OR decription LIKE :app_q OR type LIKE :app_q OR category LIKE :app_q';
-                    $appSearchParams[':app_q'] = '%' . $appSearch . '%';
+                    $appSearchWhere = ' WHERE id LIKE :app_id_q OR decription LIKE :app_description_q OR type LIKE :app_type_q OR category LIKE :app_category_q';
+                    $appSearchValue = '%' . $appSearch . '%';
+                    $appSearchParams = [
+                        ':app_id_q' => $appSearchValue,
+                        ':app_description_q' => $appSearchValue,
+                        ':app_type_q' => $appSearchValue,
+                        ':app_category_q' => $appSearchValue,
+                    ];
                 }
 
                 $appCountStmt = $pdo->prepare('SELECT COUNT(*) FROM app' . $appSearchWhere);
