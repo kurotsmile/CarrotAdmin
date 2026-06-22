@@ -666,8 +666,8 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages'], true)) {
                 $decription = trim($_POST['decription'] ?? '');
                 $type = trim($_POST['type'] ?? '');
                 $status = trim($_POST['status'] ?? '');
-                $syncStatus = (int) ($_POST['sync_status'] ?? 0);
                 $priority = (int) ($_POST['priority'] ?? 0);
+                $price = (float) ($_POST['price'] ?? 0);
 
                 if ($id === '') {
                     throw new RuntimeException('Vui lòng nhập ID app.');
@@ -684,12 +684,12 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages'], true)) {
                 }
 
                 if ($originalId !== '') {
-                    $stmt = $pdo->prepare('UPDATE app SET id = ?, decription = ?, github = ?, microsoft_store = ?, icon = ?, itch = ?, exe_file = ?, ipa_file = ?, deb_file = ?, amazon_app_store = ?, huawei_store = ?, youtube_link = ?, google_play = ?, dmg_file = ?, uptodown = ?, simmer = ?, type = ?, apk_file = ?, status = ?, sync_status = ?, priority = ?, category = ? WHERE id = ?');
-                    $stmt->execute([$id, $decription, $values['github'], $values['microsoft_store'], $values['icon'], $values['itch'], $values['exe_file'], $values['ipa_file'], $values['deb_file'], $values['amazon_app_store'], $values['huawei_store'], $values['youtube_link'], $values['google_play'], $values['dmg_file'], $values['uptodown'], $values['simmer'], $type, $values['apk_file'], $status, $syncStatus, $priority, $values['category'], $originalId]);
+                    $stmt = $pdo->prepare('UPDATE app SET id = ?, decription = ?, github = ?, microsoft_store = ?, icon = ?, itch = ?, exe_file = ?, ipa_file = ?, deb_file = ?, amazon_app_store = ?, huawei_store = ?, youtube_link = ?, google_play = ?, dmg_file = ?, uptodown = ?, simmer = ?, type = ?, apk_file = ?, status = ?, priority = ?, price = ?, category = ? WHERE id = ?');
+                    $stmt->execute([$id, $decription, $values['github'], $values['microsoft_store'], $values['icon'], $values['itch'], $values['exe_file'], $values['ipa_file'], $values['deb_file'], $values['amazon_app_store'], $values['huawei_store'], $values['youtube_link'], $values['google_play'], $values['dmg_file'], $values['uptodown'], $values['simmer'], $type, $values['apk_file'], $status, $priority, $price, $values['category'], $originalId]);
                     $message = 'Đã cập nhật app.';
                 } else {
-                    $stmt = $pdo->prepare('INSERT INTO app (id, decription, github, microsoft_store, icon, itch, exe_file, ipa_file, deb_file, amazon_app_store, huawei_store, youtube_link, google_play, dmg_file, uptodown, simmer, type, apk_file, status, sync_status, priority, category) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
-                    $stmt->execute([$id, $decription, $values['github'], $values['microsoft_store'], $values['icon'], $values['itch'], $values['exe_file'], $values['ipa_file'], $values['deb_file'], $values['amazon_app_store'], $values['huawei_store'], $values['youtube_link'], $values['google_play'], $values['dmg_file'], $values['uptodown'], $values['simmer'], $type, $values['apk_file'], $status, $syncStatus, $priority, $values['category']]);
+                    $stmt = $pdo->prepare('INSERT INTO app (id, decription, github, microsoft_store, icon, itch, exe_file, ipa_file, deb_file, amazon_app_store, huawei_store, youtube_link, google_play, dmg_file, uptodown, simmer, type, apk_file, status, priority, price, category) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
+                    $stmt->execute([$id, $decription, $values['github'], $values['microsoft_store'], $values['icon'], $values['itch'], $values['exe_file'], $values['ipa_file'], $values['deb_file'], $values['amazon_app_store'], $values['huawei_store'], $values['youtube_link'], $values['google_play'], $values['dmg_file'], $values['uptodown'], $values['simmer'], $type, $values['apk_file'], $status, $priority, $price, $values['category']]);
                     $message = 'Đã thêm app mới.';
                 }
             }
@@ -965,6 +965,7 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages'], true)) {
             'type' => 'type',
             'status' => 'status',
             'priority' => 'priority',
+            'price' => 'price',
             'created_at' => 'created_at',
         ];
         [$appSort, $appDir] = admin_sort_state($appSortColumns, 'priority', 'DESC');

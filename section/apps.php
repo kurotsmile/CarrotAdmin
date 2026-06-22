@@ -33,8 +33,8 @@
 
                         <div class="row g-3 mt-0">
                             <div class="col-md-6">
-                                <label class="form-label" for="sync_status">Sync status</label>
-                                <input class="form-control" id="sync_status" name="sync_status" type="number" value="<?= htmlspecialchars((string) ($editing['sync_status'] ?? 0)) ?>">
+                                <label class="form-label" for="app_price">Price</label>
+                                <input class="form-control" id="app_price" name="price" type="number" min="0" step="0.01" value="<?= htmlspecialchars((string) ($editing['price'] ?? 0)) ?>">
                             </div>
                             <div class="col-md-6">
                                 <label class="form-label" for="category">Category</label>
@@ -91,6 +91,7 @@
                                     <th><?= admin_sort_link('type', 'Type', $appSort, $appDir) ?></th>
                                     <th><?= admin_sort_link('status', 'Status', $appSort, $appDir) ?></th>
                                     <th><?= admin_sort_link('priority', 'Priority', $appSort, $appDir) ?></th>
+                                    <th><?= admin_sort_link('price', 'Price', $appSort, $appDir) ?></th>
                                     <th></th>
                                 </tr>
                                 </thead>
@@ -112,6 +113,7 @@
                                         <td><?= htmlspecialchars($app['type']) ?></td>
                                         <td><?= htmlspecialchars($app['status']) ?></td>
                                         <td><?= (int) $app['priority'] ?></td>
+                                        <td><?= number_format((float) ($app['price'] ?? 0), 2) ?></td>
                                         <td class="text-end">
                                             <div class="d-inline-flex align-items-center justify-content-end gap-2 flex-nowrap">
                                             <a class="btn btn-sm btn-warning" href="index.php?section=apps&edit=<?= urlencode($app['id']) ?>" title="Cập nhật" aria-label="Cập nhật">
@@ -129,7 +131,7 @@
                                     </tr>
                                 <?php endforeach; ?>
                                 <?php if (!$apps): ?>
-                                    <tr><td colspan="6" class="text-center muted-text py-4">Chưa có dữ liệu.</td></tr>
+                                    <tr><td colspan="7" class="text-center muted-text py-4">Chưa có dữ liệu.</td></tr>
                                 <?php endif; ?>
                                 </tbody>
                             </table>

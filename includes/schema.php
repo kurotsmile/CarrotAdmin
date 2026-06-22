@@ -65,6 +65,7 @@ function admin_ensure_app_table(PDO $pdo): void
           status longtext DEFAULT NULL,
           sync_status int(11) DEFAULT 0,
           priority int(11) DEFAULT 0,
+          price decimal(10,2) NOT NULL DEFAULT 0.00,
           category longtext DEFAULT NULL,
           created_at datetime DEFAULT current_timestamp(),
           PRIMARY KEY (id)
