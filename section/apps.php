@@ -1,4 +1,21 @@
             <?php if ($section === 'apps'): ?>
+            <?php
+            $appPage = max(1, (int) ($_GET['app_page'] ?? 1));
+            $appPerPage = 25;
+            $appTotal = 0;
+            $appTotalPages = 1;
+            if ($pdo instanceof PDO) {
+                $appTotal = (int) $pdo->query('SELECT COUNT(*) FROM app')->fetchColumn();
+                $appTotalPages = max(1, (int) ceil($appTotal / $appPerPage));
+                $appPage = min($appPage, $appTotalPages);
+                $appOffset = ($appPage - 1) * $appPerPage;
+                $appStmt = $pdo->prepare('SELECT * FROM app ORDER BY ' . admin_order_by($appSortColumns, $appSort, $appDir) . ', id ASC LIMIT :limit OFFSET :offset');
+                $appStmt->bindValue(':limit', $appPerPage, PDO::PARAM_INT);
+                $appStmt->bindValue(':offset', $appOffset, PDO::PARAM_INT);
+                $appStmt->execute();
+                $apps = $appStmt->fetchAll();
+            }
+            ?>
             <div class="row g-4">
                 <div class="col-xl-5">
                     <form class="glass-panel p-4" method="post">
@@ -81,7 +98,11 @@
 
                 <div class="col-xl-7">
                     <div class="glass-panel p-4">
-                        <h2 class="h5 mb-3">Danh sách app</h2>
+                        <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
+                            <h2 class="h5 mb-0">Danh sách app</h2>
+                            <div class="muted-text small">Trang <?= number_format($appPage) ?>/<?= number_format($appTotalPages) ?></div>
+                        </div>
+                        <div class="muted-text small mb-2"><?= number_format($appTotal) ?> app</div>
                         <div class="table-responsive-sm">
                             <table class="table table-striped table-hover table-sm align-middle">
                                 <thead>
@@ -136,6 +157,24 @@
                                 </tbody>
                             </table>
                         </div>
+                        <?php if ($appTotalPages > 1): ?>
+                            <?php
+                            $appPageParams = $_GET;
+                            unset($appPageParams['edit']);
+                            $appPageParams['section'] = 'apps';
+                            ?>
+                            <nav class="d-flex flex-wrap justify-content-end gap-2 mt-3" aria-label="Phân trang app">
+                                <a class="btn btn-sm btn-light <?= $appPage <= 1 ? 'disabled' : '' ?>" href="<?= admin_page_url(array_merge($appPageParams, ['app_page' => max(1, $appPage - 1)])) ?>">Trước</a>
+                                <?php
+                                $pageStart = max(1, $appPage - 2);
+                                $pageEnd = min($appTotalPages, $appPage + 2);
+                                for ($pageNumber = $pageStart; $pageNumber <= $pageEnd; $pageNumber++):
+                                ?>
+                                    <a class="btn btn-sm <?= $pageNumber === $appPage ? 'btn-dark' : 'btn-light' ?>" href="<?= admin_page_url(array_merge($appPageParams, ['app_page' => $pageNumber])) ?>"><?= number_format($pageNumber) ?></a>
+                                <?php endfor; ?>
+                                <a class="btn btn-sm btn-light <?= $appPage >= $appTotalPages ? 'disabled' : '' ?>" href="<?= admin_page_url(array_merge($appPageParams, ['app_page' => min($appTotalPages, $appPage + 1)])) ?>">Sau</a>
+                            </nav>
+                        <?php endif; ?>
                     </div>
                 </div>
             </div>
