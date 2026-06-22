@@ -1,15 +1,28 @@
             <?php if ($section === 'apps'): ?>
             <?php
+            $appSearch = trim($_GET['app_q'] ?? '');
             $appPage = max(1, (int) ($_GET['app_page'] ?? 1));
             $appPerPage = 25;
             $appTotal = 0;
             $appTotalPages = 1;
             if ($pdo instanceof PDO) {
-                $appTotal = (int) $pdo->query('SELECT COUNT(*) FROM app')->fetchColumn();
+                $appSearchWhere = '';
+                $appSearchParams = [];
+                if ($appSearch !== '') {
+                    $appSearchWhere = ' WHERE id LIKE :app_q OR decription LIKE :app_q OR type LIKE :app_q OR category LIKE :app_q';
+                    $appSearchParams[':app_q'] = '%' . $appSearch . '%';
+                }
+
+                $appCountStmt = $pdo->prepare('SELECT COUNT(*) FROM app' . $appSearchWhere);
+                $appCountStmt->execute($appSearchParams);
+                $appTotal = (int) $appCountStmt->fetchColumn();
                 $appTotalPages = max(1, (int) ceil($appTotal / $appPerPage));
                 $appPage = min($appPage, $appTotalPages);
                 $appOffset = ($appPage - 1) * $appPerPage;
-                $appStmt = $pdo->prepare('SELECT * FROM app ORDER BY ' . admin_order_by($appSortColumns, $appSort, $appDir) . ', id ASC LIMIT :limit OFFSET :offset');
+                $appStmt = $pdo->prepare('SELECT * FROM app' . $appSearchWhere . ' ORDER BY ' . admin_order_by($appSortColumns, $appSort, $appDir) . ', id ASC LIMIT :limit OFFSET :offset');
+                foreach ($appSearchParams as $paramKey => $paramValue) {
+                    $appStmt->bindValue($paramKey, $paramValue);
+                }
                 $appStmt->bindValue(':limit', $appPerPage, PDO::PARAM_INT);
                 $appStmt->bindValue(':offset', $appOffset, PDO::PARAM_INT);
                 $appStmt->execute();
