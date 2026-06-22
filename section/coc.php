@@ -1,0 +1,170 @@
+            <?php if ($section === 'coc'): ?>
+            <ul class="nav nav-tabs mb-4">
+                <li class="nav-item">
+                    <a class="nav-link <?= $cocTab === 'accounts' ? 'active' : '' ?>" href="index.php?section=coc&tab=accounts">Các Tài khoản</a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link <?= $cocTab === 'orders' ? 'active' : '' ?>" href="index.php?section=coc&tab=orders">Đơn Đặt hàng</a>
+                </li>
+            </ul>
+
+            <?php if ($cocTab === 'accounts'): ?>
+            <div class="row g-4">
+                <div class="col-xl-5">
+                    <form class="glass-panel p-4" method="post" enctype="multipart/form-data">
+                        <input type="hidden" name="action" value="save">
+                        <input type="hidden" name="id" value="<?= (int) ($editing['id'] ?? 0) ?>">
+                        <h2 class="h5 mb-3"><?= $editing ? 'Cập nhật acc' : 'Thêm acc mới' ?></h2>
+
+                        <div class="mb-3">
+                            <label class="form-label" for="name">Name</label>
+                            <input class="form-control" id="name" name="name" value="<?= htmlspecialchars($editing['name'] ?? '') ?>" required>
+                        </div>
+
+                        <div class="row g-3">
+                            <div class="col-md-6">
+                                <label class="form-label" for="price">Giá USD</label>
+                                <input class="form-control" id="price" name="price" type="number" min="0" step="0.01" value="<?= htmlspecialchars((string) ($editing['price'] ?? '')) ?>" required>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label" for="hall">Town Hall</label>
+                                <input class="form-control" id="hall" name="hall" type="number" min="1" max="99" step="1" value="<?= htmlspecialchars((string) ($editing ? coc_account_hall($editing) : '')) ?>" required>
+                            </div>
+                        </div>
+
+                        <div class="mb-3 mt-3">
+                            <label class="form-label" for="avatar">Avatar URL</label>
+                            <div class="input-group">
+                                <input class="form-control" id="avatar" name="avatar" value="<?= htmlspecialchars($editing['avatar'] ?? '') ?>">
+                                <button class="btn btn-secondary js-upload" type="button" data-target="avatar" data-type-media="coc_images" data-mode="replace" data-accept="image/*">Upload</button>
+                            </div>
+                        </div>
+
+                        <div class="row g-3 mt-0">
+                            <div class="col-md-6">
+                                <label class="form-label" for="username">Username</label>
+                                <input class="form-control" id="username" name="username" value="<?= htmlspecialchars($editing['username'] ?? '') ?>" required>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label" for="password">Password</label>
+                                <input class="form-control" id="password" name="password" value="<?= htmlspecialchars($editing['password'] ?? '') ?>" required>
+                            </div>
+                        </div>
+
+                        <div class="mb-3 mt-3">
+                            <label class="form-label" for="photos">Photos URL, mỗi dòng một ảnh</label>
+                            <div class="input-group">
+                                <textarea class="form-control" id="photos" name="photos" rows="4"><?= htmlspecialchars($photoText) ?></textarea>
+                                <button class="btn btn-secondary js-upload" type="button" data-target="photos" data-type-media="coc_images" data-mode="append" data-accept="image/*">Upload</button>
+                            </div>
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label" for="data">Data JSON Supercell</label>
+                            <textarea class="form-control font-monospace small" id="data" name="data" rows="12" required><?= htmlspecialchars($editing['data'] ?? '') ?></textarea>
+                        </div>
+
+                        <button class="btn <?= $editing ? 'btn-warning' : 'btn-success' ?> fw-bold w-100" type="submit"><?= $editing ? 'Lưu cập nhật' : 'Thêm acc' ?></button>
+                    </form>
+                </div>
+
+                <div class="col-xl-7">
+                    <div class="glass-panel p-4">
+                        <h2 class="h5 mb-3">Danh sách acc</h2>
+                        <div class="table-responsive-sm">
+                            <table class="table table-striped table-hover table-sm align-middle">
+                                <thead>
+                                <tr>
+                                    <th><?= admin_sort_link('id', 'ID', $accountSort, $accountDir) ?></th>
+                                    <th><?= admin_sort_link('name', 'Acc', $accountSort, $accountDir) ?></th>
+                                    <th><?= admin_sort_link('hall', 'Town Hall', $accountSort, $accountDir) ?></th>
+                                    <th><?= admin_sort_link('price', 'Giá', $accountSort, $accountDir) ?></th>
+                                    <th></th>
+                                </tr>
+                                </thead>
+                                <tbody>
+                                <?php foreach ($accounts as $account):
+                                    $th = coc_account_hall($account);
+                                    ?>
+                                    <tr>
+                                        <td><?= (int) $account['id'] ?></td>
+                                        <td>
+                                            <div class="d-flex align-items-center gap-3">
+                                                <img src="<?= htmlspecialchars($account['avatar']) ?>" alt="" width="54" height="54" class="rounded-2 object-fit-cover">
+                                                <div>
+                                                    <strong><?= htmlspecialchars($account['name']) ?></strong>
+                                                    <div class="muted-text small"><?= htmlspecialchars($account['username']) ?></div>
+                                                </div>
+                                            </div>
+                                        </td>
+                                        <td><?= $th ?: 'N/A' ?></td>
+                                        <td><?= coc_money($account['price']) ?></td>
+                                        <td class="text-end">
+                                            <div class="d-inline-flex align-items-center justify-content-end gap-2 flex-nowrap">
+                                                <a class="btn btn-sm btn-warning" href="index.php?section=coc&edit=<?= (int) $account['id'] ?>" title="Cập nhật" aria-label="Cập nhật">
+                                                    <i data-lucide="pencil" style="width:16px;height:16px"></i>
+                                                </a>
+                                                <form class="js-delete" method="post" data-confirm="Xóa acc này?">
+                                                    <input type="hidden" name="action" value="delete">
+                                                    <input type="hidden" name="id" value="<?= (int) $account['id'] ?>">
+                                                    <button class="btn btn-sm btn-danger" type="submit" title="Xóa" aria-label="Xóa">
+                                                        <i data-lucide="trash-2" style="width:16px;height:16px"></i>
+                                                    </button>
+                                                </form>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                <?php endforeach; ?>
+                                <?php if (!$accounts): ?>
+                                    <tr><td colspan="5" class="text-center muted-text py-4">Chưa có dữ liệu.</td></tr>
+                                <?php endif; ?>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <?php endif; ?>
+
+            <?php if ($cocTab === 'orders'): ?>
+            <div class="glass-panel p-4">
+                <h2 class="h5 mb-3">Đơn Đặt hàng</h2>
+                <div class="table-responsive-sm">
+                    <table class="table table-striped table-hover table-sm align-middle">
+                        <thead>
+                        <tr>
+                            <th><?= admin_sort_link('id', 'ID', $orderSort, $orderDir) ?></th>
+                            <th><?= admin_sort_link('account', 'Acc', $orderSort, $orderDir) ?></th>
+                            <th><?= admin_sort_link('paypal_order_id', 'PayPal Order', $orderSort, $orderDir) ?></th>
+                            <th><?= admin_sort_link('status', 'Status', $orderSort, $orderDir) ?></th>
+                            <th><?= admin_sort_link('amount', 'Amount', $orderSort, $orderDir) ?></th>
+                            <th><?= admin_sort_link('payer_email', 'Payer', $orderSort, $orderDir) ?></th>
+                            <th><?= admin_sort_link('created_at', 'Created', $orderSort, $orderDir) ?></th>
+                            <th><?= admin_sort_link('paid_at', 'Paid', $orderSort, $orderDir) ?></th>
+                        </tr>
+                        </thead>
+                        <tbody>
+                        <?php foreach ($orders as $order): ?>
+                            <tr>
+                                <td><?= (int) $order['id'] ?></td>
+                                <td>
+                                    <strong><?= htmlspecialchars($order['coc_name'] ?? ('#' . $order['coc_id'])) ?></strong>
+                                    <div class="muted-text small"><?= htmlspecialchars($order['coc_username'] ?? '') ?></div>
+                                </td>
+                                <td class="font-monospace small"><?= htmlspecialchars($order['paypal_order_id']) ?></td>
+                                <td><?= htmlspecialchars($order['status']) ?></td>
+                                <td><?= coc_money($order['amount']) ?></td>
+                                <td><?= htmlspecialchars($order['payer_email'] ?? '') ?></td>
+                                <td><?= htmlspecialchars($order['created_at']) ?></td>
+                                <td><?= htmlspecialchars($order['paid_at'] ?? '') ?></td>
+                            </tr>
+                        <?php endforeach; ?>
+                        <?php if (!$orders): ?>
+                            <tr><td colspan="8" class="text-center muted-text py-4">Chưa có đơn đặt hàng.</td></tr>
+                        <?php endif; ?>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            <?php endif; ?>
+            <?php endif; ?>
