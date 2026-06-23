@@ -9,6 +9,42 @@
             </ul>
 
             <?php if ($cocTab === 'accounts'): ?>
+            <?php
+            $cocSearch = trim($_GET['coc_q'] ?? '');
+            $cocPage = max(1, (int) ($_GET['coc_page'] ?? 1));
+            $cocPerPage = 25;
+            $cocTotal = 0;
+            $cocTotalPages = 1;
+            if ($pdo instanceof PDO) {
+                $cocSearchWhere = '';
+                $cocSearchParams = [];
+                if ($cocSearch !== '') {
+                    $cocSearchWhere = ' WHERE CAST(id AS CHAR) LIKE :coc_id_q OR name LIKE :coc_name_q OR username LIKE :coc_username_q OR CAST(hall AS CHAR) LIKE :coc_hall_q';
+                    $cocSearchValue = '%' . $cocSearch . '%';
+                    $cocSearchParams = [
+                        ':coc_id_q' => $cocSearchValue,
+                        ':coc_name_q' => $cocSearchValue,
+                        ':coc_username_q' => $cocSearchValue,
+                        ':coc_hall_q' => $cocSearchValue,
+                    ];
+                }
+
+                $cocCountStmt = $pdo->prepare('SELECT COUNT(*) FROM coc' . $cocSearchWhere);
+                $cocCountStmt->execute($cocSearchParams);
+                $cocTotal = (int) $cocCountStmt->fetchColumn();
+                $cocTotalPages = max(1, (int) ceil($cocTotal / $cocPerPage));
+                $cocPage = min($cocPage, $cocTotalPages);
+                $cocOffset = ($cocPage - 1) * $cocPerPage;
+                $cocStmt = $pdo->prepare('SELECT * FROM coc' . $cocSearchWhere . ' ORDER BY ' . admin_order_by($accountSortColumns, $accountSort, $accountDir) . ' LIMIT :limit OFFSET :offset');
+                foreach ($cocSearchParams as $paramKey => $paramValue) {
+                    $cocStmt->bindValue($paramKey, $paramValue);
+                }
+                $cocStmt->bindValue(':limit', $cocPerPage, PDO::PARAM_INT);
+                $cocStmt->bindValue(':offset', $cocOffset, PDO::PARAM_INT);
+                $cocStmt->execute();
+                $accounts = $cocStmt->fetchAll();
+            }
+            ?>
             <div class="row g-4">
                 <div class="col-xl-5">
                     <form class="glass-panel p-4" method="post" enctype="multipart/form-data">
@@ -70,7 +106,31 @@
 
                 <div class="col-xl-7">
                     <div class="glass-panel p-4">
-                        <h2 class="h5 mb-3">Danh sách acc</h2>
+                        <div class="d-flex flex-wrap align-items-center justify-content-between gap-3 mb-3">
+                            <h2 class="h5 mb-0">Danh sách acc</h2>
+                            <form class="d-flex gap-2" method="get">
+                                <input type="hidden" name="section" value="coc">
+                                <input type="hidden" name="tab" value="accounts">
+                                <input class="form-control form-control-sm" name="coc_q" value="<?= htmlspecialchars($cocSearch) ?>" placeholder="Search acc">
+                                <button class="btn btn-sm btn-secondary" type="submit" title="Search" aria-label="Search">
+                                    <i data-lucide="search" style="width:16px;height:16px"></i>
+                                </button>
+                                <?php if ($cocSearch !== ''): ?>
+                                    <a class="btn btn-sm btn-light" href="index.php?section=coc&tab=accounts" title="Clear" aria-label="Clear">
+                                        <i data-lucide="x" style="width:16px;height:16px"></i>
+                                    </a>
+                                <?php endif; ?>
+                            </form>
+                        </div>
+                        <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2">
+                            <div class="muted-text small">
+                                <?= number_format($cocTotal) ?> acc
+                                <?php if ($cocSearch !== ''): ?>
+                                    cho từ khóa "<?= htmlspecialchars($cocSearch) ?>"
+                                <?php endif; ?>
+                            </div>
+                            <div class="muted-text small">Trang <?= number_format($cocPage) ?>/<?= number_format($cocTotalPages) ?></div>
+                        </div>
                         <div class="table-responsive-sm">
                             <table class="table table-striped table-hover table-sm align-middle">
                                 <thead>
@@ -101,7 +161,7 @@
                                         <td><?= coc_money($account['price']) ?></td>
                                         <td class="text-end">
                                             <div class="d-inline-flex align-items-center justify-content-end gap-2 flex-nowrap">
-                                                <a class="btn btn-sm btn-warning" href="index.php?section=coc&edit=<?= (int) $account['id'] ?>" title="Cập nhật" aria-label="Cập nhật">
+                                                <a class="btn btn-sm btn-warning" href="index.php?section=coc&tab=accounts&edit=<?= (int) $account['id'] ?>" title="Cập nhật" aria-label="Cập nhật">
                                                     <i data-lucide="pencil" style="width:16px;height:16px"></i>
                                                 </a>
                                                 <form class="js-delete" method="post" data-confirm="Xóa acc này?">
@@ -121,6 +181,25 @@
                                 </tbody>
                             </table>
                         </div>
+                        <?php if ($cocTotalPages > 1): ?>
+                            <?php
+                            $cocPageParams = $_GET;
+                            unset($cocPageParams['edit']);
+                            $cocPageParams['section'] = 'coc';
+                            $cocPageParams['tab'] = 'accounts';
+                            ?>
+                            <nav class="d-flex flex-wrap justify-content-end gap-2 mt-3" aria-label="Phân trang acc">
+                                <a class="btn btn-sm btn-light <?= $cocPage <= 1 ? 'disabled' : '' ?>" href="<?= admin_page_url(array_merge($cocPageParams, ['coc_page' => max(1, $cocPage - 1)])) ?>">Trước</a>
+                                <?php
+                                $pageStart = max(1, $cocPage - 2);
+                                $pageEnd = min($cocTotalPages, $cocPage + 2);
+                                for ($pageNumber = $pageStart; $pageNumber <= $pageEnd; $pageNumber++):
+                                ?>
+                                    <a class="btn btn-sm <?= $pageNumber === $cocPage ? 'btn-dark' : 'btn-light' ?>" href="<?= admin_page_url(array_merge($cocPageParams, ['coc_page' => $pageNumber])) ?>"><?= number_format($pageNumber) ?></a>
+                                <?php endfor; ?>
+                                <a class="btn btn-sm btn-light <?= $cocPage >= $cocTotalPages ? 'disabled' : '' ?>" href="<?= admin_page_url(array_merge($cocPageParams, ['coc_page' => min($cocTotalPages, $cocPage + 1)])) ?>">Sau</a>
+                            </nav>
+                        <?php endif; ?>
                     </div>
                 </div>
             </div>
