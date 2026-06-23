@@ -91,7 +91,6 @@ $labelKeyOptions = [];
 $pageSlugOptions = [];
 $textLabels = [];
 $orders = [];
-$editingAppPhoto = null;
 $dashboardMetrics = [
     'apps' => 0,
     'pages' => 0,
@@ -201,7 +200,7 @@ function admin_ajax_upload(): void
 
     try {
         $typeMedia = trim($_POST['type_media'] ?? '');
-        if (!in_array($typeMedia, ['carrot_app', 'coc_images', 'bank', 'country'], true)) {
+        if (!in_array($typeMedia, ['carrot_app', 'carrot_app_photo', 'coc_images', 'bank', 'country'], true)) {
             throw new RuntimeException('Type media không hợp lệ.');
         }
 
@@ -222,14 +221,6 @@ function admin_ajax_upload(): void
 function admin_fetch_app(PDO $pdo, string $id): ?array
 {
     $stmt = $pdo->prepare('SELECT * FROM app WHERE id = ?');
-    $stmt->execute([$id]);
-    $row = $stmt->fetch();
-    return $row ?: null;
-}
-
-function admin_fetch_app_photo(PDO $pdo, int $id): ?array
-{
-    $stmt = $pdo->prepare('SELECT * FROM app_photo WHERE id = ?');
     $stmt->execute([$id]);
     $row = $stmt->fetch();
     return $row ?: null;
@@ -714,7 +705,6 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages'], true)) {
                 $id = (int) ($_POST['id'] ?? 0);
                 $appId = trim($_POST['app_id'] ?? '');
                 $imageUrl = trim($_POST['image_url'] ?? '');
-                $title = trim($_POST['title'] ?? '');
                 $sortOrder = (int) ($_POST['sort_order'] ?? 0);
 
                 if ($appId === '' || $imageUrl === '') {
@@ -726,12 +716,12 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages'], true)) {
                 }
 
                 if ($id > 0) {
-                    $stmt = $pdo->prepare('UPDATE app_photo SET app_id = ?, image_url = ?, title = ?, sort_order = ? WHERE id = ?');
-                    $stmt->execute([$appId, $imageUrl, $title, $sortOrder, $id]);
+                    $stmt = $pdo->prepare('UPDATE app_photo SET app_id = ?, image_url = ?, sort_order = ? WHERE id = ?');
+                    $stmt->execute([$appId, $imageUrl, $sortOrder, $id]);
                     $message = 'Đã cập nhật ảnh mô tả.';
                 } else {
-                    $stmt = $pdo->prepare('INSERT INTO app_photo (app_id, image_url, title, sort_order) VALUES (?, ?, ?, ?)');
-                    $stmt->execute([$appId, $imageUrl, $title, $sortOrder]);
+                    $stmt = $pdo->prepare('INSERT INTO app_photo (app_id, image_url, sort_order) VALUES (?, ?, ?)');
+                    $stmt->execute([$appId, $imageUrl, $sortOrder]);
                     $message = 'Đã thêm ảnh mô tả.';
                 }
             }
@@ -962,10 +952,6 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages'], true)) {
 
         if ($section === 'apps' && $editKey !== '') {
             $editing = admin_fetch_app($pdo, $editKey);
-        }
-
-        if ($section === 'apps' && $appTab === 'photos' && isset($_GET['photo_edit'])) {
-            $editingAppPhoto = admin_fetch_app_photo($pdo, (int) $_GET['photo_edit']);
         }
 
         if ($section === 'pages' && $editId > 0) {

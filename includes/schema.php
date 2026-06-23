@@ -80,7 +80,6 @@ function admin_ensure_app_photo_table(PDO $pdo): void
           id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
           app_id VARCHAR(255) NOT NULL,
           image_url LONGTEXT NOT NULL,
-          title VARCHAR(255) DEFAULT NULL,
           sort_order INT NOT NULL DEFAULT 0,
           created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
           updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,

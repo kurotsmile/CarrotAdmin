@@ -5,6 +5,7 @@
             $appOptions = [];
             $appPhotoRows = [];
             $appPhotoSummary = [];
+            $selectedAppId = trim($_GET['app_id'] ?? '');
             $appPerPage = 25;
             $appTotal = 0;
             $appTotalPages = 1;
@@ -39,14 +40,18 @@
 
                 if ($appTab === 'photos') {
                     $appOptions = $pdo->query('SELECT id FROM app ORDER BY id ASC')->fetchAll();
-                    $appPhotoRows = $pdo->query('
-                        SELECT app_photo.*, app.decription AS app_decription, app.icon AS app_icon
-                        FROM app_photo
-                        LEFT JOIN app ON app.id = app_photo.app_id
-                        ORDER BY app_photo.app_id ASC, app_photo.sort_order ASC, app_photo.id DESC
-                    ')->fetchAll();
+                    if ($selectedAppId !== '') {
+                        $appPhotoStmt = $pdo->prepare('
+                            SELECT *
+                            FROM app_photo
+                            WHERE app_id = ?
+                            ORDER BY sort_order ASC, id DESC
+                        ');
+                        $appPhotoStmt->execute([$selectedAppId]);
+                        $appPhotoRows = $appPhotoStmt->fetchAll();
+                    }
                     $appPhotoSummary = $pdo->query('
-                        SELECT app.id, app.decription, app.icon, COALESCE(photo_counts.photo_count, 0) AS photo_count, photo_counts.last_photo_at
+                        SELECT app.id, app.icon, COALESCE(photo_counts.photo_count, 0) AS photo_count, photo_counts.last_photo_at
                         FROM app
                         LEFT JOIN (
                             SELECT app_id, COUNT(*) AS photo_count, MAX(updated_at) AS last_photo_at
@@ -261,17 +266,18 @@
             <?php if ($appTab === 'photos'): ?>
             <div class="row g-4">
                 <div class="col-xl-5">
-                    <form class="glass-panel p-4" method="post">
+                    <div class="glass-panel p-4">
+                    <form method="post">
                         <input type="hidden" name="action" value="save_app_photo">
-                        <input type="hidden" name="id" value="<?= (int) ($editingAppPhoto['id'] ?? 0) ?>">
-                        <h2 class="h5 mb-3"><?= $editingAppPhoto ? 'Cập nhật ảnh mô tả' : 'Thêm ảnh mô tả' ?></h2>
+                        <input type="hidden" name="id" value="0">
+                        <h2 class="h5 mb-3"><?= $selectedAppId !== '' ? 'Ảnh mô tả: ' . htmlspecialchars($selectedAppId) : 'Thêm ảnh mô tả' ?></h2>
 
                         <div class="mb-3">
                             <label class="form-label" for="app_photo_app_id">App</label>
                             <select class="form-select" id="app_photo_app_id" name="app_id" required>
                                 <option value="">Chọn app</option>
                                 <?php foreach ($appOptions as $appOption): ?>
-                                    <option value="<?= htmlspecialchars($appOption['id']) ?>" <?= (($editingAppPhoto['app_id'] ?? ($_GET['app_id'] ?? '')) === $appOption['id']) ? 'selected' : '' ?>>
+                                    <option value="<?= htmlspecialchars($appOption['id']) ?>" <?= $selectedAppId === $appOption['id'] ? 'selected' : '' ?>>
                                         <?= htmlspecialchars($appOption['id']) ?>
                                     </option>
                                 <?php endforeach; ?>
@@ -281,27 +287,50 @@
                         <div class="mb-3">
                             <label class="form-label" for="app_photo_image_url">Ảnh mô tả</label>
                             <div class="input-group">
-                                <input class="form-control" id="app_photo_image_url" name="image_url" value="<?= htmlspecialchars($editingAppPhoto['image_url'] ?? '') ?>" required>
-                                <button class="btn btn-secondary js-upload" type="button" data-target="app_photo_image_url" data-type-media="carrot_app" data-mode="replace" data-accept="image/*">Upload</button>
+                                <input class="form-control" id="app_photo_image_url" name="image_url" value="" required>
+                                <button class="btn btn-secondary js-upload" type="button" data-target="app_photo_image_url" data-type-media="carrot_app_photo" data-mode="replace" data-accept="image/*">Upload</button>
                             </div>
                         </div>
 
                         <div class="row g-3">
-                            <div class="col-md-8">
-                                <label class="form-label" for="app_photo_title">Tiêu đề</label>
-                                <input class="form-control" id="app_photo_title" name="title" value="<?= htmlspecialchars($editingAppPhoto['title'] ?? '') ?>">
-                            </div>
-                            <div class="col-md-4">
+                            <div class="col-md-12">
                                 <label class="form-label" for="app_photo_sort_order">Thứ tự</label>
-                                <input class="form-control" id="app_photo_sort_order" name="sort_order" type="number" value="<?= htmlspecialchars((string) ($editingAppPhoto['sort_order'] ?? 0)) ?>">
+                                <input class="form-control" id="app_photo_sort_order" name="sort_order" type="number" value="0">
                             </div>
                         </div>
 
-                        <button class="btn <?= $editingAppPhoto ? 'btn-warning' : 'btn-success' ?> fw-bold w-100 mt-3" type="submit"><?= $editingAppPhoto ? 'Lưu cập nhật' : 'Thêm ảnh' ?></button>
-                        <?php if ($editingAppPhoto): ?>
-                            <a class="btn btn-light fw-bold w-100 mt-2" href="index.php?section=apps&tab=photos">Hủy sửa</a>
-                        <?php endif; ?>
+                        <button class="btn btn-success fw-bold w-100 mt-3" type="submit">Thêm ảnh</button>
                     </form>
+
+                    <?php if ($selectedAppId !== ''): ?>
+                        <hr>
+                        <h3 class="h6 mb-3">Ảnh đã thêm</h3>
+                        <div class="row g-3">
+                            <?php foreach ($appPhotoRows as $photo): ?>
+                                <div class="col-6">
+                                    <div class="border rounded-2 overflow-hidden bg-white">
+                                        <img src="<?= htmlspecialchars($photo['image_url']) ?>" alt="" class="w-100 object-fit-cover" style="aspect-ratio:16/10">
+                                        <div class="d-flex align-items-center justify-content-between gap-2 p-2">
+                                            <span class="muted-text small">#<?= (int) $photo['sort_order'] ?></span>
+                                            <form class="js-delete" method="post" data-confirm="Xóa ảnh mô tả này?">
+                                                <input type="hidden" name="action" value="delete_app_photo">
+                                                <input type="hidden" name="id" value="<?= (int) $photo['id'] ?>">
+                                                <button class="btn btn-sm btn-danger" type="submit" title="Xóa" aria-label="Xóa">
+                                                    <i data-lucide="trash-2" style="width:16px;height:16px"></i>
+                                                </button>
+                                            </form>
+                                        </div>
+                                    </div>
+                                </div>
+                            <?php endforeach; ?>
+                            <?php if (!$appPhotoRows): ?>
+                                <div class="col-12">
+                                    <div class="text-center muted-text py-4">App này chưa có ảnh mô tả.</div>
+                                </div>
+                            <?php endif; ?>
+                        </div>
+                    <?php endif; ?>
+                    </div>
                 </div>
 
                 <div class="col-xl-7">
@@ -327,14 +356,13 @@
                                                 <?php endif; ?>
                                                 <div>
                                                     <strong><?= htmlspecialchars($row['id']) ?></strong>
-                                                    <div class="muted-text small"><?= htmlspecialchars(admin_excerpt($row['decription'] ?? '')) ?></div>
                                                 </div>
                                             </div>
                                         </td>
                                         <td class="text-center"><span class="badge text-bg-secondary"><?= (int) $row['photo_count'] ?></span></td>
                                         <td><?= htmlspecialchars($row['last_photo_at'] ?? '') ?></td>
                                         <td class="text-end">
-                                            <a class="btn btn-sm btn-secondary" href="index.php?section=apps&tab=photos&app_id=<?= urlencode($row['id']) ?>" title="Thêm ảnh cho app" aria-label="Thêm ảnh cho app">
+                                            <a class="btn btn-sm <?= $selectedAppId === $row['id'] ? 'btn-success' : 'btn-secondary' ?>" href="index.php?section=apps&tab=photos&app_id=<?= urlencode($row['id']) ?>" title="Thêm ảnh cho app" aria-label="Thêm ảnh cho app">
                                                 <i data-lucide="image-plus" style="width:16px;height:16px"></i>
                                             </a>
                                         </td>
@@ -342,54 +370,6 @@
                                 <?php endforeach; ?>
                                 <?php if (!$appPhotoSummary): ?>
                                     <tr><td colspan="4" class="text-center muted-text py-4">Chưa có dữ liệu.</td></tr>
-                                <?php endif; ?>
-                                </tbody>
-                            </table>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="col-12">
-                    <div class="glass-panel p-4">
-                        <h2 class="h5 mb-3">Chi tiết ảnh mô tả</h2>
-                        <div class="table-responsive-sm">
-                            <table class="table table-striped table-hover table-sm align-middle">
-                                <thead>
-                                <tr>
-                                    <th>ID</th>
-                                    <th>Ảnh</th>
-                                    <th>App</th>
-                                    <th>Tiêu đề</th>
-                                    <th>Thứ tự</th>
-                                    <th></th>
-                                </tr>
-                                </thead>
-                                <tbody>
-                                <?php foreach ($appPhotoRows as $photo): ?>
-                                    <tr>
-                                        <td><?= (int) $photo['id'] ?></td>
-                                        <td><img src="<?= htmlspecialchars($photo['image_url']) ?>" alt="" width="96" height="54" class="rounded-2 object-fit-cover"></td>
-                                        <td><?= htmlspecialchars($photo['app_id']) ?></td>
-                                        <td><?= htmlspecialchars($photo['title'] ?? '') ?></td>
-                                        <td><?= (int) $photo['sort_order'] ?></td>
-                                        <td class="text-end">
-                                            <div class="d-inline-flex align-items-center justify-content-end gap-2 flex-nowrap">
-                                                <a class="btn btn-sm btn-warning" href="index.php?section=apps&tab=photos&photo_edit=<?= (int) $photo['id'] ?>" title="Cập nhật" aria-label="Cập nhật">
-                                                    <i data-lucide="pencil" style="width:16px;height:16px"></i>
-                                                </a>
-                                                <form class="js-delete" method="post" data-confirm="Xóa ảnh mô tả này?">
-                                                    <input type="hidden" name="action" value="delete_app_photo">
-                                                    <input type="hidden" name="id" value="<?= (int) $photo['id'] ?>">
-                                                    <button class="btn btn-sm btn-danger" type="submit" title="Xóa" aria-label="Xóa">
-                                                        <i data-lucide="trash-2" style="width:16px;height:16px"></i>
-                                                    </button>
-                                                </form>
-                                            </div>
-                                        </td>
-                                    </tr>
-                                <?php endforeach; ?>
-                                <?php if (!$appPhotoRows): ?>
-                                    <tr><td colspan="6" class="text-center muted-text py-4">Chưa có ảnh mô tả.</td></tr>
                                 <?php endif; ?>
                                 </tbody>
                             </table>
