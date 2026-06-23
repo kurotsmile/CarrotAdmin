@@ -73,6 +73,26 @@ function admin_ensure_app_table(PDO $pdo): void
     ");
 }
 
+function admin_ensure_app_photo_table(PDO $pdo): void
+{
+    $pdo->exec("
+        CREATE TABLE IF NOT EXISTS app_photo (
+          id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+          app_id VARCHAR(255) NOT NULL,
+          image_url LONGTEXT NOT NULL,
+          title VARCHAR(255) DEFAULT NULL,
+          sort_order INT NOT NULL DEFAULT 0,
+          created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+          PRIMARY KEY (id),
+          KEY idx_app_photo_app_sort (app_id, sort_order, id),
+          CONSTRAINT fk_app_photo_app
+            FOREIGN KEY (app_id) REFERENCES app (id)
+            ON DELETE CASCADE ON UPDATE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    ");
+}
+
 function admin_ensure_country_table(PDO $pdo): void
 {
     $pdo->exec("

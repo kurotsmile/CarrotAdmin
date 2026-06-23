@@ -63,6 +63,14 @@ $results[] = install_run_step('CarrotCoc app table', static function () use ($co
     admin_ensure_app_table($cocPdo);
 });
 
+$results[] = install_run_step('CarrotCoc app photo table', static function () use ($cocPdo, $cocError): void {
+    if (!$cocPdo instanceof PDO) {
+        throw new RuntimeException($cocError ?? 'Không thể kết nối CarrotCoc database.');
+    }
+
+    admin_ensure_app_photo_table($cocPdo);
+});
+
 $results[] = install_run_step('CarrotCoc country table', static function () use ($cocPdo, $cocError): void {
     if (!$cocPdo instanceof PDO) {
         throw new RuntimeException($cocError ?? 'Không thể kết nối CarrotCoc database.');

@@ -76,6 +76,7 @@ $section = in_array($_GET['section'] ?? 'overview', $allowedSections, true) ? ($
 $editKey = trim($_GET['edit'] ?? '');
 $editId = isset($_GET['edit']) ? (int) $_GET['edit'] : 0;
 $cocTab = ($_GET['tab'] ?? 'accounts') === 'orders' ? 'orders' : 'accounts';
+$appTab = ($_GET['tab'] ?? 'main') === 'photos' ? 'photos' : 'main';
 $countryTab = ($_GET['tab'] ?? 'countries') === 'labels' ? 'labels' : 'countries';
 $editing = null;
 $editingLabel = null;
@@ -90,6 +91,7 @@ $labelKeyOptions = [];
 $pageSlugOptions = [];
 $textLabels = [];
 $orders = [];
+$editingAppPhoto = null;
 $dashboardMetrics = [
     'apps' => 0,
     'pages' => 0,
@@ -220,6 +222,14 @@ function admin_ajax_upload(): void
 function admin_fetch_app(PDO $pdo, string $id): ?array
 {
     $stmt = $pdo->prepare('SELECT * FROM app WHERE id = ?');
+    $stmt->execute([$id]);
+    $row = $stmt->fetch();
+    return $row ?: null;
+}
+
+function admin_fetch_app_photo(PDO $pdo, int $id): ?array
+{
+    $stmt = $pdo->prepare('SELECT * FROM app_photo WHERE id = ?');
     $stmt->execute([$id]);
     $row = $stmt->fetch();
     return $row ?: null;
@@ -660,6 +670,12 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages'], true)) {
                 $message = 'Đã xóa app.';
             }
 
+            if ($section === 'apps' && $action === 'delete_app_photo') {
+                $stmt = $pdo->prepare('DELETE FROM app_photo WHERE id = ?');
+                $stmt->execute([(int) ($_POST['id'] ?? 0)]);
+                $message = 'Đã xóa ảnh mô tả.';
+            }
+
             if ($section === 'apps' && $action === 'save_app') {
                 $originalId = trim($_POST['original_id'] ?? '');
                 $id = trim($_POST['id'] ?? '');
@@ -691,6 +707,32 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages'], true)) {
                     $stmt = $pdo->prepare('INSERT INTO app (id, decription, github, microsoft_store, icon, itch, exe_file, ipa_file, deb_file, amazon_app_store, huawei_store, youtube_link, google_play, dmg_file, uptodown, simmer, type, apk_file, status, priority, price, category) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
                     $stmt->execute([$id, $decription, $values['github'], $values['microsoft_store'], $values['icon'], $values['itch'], $values['exe_file'], $values['ipa_file'], $values['deb_file'], $values['amazon_app_store'], $values['huawei_store'], $values['youtube_link'], $values['google_play'], $values['dmg_file'], $values['uptodown'], $values['simmer'], $type, $values['apk_file'], $status, $priority, $price, $values['category']]);
                     $message = 'Đã thêm app mới.';
+                }
+            }
+
+            if ($section === 'apps' && $action === 'save_app_photo') {
+                $id = (int) ($_POST['id'] ?? 0);
+                $appId = trim($_POST['app_id'] ?? '');
+                $imageUrl = trim($_POST['image_url'] ?? '');
+                $title = trim($_POST['title'] ?? '');
+                $sortOrder = (int) ($_POST['sort_order'] ?? 0);
+
+                if ($appId === '' || $imageUrl === '') {
+                    throw new RuntimeException('Vui lòng chọn app và nhập ảnh mô tả.');
+                }
+
+                if (!admin_fetch_app($pdo, $appId)) {
+                    throw new RuntimeException('App được chọn không tồn tại.');
+                }
+
+                if ($id > 0) {
+                    $stmt = $pdo->prepare('UPDATE app_photo SET app_id = ?, image_url = ?, title = ?, sort_order = ? WHERE id = ?');
+                    $stmt->execute([$appId, $imageUrl, $title, $sortOrder, $id]);
+                    $message = 'Đã cập nhật ảnh mô tả.';
+                } else {
+                    $stmt = $pdo->prepare('INSERT INTO app_photo (app_id, image_url, title, sort_order) VALUES (?, ?, ?, ?)');
+                    $stmt->execute([$appId, $imageUrl, $title, $sortOrder]);
+                    $message = 'Đã thêm ảnh mô tả.';
                 }
             }
 
@@ -920,6 +962,10 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages'], true)) {
 
         if ($section === 'apps' && $editKey !== '') {
             $editing = admin_fetch_app($pdo, $editKey);
+        }
+
+        if ($section === 'apps' && $appTab === 'photos' && isset($_GET['photo_edit'])) {
+            $editingAppPhoto = admin_fetch_app_photo($pdo, (int) $_GET['photo_edit']);
         }
 
         if ($section === 'pages' && $editId > 0) {
