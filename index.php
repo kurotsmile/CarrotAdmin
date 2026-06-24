@@ -711,10 +711,15 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages'], true)) {
                 $id = (int) ($_POST['id'] ?? 0);
                 $appId = trim($_POST['app_id'] ?? '');
                 $imageUrl = trim($_POST['image_url'] ?? '');
+                $displayMode = trim($_POST['display_mode'] ?? 'vertical');
                 $sortOrder = (int) ($_POST['sort_order'] ?? 0);
 
                 if ($appId === '' || $imageUrl === '') {
                     throw new RuntimeException('Vui lòng chọn app và nhập ảnh mô tả.');
+                }
+
+                if (!in_array($displayMode, ['vertical', 'horizontal'], true)) {
+                    $displayMode = 'vertical';
                 }
 
                 if (!admin_fetch_app($pdo, $appId)) {
@@ -722,12 +727,12 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages'], true)) {
                 }
 
                 if ($id > 0) {
-                    $stmt = $pdo->prepare('UPDATE app_photo SET app_id = ?, image_url = ?, sort_order = ? WHERE id = ?');
-                    $stmt->execute([$appId, $imageUrl, $sortOrder, $id]);
+                    $stmt = $pdo->prepare('UPDATE app_photo SET app_id = ?, image_url = ?, display_mode = ?, sort_order = ? WHERE id = ?');
+                    $stmt->execute([$appId, $imageUrl, $displayMode, $sortOrder, $id]);
                     $message = 'Đã cập nhật ảnh mô tả.';
                 } else {
-                    $stmt = $pdo->prepare('INSERT INTO app_photo (app_id, image_url, sort_order) VALUES (?, ?, ?)');
-                    $stmt->execute([$appId, $imageUrl, $sortOrder]);
+                    $stmt = $pdo->prepare('INSERT INTO app_photo (app_id, image_url, display_mode, sort_order) VALUES (?, ?, ?, ?)');
+                    $stmt->execute([$appId, $imageUrl, $displayMode, $sortOrder]);
                     $message = 'Đã thêm ảnh mô tả.';
                 }
             }

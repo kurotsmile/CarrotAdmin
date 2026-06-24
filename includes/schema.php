@@ -80,6 +80,7 @@ function admin_ensure_app_photo_table(PDO $pdo): void
           id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
           app_id VARCHAR(255) NOT NULL,
           image_url LONGTEXT NOT NULL,
+          display_mode VARCHAR(16) NOT NULL DEFAULT 'vertical',
           sort_order INT NOT NULL DEFAULT 0,
           created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
           updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -90,6 +91,11 @@ function admin_ensure_app_photo_table(PDO $pdo): void
             ON DELETE CASCADE ON UPDATE CASCADE
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     ");
+
+    $columns = $pdo->query('SHOW COLUMNS FROM app_photo')->fetchAll(PDO::FETCH_COLUMN);
+    if (!in_array('display_mode', $columns, true)) {
+        $pdo->exec("ALTER TABLE app_photo ADD display_mode VARCHAR(16) NOT NULL DEFAULT 'vertical' AFTER image_url");
+    }
 }
 
 function admin_ensure_app_content_table(PDO $pdo): void

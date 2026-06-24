@@ -332,7 +332,14 @@
                         </div>
 
                         <div class="row g-3">
-                            <div class="col-md-12">
+                            <div class="col-md-7">
+                                <label class="form-label" for="app_photo_display_mode">Kiểu hiển thị</label>
+                                <select class="form-select" id="app_photo_display_mode" name="display_mode">
+                                    <option value="vertical" selected>Dọc</option>
+                                    <option value="horizontal">Ngang</option>
+                                </select>
+                            </div>
+                            <div class="col-md-5">
                                 <label class="form-label" for="app_photo_sort_order">Thứ tự</label>
                                 <input class="form-control" id="app_photo_sort_order" name="sort_order" type="number" value="0">
                             </div>
@@ -350,7 +357,10 @@
                                     <div class="border rounded-2 overflow-hidden bg-white">
                                         <img src="<?= htmlspecialchars($photo['image_url']) ?>" alt="" class="w-100 object-fit-cover" style="aspect-ratio:16/10">
                                         <div class="d-flex align-items-center justify-content-between gap-2 p-2">
-                                            <span class="muted-text small">#<?= (int) $photo['sort_order'] ?></span>
+                                            <div class="d-flex align-items-center gap-2">
+                                                <span class="muted-text small">#<?= (int) $photo['sort_order'] ?></span>
+                                                <span class="badge text-bg-light"><?= ($photo['display_mode'] ?? 'vertical') === 'horizontal' ? 'Ngang' : 'Dọc' ?></span>
+                                            </div>
                                             <form class="js-delete" method="post" data-confirm="Xóa ảnh mô tả này?">
                                                 <input type="hidden" name="action" value="delete_app_photo">
                                                 <input type="hidden" name="id" value="<?= (int) $photo['id'] ?>">
