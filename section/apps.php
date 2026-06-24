@@ -420,7 +420,7 @@
 
             <?php if ($appTab === 'content'): ?>
             <div class="row g-4">
-                <div class="col-xl-5">
+                <div class="col-xl-7">
                     <div class="glass-panel p-4">
                         <form method="post">
                             <input type="hidden" name="action" value="save_app_content">
@@ -517,7 +517,7 @@
                     </div>
                 </div>
 
-                <div class="col-xl-7">
+                <div class="col-xl-5">
                     <div class="glass-panel p-4">
                         <h2 class="h5 mb-3">Số lượng nội dung theo app</h2>
                         <div class="table-responsive-sm">
