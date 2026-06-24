@@ -239,7 +239,6 @@
                             <table class="table table-striped table-hover table-sm align-middle">
                                 <thead>
                                 <tr>
-                                    <th><?= admin_sort_link('id', 'ID', $appSort, $appDir) ?></th>
                                     <th><?= admin_sort_link('id', 'App', $appSort, $appDir) ?></th>
                                     <th><?= admin_sort_link('type', 'Type', $appSort, $appDir) ?></th>
                                     <th><?= admin_sort_link('status', 'Status', $appSort, $appDir) ?></th>
@@ -251,7 +250,6 @@
                                 <tbody>
                                 <?php foreach ($apps as $app): ?>
                                     <tr>
-                                        <td><?= htmlspecialchars($app['id']) ?></td>
                                         <td>
                                             <div class="d-flex align-items-center gap-3">
                                                 <?php if (!empty($app['icon'])): ?>
@@ -290,7 +288,7 @@
                                     </tr>
                                 <?php endforeach; ?>
                                 <?php if (!$apps): ?>
-                                    <tr><td colspan="7" class="text-center muted-text py-4">Chưa có dữ liệu.</td></tr>
+                                    <tr><td colspan="6" class="text-center muted-text py-4">Chưa có dữ liệu.</td></tr>
                                 <?php endif; ?>
                                 </tbody>
                             </table>
