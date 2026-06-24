@@ -7,8 +7,10 @@
             $appPhotoSummary = [];
             $appContentRows = [];
             $appContentSummary = [];
+            $editingAppPhoto = null;
             $editingAppContent = null;
             $selectedAppId = trim($_GET['app_id'] ?? '');
+            $photoEditId = (int) ($_GET['photo_edit'] ?? 0);
             $contentEditId = (int) ($_GET['content_edit'] ?? 0);
             $appPerPage = 25;
             $appTotal = 0;
@@ -44,6 +46,14 @@
 
                 if ($appTab === 'photos') {
                     $appOptions = $pdo->query('SELECT id FROM app ORDER BY id ASC')->fetchAll();
+                    if ($photoEditId > 0) {
+                        $editingPhotoStmt = $pdo->prepare('SELECT * FROM app_photo WHERE id = ?');
+                        $editingPhotoStmt->execute([$photoEditId]);
+                        $editingAppPhoto = $editingPhotoStmt->fetch() ?: null;
+                        if ($editingAppPhoto && $selectedAppId === '') {
+                            $selectedAppId = (string) $editingAppPhoto['app_id'];
+                        }
+                    }
                     if ($selectedAppId !== '') {
                         $appPhotoStmt = $pdo->prepare('
                             SELECT *
@@ -308,15 +318,15 @@
                     <div class="glass-panel p-4">
                     <form method="post">
                         <input type="hidden" name="action" value="save_app_photo">
-                        <input type="hidden" name="id" value="0">
-                        <h2 class="h5 mb-3"><?= $selectedAppId !== '' ? 'Ảnh mô tả: ' . htmlspecialchars($selectedAppId) : 'Thêm ảnh mô tả' ?></h2>
+                        <input type="hidden" name="id" value="<?= (int) ($editingAppPhoto['id'] ?? 0) ?>">
+                        <h2 class="h5 mb-3"><?= $editingAppPhoto ? 'Cập nhật ảnh mô tả' : ($selectedAppId !== '' ? 'Ảnh mô tả: ' . htmlspecialchars($selectedAppId) : 'Thêm ảnh mô tả') ?></h2>
 
                         <div class="mb-3">
                             <label class="form-label" for="app_photo_app_id">App</label>
                             <select class="form-select" id="app_photo_app_id" name="app_id" required>
                                 <option value="">Chọn app</option>
                                 <?php foreach ($appOptions as $appOption): ?>
-                                    <option value="<?= htmlspecialchars($appOption['id']) ?>" <?= $selectedAppId === $appOption['id'] ? 'selected' : '' ?>>
+                                    <option value="<?= htmlspecialchars($appOption['id']) ?>" <?= (($editingAppPhoto['app_id'] ?? $selectedAppId) === $appOption['id']) ? 'selected' : '' ?>>
                                         <?= htmlspecialchars($appOption['id']) ?>
                                     </option>
                                 <?php endforeach; ?>
@@ -326,7 +336,7 @@
                         <div class="mb-3">
                             <label class="form-label" for="app_photo_image_url">Ảnh mô tả</label>
                             <div class="input-group">
-                                <input class="form-control" id="app_photo_image_url" name="image_url" value="" required>
+                                <input class="form-control" id="app_photo_image_url" name="image_url" value="<?= htmlspecialchars($editingAppPhoto['image_url'] ?? '') ?>" required>
                                 <button class="btn btn-secondary js-upload" type="button" data-target="app_photo_image_url" data-type-media="carrot_app_photo" data-mode="replace" data-accept="image/*">Upload</button>
                             </div>
                         </div>
@@ -335,17 +345,21 @@
                             <div class="col-md-7">
                                 <label class="form-label" for="app_photo_display_mode">Kiểu hiển thị</label>
                                 <select class="form-select" id="app_photo_display_mode" name="display_mode">
-                                    <option value="vertical" selected>Dọc</option>
-                                    <option value="horizontal">Ngang</option>
+                                    <?php $photoDisplayMode = (string) ($editingAppPhoto['display_mode'] ?? 'vertical'); ?>
+                                    <option value="vertical" <?= $photoDisplayMode !== 'horizontal' ? 'selected' : '' ?>>Dọc</option>
+                                    <option value="horizontal" <?= $photoDisplayMode === 'horizontal' ? 'selected' : '' ?>>Ngang</option>
                                 </select>
                             </div>
                             <div class="col-md-5">
                                 <label class="form-label" for="app_photo_sort_order">Thứ tự</label>
-                                <input class="form-control" id="app_photo_sort_order" name="sort_order" type="number" value="0">
+                                <input class="form-control" id="app_photo_sort_order" name="sort_order" type="number" value="<?= htmlspecialchars((string) ($editingAppPhoto['sort_order'] ?? 0)) ?>">
                             </div>
                         </div>
 
-                        <button class="btn btn-success fw-bold w-100 mt-3" type="submit">Thêm ảnh</button>
+                        <button class="btn <?= $editingAppPhoto ? 'btn-warning' : 'btn-success' ?> fw-bold w-100 mt-3" type="submit"><?= $editingAppPhoto ? 'Lưu cập nhật' : 'Thêm ảnh' ?></button>
+                        <?php if ($editingAppPhoto): ?>
+                            <a class="btn btn-light fw-bold w-100 mt-2" href="index.php?section=apps&tab=photos&app_id=<?= urlencode((string) $editingAppPhoto['app_id']) ?>">Hủy sửa</a>
+                        <?php endif; ?>
                     </form>
 
                     <?php if ($selectedAppId !== ''): ?>
@@ -361,13 +375,18 @@
                                                 <span class="muted-text small">#<?= (int) $photo['sort_order'] ?></span>
                                                 <span class="badge text-bg-light"><?= ($photo['display_mode'] ?? 'vertical') === 'horizontal' ? 'Ngang' : 'Dọc' ?></span>
                                             </div>
-                                            <form class="js-delete" method="post" data-confirm="Xóa ảnh mô tả này?">
-                                                <input type="hidden" name="action" value="delete_app_photo">
-                                                <input type="hidden" name="id" value="<?= (int) $photo['id'] ?>">
-                                                <button class="btn btn-sm btn-danger" type="submit" title="Xóa" aria-label="Xóa">
-                                                    <i data-lucide="trash-2" style="width:16px;height:16px"></i>
-                                                </button>
-                                            </form>
+                                            <div class="d-inline-flex align-items-center gap-2">
+                                                <a class="btn btn-sm btn-warning" href="index.php?section=apps&tab=photos&app_id=<?= urlencode($photo['app_id']) ?>&photo_edit=<?= (int) $photo['id'] ?>" title="Cập nhật" aria-label="Cập nhật">
+                                                    <i data-lucide="pencil" style="width:16px;height:16px"></i>
+                                                </a>
+                                                <form class="js-delete" method="post" data-confirm="Xóa ảnh mô tả này?">
+                                                    <input type="hidden" name="action" value="delete_app_photo">
+                                                    <input type="hidden" name="id" value="<?= (int) $photo['id'] ?>">
+                                                    <button class="btn btn-sm btn-danger" type="submit" title="Xóa" aria-label="Xóa">
+                                                        <i data-lucide="trash-2" style="width:16px;height:16px"></i>
+                                                    </button>
+                                                </form>
+                                            </div>
                                         </div>
                                     </div>
                                 </div>
