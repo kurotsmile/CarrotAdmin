@@ -5,7 +5,11 @@
             $appOptions = [];
             $appPhotoRows = [];
             $appPhotoSummary = [];
+            $appContentRows = [];
+            $appContentSummary = [];
+            $editingAppContent = null;
             $selectedAppId = trim($_GET['app_id'] ?? '');
+            $contentEditId = (int) ($_GET['content_edit'] ?? 0);
             $appPerPage = 25;
             $appTotal = 0;
             $appTotalPages = 1;
@@ -61,6 +65,38 @@
                         ORDER BY photo_count DESC, app.id ASC
                     ')->fetchAll();
                 }
+
+                if ($appTab === 'content') {
+                    $appOptions = $pdo->query('SELECT id FROM app ORDER BY id ASC')->fetchAll();
+                    if ($contentEditId > 0) {
+                        $editingContentStmt = $pdo->prepare('SELECT * FROM app_content WHERE id = ?');
+                        $editingContentStmt->execute([$contentEditId]);
+                        $editingAppContent = $editingContentStmt->fetch() ?: null;
+                        if ($editingAppContent && $selectedAppId === '') {
+                            $selectedAppId = (string) $editingAppContent['app_id'];
+                        }
+                    }
+                    if ($selectedAppId !== '') {
+                        $appContentStmt = $pdo->prepare('
+                            SELECT *
+                            FROM app_content
+                            WHERE app_id = ?
+                            ORDER BY lang_key ASC, id DESC
+                        ');
+                        $appContentStmt->execute([$selectedAppId]);
+                        $appContentRows = $appContentStmt->fetchAll();
+                    }
+                    $appContentSummary = $pdo->query('
+                        SELECT app.id, app.icon, COALESCE(content_counts.content_count, 0) AS content_count, content_counts.last_content_at
+                        FROM app
+                        LEFT JOIN (
+                            SELECT app_id, COUNT(*) AS content_count, MAX(updated_at) AS last_content_at
+                            FROM app_content
+                            GROUP BY app_id
+                        ) AS content_counts ON content_counts.app_id = app.id
+                        ORDER BY content_count DESC, app.id ASC
+                    ')->fetchAll();
+                }
             }
             ?>
             <ul class="nav nav-tabs mb-4">
@@ -69,6 +105,9 @@
                 </li>
                 <li class="nav-item">
                     <a class="nav-link <?= $appTab === 'photos' ? 'active' : '' ?>" href="index.php?section=apps&tab=photos">Ảnh mô tả</a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link <?= $appTab === 'content' ? 'active' : '' ?>" href="index.php?section=apps&tab=content">Nội dung mô tả</a>
                 </li>
             </ul>
 
@@ -369,6 +408,149 @@
                                     </tr>
                                 <?php endforeach; ?>
                                 <?php if (!$appPhotoSummary): ?>
+                                    <tr><td colspan="4" class="text-center muted-text py-4">Chưa có dữ liệu.</td></tr>
+                                <?php endif; ?>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <?php endif; ?>
+
+            <?php if ($appTab === 'content'): ?>
+            <div class="row g-4">
+                <div class="col-xl-5">
+                    <div class="glass-panel p-4">
+                        <form method="post">
+                            <input type="hidden" name="action" value="save_app_content">
+                            <input type="hidden" name="id" value="<?= (int) ($editingAppContent['id'] ?? 0) ?>">
+                            <h2 class="h5 mb-3"><?= $editingAppContent ? 'Cập nhật nội dung mô tả' : ($selectedAppId !== '' ? 'Nội dung mô tả: ' . htmlspecialchars($selectedAppId) : 'Thêm nội dung mô tả') ?></h2>
+
+                            <div class="mb-3">
+                                <label class="form-label" for="app_content_app_id">App</label>
+                                <select class="form-select" id="app_content_app_id" name="app_id" required>
+                                    <option value="">Chọn app</option>
+                                    <?php foreach ($appOptions as $appOption): ?>
+                                        <option value="<?= htmlspecialchars($appOption['id']) ?>" <?= (($editingAppContent['app_id'] ?? $selectedAppId) === $appOption['id']) ? 'selected' : '' ?>>
+                                            <?= htmlspecialchars($appOption['id']) ?>
+                                        </option>
+                                    <?php endforeach; ?>
+                                </select>
+                            </div>
+
+                            <div class="mb-3">
+                                <label class="form-label" for="app_content_lang_key">Lang key</label>
+                                <?php $appContentLangValue = (string) ($editingAppContent['lang_key'] ?? ($languageOptions[0]['lang_key'] ?? 'vi')); ?>
+                                <select class="form-control js-app-content-lang-select" id="app_content_lang_key" name="lang_key" required>
+                                    <?php if ($appContentLangValue === ''): ?>
+                                        <option value=""></option>
+                                    <?php endif; ?>
+                                    <?= admin_language_select_options($languageOptions, $appContentLangValue) ?>
+                                    <?php if ($appContentLangValue !== '' && !in_array($appContentLangValue, array_column($languageOptions, 'lang_key'), true)): ?>
+                                        <option value="<?= htmlspecialchars($appContentLangValue) ?>" selected><?= htmlspecialchars($appContentLangValue) ?></option>
+                                    <?php endif; ?>
+                                </select>
+                            </div>
+
+                            <div class="mb-3">
+                                <label class="form-label" for="app_content_html">HTML content</label>
+                                <div class="simple-editor-toolbar" aria-label="Editor toolbar">
+                                    <button class="btn btn-sm btn-light" type="button" data-editor-target="app_content" data-editor-command="bold"><strong>B</strong></button>
+                                    <button class="btn btn-sm btn-light" type="button" data-editor-target="app_content" data-editor-command="italic"><em>I</em></button>
+                                    <button class="btn btn-sm btn-light" type="button" data-editor-target="app_content" data-editor-command="formatBlock" data-editor-value="h2">H2</button>
+                                    <button class="btn btn-sm btn-light" type="button" data-editor-target="app_content" data-editor-command="formatBlock" data-editor-value="p">P</button>
+                                    <button class="btn btn-sm btn-light" type="button" data-editor-target="app_content" data-editor-command="insertUnorderedList">List</button>
+                                    <button class="btn btn-sm btn-light" type="button" data-editor-target="app_content" data-editor-command="createLink">Link</button>
+                                    <button class="btn btn-sm btn-light" type="button" data-editor-target="app_content" data-editor-command="removeFormat">Clear</button>
+                                </div>
+                                <div class="simple-editor-canvas" id="app_content_editor" contenteditable="true"><?= $editingAppContent['content_html'] ?? '<p></p>' ?></div>
+                                <textarea class="form-control font-monospace d-none" id="app_content_html" name="content_html" required><?= htmlspecialchars($editingAppContent['content_html'] ?? '') ?></textarea>
+                            </div>
+
+                            <button class="btn <?= $editingAppContent ? 'btn-warning' : 'btn-success' ?> fw-bold w-100 mt-3" type="submit"><?= $editingAppContent ? 'Lưu cập nhật' : 'Lưu nội dung' ?></button>
+                            <?php if ($editingAppContent): ?>
+                                <a class="btn btn-light fw-bold w-100 mt-2" href="index.php?section=apps&tab=content&app_id=<?= urlencode((string) $editingAppContent['app_id']) ?>">Hủy sửa</a>
+                            <?php endif; ?>
+                        </form>
+
+                        <?php if ($selectedAppId !== ''): ?>
+                            <hr>
+                            <h3 class="h6 mb-3">Nội dung đã thêm</h3>
+                            <div class="table-responsive-sm">
+                                <table class="table table-striped table-hover table-sm align-middle">
+                                    <thead>
+                                    <tr>
+                                        <th>Lang</th>
+                                        <th>Cập nhật</th>
+                                        <th></th>
+                                    </tr>
+                                    </thead>
+                                    <tbody>
+                                    <?php foreach ($appContentRows as $content): ?>
+                                        <tr>
+                                            <td class="font-monospace small"><?= htmlspecialchars($content['lang_key']) ?></td>
+                                            <td><?= htmlspecialchars($content['updated_at'] ?? '') ?></td>
+                                            <td class="text-end">
+                                                <div class="d-inline-flex align-items-center justify-content-end gap-2 flex-nowrap">
+                                                    <a class="btn btn-sm btn-warning" href="index.php?section=apps&tab=content&app_id=<?= urlencode($content['app_id']) ?>&content_edit=<?= (int) $content['id'] ?>" title="Cập nhật" aria-label="Cập nhật">
+                                                        <i data-lucide="pencil" style="width:16px;height:16px"></i>
+                                                    </a>
+                                                    <form class="js-delete" method="post" data-confirm="Xóa nội dung mô tả này?">
+                                                        <input type="hidden" name="action" value="delete_app_content">
+                                                        <input type="hidden" name="id" value="<?= (int) $content['id'] ?>">
+                                                        <button class="btn btn-sm btn-danger" type="submit" title="Xóa" aria-label="Xóa">
+                                                            <i data-lucide="trash-2" style="width:16px;height:16px"></i>
+                                                        </button>
+                                                    </form>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    <?php endforeach; ?>
+                                    <?php if (!$appContentRows): ?>
+                                        <tr><td colspan="3" class="text-center muted-text py-4">App này chưa có nội dung mô tả.</td></tr>
+                                    <?php endif; ?>
+                                    </tbody>
+                                </table>
+                            </div>
+                        <?php endif; ?>
+                    </div>
+                </div>
+
+                <div class="col-xl-7">
+                    <div class="glass-panel p-4">
+                        <h2 class="h5 mb-3">Số lượng nội dung theo app</h2>
+                        <div class="table-responsive-sm">
+                            <table class="table table-striped table-hover table-sm align-middle">
+                                <thead>
+                                <tr>
+                                    <th>App</th>
+                                    <th class="text-center">Số lang</th>
+                                    <th>Cập nhật</th>
+                                    <th></th>
+                                </tr>
+                                </thead>
+                                <tbody>
+                                <?php foreach ($appContentSummary as $row): ?>
+                                    <tr>
+                                        <td>
+                                            <div class="d-flex align-items-center gap-3">
+                                                <?php if (!empty($row['icon'])): ?>
+                                                    <img src="<?= htmlspecialchars($row['icon']) ?>" alt="" width="44" height="44" class="rounded-2 object-fit-cover">
+                                                <?php endif; ?>
+                                                <div><strong><?= htmlspecialchars($row['id']) ?></strong></div>
+                                            </div>
+                                        </td>
+                                        <td class="text-center"><span class="badge text-bg-secondary"><?= (int) $row['content_count'] ?></span></td>
+                                        <td><?= htmlspecialchars($row['last_content_at'] ?? '') ?></td>
+                                        <td class="text-end">
+                                            <a class="btn btn-sm <?= $selectedAppId === $row['id'] ? 'btn-success' : 'btn-secondary' ?>" href="index.php?section=apps&tab=content&app_id=<?= urlencode($row['id']) ?>" title="Thêm nội dung cho app" aria-label="Thêm nội dung cho app">
+                                                <i data-lucide="file-plus-2" style="width:16px;height:16px"></i>
+                                            </a>
+                                        </td>
+                                    </tr>
+                                <?php endforeach; ?>
+                                <?php if (!$appContentSummary): ?>
                                     <tr><td colspan="4" class="text-center muted-text py-4">Chưa có dữ liệu.</td></tr>
                                 <?php endif; ?>
                                 </tbody>

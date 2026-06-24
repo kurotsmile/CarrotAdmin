@@ -76,7 +76,7 @@ $section = in_array($_GET['section'] ?? 'overview', $allowedSections, true) ? ($
 $editKey = trim($_GET['edit'] ?? '');
 $editId = isset($_GET['edit']) ? (int) $_GET['edit'] : 0;
 $cocTab = ($_GET['tab'] ?? 'accounts') === 'orders' ? 'orders' : 'accounts';
-$appTab = ($_GET['tab'] ?? 'main') === 'photos' ? 'photos' : 'main';
+$appTab = in_array($_GET['tab'] ?? 'main', ['main', 'photos', 'content'], true) ? ($_GET['tab'] ?? 'main') : 'main';
 $countryTab = ($_GET['tab'] ?? 'countries') === 'labels' ? 'labels' : 'countries';
 $editing = null;
 $editingLabel = null;
@@ -606,7 +606,7 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages'], true)) {
             });
         }
 
-        if (in_array($section, ['pages', 'country'], true)) {
+        if (in_array($section, ['apps', 'pages', 'country'], true)) {
             $languageOptions = admin_fetch_language_options($pdo instanceof PDO ? $pdo : null);
         }
 
@@ -667,6 +667,12 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages'], true)) {
                 $message = 'Đã xóa ảnh mô tả.';
             }
 
+            if ($section === 'apps' && $action === 'delete_app_content') {
+                $stmt = $pdo->prepare('DELETE FROM app_content WHERE id = ?');
+                $stmt->execute([(int) ($_POST['id'] ?? 0)]);
+                $message = 'Đã xóa nội dung mô tả.';
+            }
+
             if ($section === 'apps' && $action === 'save_app') {
                 $originalId = trim($_POST['original_id'] ?? '');
                 $id = trim($_POST['id'] ?? '');
@@ -723,6 +729,39 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages'], true)) {
                     $stmt = $pdo->prepare('INSERT INTO app_photo (app_id, image_url, sort_order) VALUES (?, ?, ?)');
                     $stmt->execute([$appId, $imageUrl, $sortOrder]);
                     $message = 'Đã thêm ảnh mô tả.';
+                }
+            }
+
+            if ($section === 'apps' && $action === 'save_app_content') {
+                $id = (int) ($_POST['id'] ?? 0);
+                $appId = trim($_POST['app_id'] ?? '');
+                $langKey = trim($_POST['lang_key'] ?? '');
+                $contentHtml = trim($_POST['content_html'] ?? '');
+
+                if ($appId === '' || $langKey === '' || $contentHtml === '') {
+                    throw new RuntimeException('Vui lòng chọn app, lang_key và nhập nội dung mô tả.');
+                }
+
+                if (!preg_match('/^[a-z]{2,3}(?:[-_][A-Za-z]{2})?$/', $langKey)) {
+                    throw new RuntimeException('Lang key nên có dạng vi, en, en-US hoặc en_US.');
+                }
+
+                if (!admin_fetch_app($pdo, $appId)) {
+                    throw new RuntimeException('App được chọn không tồn tại.');
+                }
+
+                if ($id > 0) {
+                    $stmt = $pdo->prepare('UPDATE app_content SET app_id = ?, lang_key = ?, content_html = ? WHERE id = ?');
+                    $stmt->execute([$appId, $langKey, $contentHtml, $id]);
+                    $message = 'Đã cập nhật nội dung mô tả.';
+                } else {
+                    $stmt = $pdo->prepare('
+                        INSERT INTO app_content (app_id, lang_key, content_html)
+                        VALUES (?, ?, ?)
+                        ON DUPLICATE KEY UPDATE content_html = VALUES(content_html)
+                    ');
+                    $stmt->execute([$appId, $langKey, $contentHtml]);
+                    $message = 'Đã lưu nội dung mô tả.';
                 }
             }
 
@@ -1535,12 +1574,42 @@ if (window.jQuery && jQuery.fn.select2) {
         width: '100%',
         placeholder: 'Chọn lang',
     });
+
+    jQuery('.js-app-content-lang-select').select2({
+        theme: 'bootstrap-5',
+        tags: true,
+        width: '100%',
+        placeholder: 'Chọn hoặc nhập lang',
+        createTag: (params) => {
+            const term = jQuery.trim(params.term || '');
+            if (!term) {
+                return null;
+            }
+
+            return {
+                id: term,
+                text: term,
+                newTag: true,
+            };
+        },
+    });
 }
 
-const pageEditor = document.getElementById('page_content_editor');
-const pageEditorSource = document.getElementById('page_content_html');
-if (pageEditor && pageEditorSource) {
+const bindSimpleEditor = (editorId, sourceId, targetName = '') => {
+    const editor = document.getElementById(editorId);
+    const source = document.getElementById(sourceId);
+    if (!editor || !source) {
+        return;
+    }
+
     document.querySelectorAll('[data-editor-command]').forEach((button) => {
+        if (targetName && button.dataset.editorTarget && button.dataset.editorTarget !== targetName) {
+            return;
+        }
+        if (targetName && !button.dataset.editorTarget && targetName !== 'page_content') {
+            return;
+        }
+
         button.addEventListener('click', () => {
             const command = button.dataset.editorCommand;
             let value = button.dataset.editorValue || null;
@@ -1550,23 +1619,43 @@ if (pageEditor && pageEditorSource) {
                 if (!value) return;
             }
 
-            pageEditor.focus();
+            editor.focus();
             document.execCommand(command, false, value);
-            pageEditorSource.value = pageEditor.innerHTML.trim();
+            source.value = editor.innerHTML.trim();
         });
     });
 
-    pageEditor.addEventListener('input', () => {
-        pageEditorSource.value = pageEditor.innerHTML.trim();
+    editor.addEventListener('input', () => {
+        source.value = editor.innerHTML.trim();
     });
 
-    const pageForm = pageEditor.closest('form');
-    if (pageForm) {
-        pageForm.addEventListener('submit', () => {
-            pageEditorSource.value = pageEditor.innerHTML.trim();
+    const form = editor.closest('form');
+    if (form) {
+        form.addEventListener('submit', () => {
+            source.value = editor.innerHTML.trim();
         });
     }
-}
+};
+
+bindSimpleEditor('page_content_editor', 'page_content_html', 'page_content');
+bindSimpleEditor('app_content_editor', 'app_content_html', 'app_content');
+
+[
+    ['app_photo_app_id', 'photos'],
+    ['app_content_app_id', 'content'],
+].forEach(([selectId, tab]) => {
+    const select = document.getElementById(selectId);
+    if (!select) {
+        return;
+    }
+    select.addEventListener('change', () => {
+        const appId = select.value.trim();
+        if (!appId) {
+            return;
+        }
+        window.location.href = `index.php?section=apps&tab=${tab}&app_id=${encodeURIComponent(appId)}`;
+    });
+});
 
 const pageSlugInput = document.getElementById('page_slug');
 const pageLangInput = document.getElementById('page_lang');
