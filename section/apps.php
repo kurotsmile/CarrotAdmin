@@ -464,7 +464,7 @@
                                     <button class="btn btn-sm btn-light" type="button" data-editor-target="app_content" data-editor-command="createLink">Link</button>
                                     <button class="btn btn-sm btn-light" type="button" data-editor-target="app_content" data-editor-command="removeFormat">Clear</button>
                                 </div>
-                                <div class="simple-editor-canvas" id="app_content_editor" contenteditable="true" spellcheck="true" style="min-height:520px"><?= $editingAppContent['content_html'] ?? '<p></p>' ?></div>
+                                <div class="simple-editor-canvas" id="app_content_editor" contenteditable="true" spellcheck="true" style="min-height:520px;margin-top:8px;padding:5px;border:1px solid rgba(0,0,0,.15)"><?= $editingAppContent['content_html'] ?? '<p></p>' ?></div>
                                 <textarea class="form-control font-monospace d-none" id="app_content_html" name="content_html" required><?= htmlspecialchars($editingAppContent['content_html'] ?? '') ?></textarea>
                             </div>
 
