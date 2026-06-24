@@ -136,6 +136,12 @@
                             </div>
                             <div class="muted-text small">Trang <?= number_format($pageListPage) ?>/<?= number_format($pageTotalPages) ?></div>
                         </div>
+                        <?php
+                        $pagePageParams = $_GET;
+                        unset($pagePageParams['edit']);
+                        $pagePageParams['section'] = 'pages';
+                        ?>
+                        <?= admin_pagination($pagePageParams, 'page_page', $pageListPage, $pageTotalPages, 'Phân trang page', 'mb-3') ?>
                         <div class="table-responsive-sm">
                             <table class="table table-striped table-hover table-sm align-middle">
                                 <thead>
@@ -182,24 +188,7 @@
                                 </tbody>
                             </table>
                         </div>
-                        <?php if ($pageTotalPages > 1): ?>
-                            <?php
-                            $pagePageParams = $_GET;
-                            unset($pagePageParams['edit']);
-                            $pagePageParams['section'] = 'pages';
-                            ?>
-                            <nav class="d-flex flex-wrap justify-content-end gap-2 mt-3" aria-label="Phân trang page">
-                                <a class="btn btn-sm btn-light <?= $pageListPage <= 1 ? 'disabled' : '' ?>" href="<?= admin_page_url(array_merge($pagePageParams, ['page_page' => max(1, $pageListPage - 1)])) ?>">Trước</a>
-                                <?php
-                                $pageStart = max(1, $pageListPage - 2);
-                                $pageEnd = min($pageTotalPages, $pageListPage + 2);
-                                for ($pageNumber = $pageStart; $pageNumber <= $pageEnd; $pageNumber++):
-                                ?>
-                                    <a class="btn btn-sm <?= $pageNumber === $pageListPage ? 'btn-dark' : 'btn-light' ?>" href="<?= admin_page_url(array_merge($pagePageParams, ['page_page' => $pageNumber])) ?>"><?= number_format($pageNumber) ?></a>
-                                <?php endfor; ?>
-                                <a class="btn btn-sm btn-light <?= $pageListPage >= $pageTotalPages ? 'disabled' : '' ?>" href="<?= admin_page_url(array_merge($pagePageParams, ['page_page' => min($pageTotalPages, $pageListPage + 1)])) ?>">Sau</a>
-                            </nav>
-                        <?php endif; ?>
+                        <?= admin_pagination($pagePageParams, 'page_page', $pageListPage, $pageTotalPages, 'Phân trang page') ?>
                     </div>
                 </div>
             </div>

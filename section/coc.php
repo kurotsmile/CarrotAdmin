@@ -131,6 +131,13 @@
                             </div>
                             <div class="muted-text small">Trang <?= number_format($cocPage) ?>/<?= number_format($cocTotalPages) ?></div>
                         </div>
+                        <?php
+                        $cocPageParams = $_GET;
+                        unset($cocPageParams['edit']);
+                        $cocPageParams['section'] = 'coc';
+                        $cocPageParams['tab'] = 'accounts';
+                        ?>
+                        <?= admin_pagination($cocPageParams, 'coc_page', $cocPage, $cocTotalPages, 'Phân trang acc', 'mb-3') ?>
                         <div class="table-responsive-sm">
                             <table class="table table-striped table-hover table-sm align-middle">
                                 <thead>
@@ -181,25 +188,7 @@
                                 </tbody>
                             </table>
                         </div>
-                        <?php if ($cocTotalPages > 1): ?>
-                            <?php
-                            $cocPageParams = $_GET;
-                            unset($cocPageParams['edit']);
-                            $cocPageParams['section'] = 'coc';
-                            $cocPageParams['tab'] = 'accounts';
-                            ?>
-                            <nav class="d-flex flex-wrap justify-content-end gap-2 mt-3" aria-label="Phân trang acc">
-                                <a class="btn btn-sm btn-light <?= $cocPage <= 1 ? 'disabled' : '' ?>" href="<?= admin_page_url(array_merge($cocPageParams, ['coc_page' => max(1, $cocPage - 1)])) ?>">Trước</a>
-                                <?php
-                                $pageStart = max(1, $cocPage - 2);
-                                $pageEnd = min($cocTotalPages, $cocPage + 2);
-                                for ($pageNumber = $pageStart; $pageNumber <= $pageEnd; $pageNumber++):
-                                ?>
-                                    <a class="btn btn-sm <?= $pageNumber === $cocPage ? 'btn-dark' : 'btn-light' ?>" href="<?= admin_page_url(array_merge($cocPageParams, ['coc_page' => $pageNumber])) ?>"><?= number_format($pageNumber) ?></a>
-                                <?php endfor; ?>
-                                <a class="btn btn-sm btn-light <?= $cocPage >= $cocTotalPages ? 'disabled' : '' ?>" href="<?= admin_page_url(array_merge($cocPageParams, ['coc_page' => min($cocTotalPages, $cocPage + 1)])) ?>">Sau</a>
-                            </nav>
-                        <?php endif; ?>
+                        <?= admin_pagination($cocPageParams, 'coc_page', $cocPage, $cocTotalPages, 'Phân trang acc') ?>
                     </div>
                 </div>
             </div>

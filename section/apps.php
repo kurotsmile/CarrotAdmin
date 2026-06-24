@@ -235,6 +235,12 @@
                             </div>
                             <div class="muted-text small">Trang <?= number_format($appPage) ?>/<?= number_format($appTotalPages) ?></div>
                         </div>
+                        <?php
+                        $appPageParams = $_GET;
+                        unset($appPageParams['edit']);
+                        $appPageParams['section'] = 'apps';
+                        ?>
+                        <?= admin_pagination($appPageParams, 'app_page', $appPage, $appTotalPages, 'Phân trang app', 'mb-3') ?>
                         <div class="table-responsive-sm">
                             <table class="table table-striped table-hover table-sm align-middle">
                                 <thead>
@@ -253,11 +259,12 @@
                                         <td>
                                             <div class="d-flex align-items-center gap-3">
                                                 <?php if (!empty($app['icon'])): ?>
-                                                    <img src="<?= htmlspecialchars($app['icon']) ?>" alt="" width="54" height="54" class="rounded-2 object-fit-cover">
+                                                    <a href="<?= htmlspecialchars(admin_app_detail_url($app['id'])) ?>" target="_blank" rel="noopener noreferrer" title="Xem chi tiết app" aria-label="Xem chi tiết app">
+                                                        <img src="<?= htmlspecialchars($app['icon']) ?>" alt="" width="54" height="54" class="rounded-2 object-fit-cover">
+                                                    </a>
                                                 <?php endif; ?>
                                                 <div>
                                                     <strong><?= htmlspecialchars($app['id']) ?></strong>
-                                                    <div class="muted-text small"><?= htmlspecialchars(admin_excerpt($app['decription'] ?? '')) ?></div>
                                                 </div>
                                             </div>
                                         </td>
@@ -293,24 +300,7 @@
                                 </tbody>
                             </table>
                         </div>
-                        <?php if ($appTotalPages > 1): ?>
-                            <?php
-                            $appPageParams = $_GET;
-                            unset($appPageParams['edit']);
-                            $appPageParams['section'] = 'apps';
-                            ?>
-                            <nav class="d-flex flex-wrap justify-content-end gap-2 mt-3" aria-label="Phân trang app">
-                                <a class="btn btn-sm btn-light <?= $appPage <= 1 ? 'disabled' : '' ?>" href="<?= admin_page_url(array_merge($appPageParams, ['app_page' => max(1, $appPage - 1)])) ?>">Trước</a>
-                                <?php
-                                $pageStart = max(1, $appPage - 2);
-                                $pageEnd = min($appTotalPages, $appPage + 2);
-                                for ($pageNumber = $pageStart; $pageNumber <= $pageEnd; $pageNumber++):
-                                ?>
-                                    <a class="btn btn-sm <?= $pageNumber === $appPage ? 'btn-dark' : 'btn-light' ?>" href="<?= admin_page_url(array_merge($appPageParams, ['app_page' => $pageNumber])) ?>"><?= number_format($pageNumber) ?></a>
-                                <?php endfor; ?>
-                                <a class="btn btn-sm btn-light <?= $appPage >= $appTotalPages ? 'disabled' : '' ?>" href="<?= admin_page_url(array_merge($appPageParams, ['app_page' => min($appTotalPages, $appPage + 1)])) ?>">Sau</a>
-                            </nav>
-                        <?php endif; ?>
+                        <?= admin_pagination($appPageParams, 'app_page', $appPage, $appTotalPages, 'Phân trang app') ?>
                     </div>
                 </div>
             </div>
@@ -424,7 +414,9 @@
                                         <td>
                                             <div class="d-flex align-items-center gap-3">
                                                 <?php if (!empty($row['icon'])): ?>
-                                                    <img src="<?= htmlspecialchars($row['icon']) ?>" alt="" width="44" height="44" class="rounded-2 object-fit-cover">
+                                                    <a href="<?= htmlspecialchars(admin_app_detail_url($row['id'])) ?>" target="_blank" rel="noopener noreferrer" title="Xem chi tiết app" aria-label="Xem chi tiết app">
+                                                        <img src="<?= htmlspecialchars($row['icon']) ?>" alt="" width="44" height="44" class="rounded-2 object-fit-cover">
+                                                    </a>
                                                 <?php endif; ?>
                                                 <div>
                                                     <strong><?= htmlspecialchars($row['id']) ?></strong>
@@ -569,7 +561,9 @@
                                         <td>
                                             <div class="d-flex align-items-center gap-3">
                                                 <?php if (!empty($row['icon'])): ?>
-                                                    <img src="<?= htmlspecialchars($row['icon']) ?>" alt="" width="44" height="44" class="rounded-2 object-fit-cover">
+                                                    <a href="<?= htmlspecialchars(admin_app_detail_url($row['id'])) ?>" target="_blank" rel="noopener noreferrer" title="Xem chi tiết app" aria-label="Xem chi tiết app">
+                                                        <img src="<?= htmlspecialchars($row['icon']) ?>" alt="" width="44" height="44" class="rounded-2 object-fit-cover">
+                                                    </a>
                                                 <?php endif; ?>
                                                 <div><strong><?= htmlspecialchars($row['id']) ?></strong></div>
                                             </div>

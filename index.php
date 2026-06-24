@@ -397,6 +397,33 @@ function admin_page_url(array $params): string
     return 'index.php?' . htmlspecialchars(http_build_query($params));
 }
 
+function admin_app_detail_url(string $appId): string
+{
+    $slug = preg_replace('/\s+/u', '-', trim($appId));
+    return 'https://home.carrot28.com/' . rawurlencode($slug ?: $appId);
+}
+
+function admin_pagination(array $params, string $pageKey, int $currentPage, int $totalPages, string $label, string $class = 'mt-3'): string
+{
+    if ($totalPages <= 1) {
+        return '';
+    }
+
+    $pageStart = max(1, $currentPage - 2);
+    $pageEnd = min($totalPages, $currentPage + 2);
+    $html = '<nav class="d-flex flex-wrap justify-content-end gap-2 ' . htmlspecialchars($class) . '" aria-label="' . htmlspecialchars($label) . '">';
+    $html .= '<a class="btn btn-sm btn-light ' . ($currentPage <= 1 ? 'disabled' : '') . '" href="' . admin_page_url(array_merge($params, [$pageKey => max(1, $currentPage - 1)])) . '">Trước</a>';
+
+    for ($pageNumber = $pageStart; $pageNumber <= $pageEnd; $pageNumber++) {
+        $html .= '<a class="btn btn-sm ' . ($pageNumber === $currentPage ? 'btn-dark' : 'btn-light') . '" href="' . admin_page_url(array_merge($params, [$pageKey => $pageNumber])) . '">' . number_format($pageNumber) . '</a>';
+    }
+
+    $html .= '<a class="btn btn-sm btn-light ' . ($currentPage >= $totalPages ? 'disabled' : '') . '" href="' . admin_page_url(array_merge($params, [$pageKey => min($totalPages, $currentPage + 1)])) . '">Sau</a>';
+    $html .= '</nav>';
+
+    return $html;
+}
+
 function admin_runtime_identity(): string
 {
     $pid = function_exists('getmypid') ? (string) getmypid() : 'web';

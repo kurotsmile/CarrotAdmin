@@ -167,6 +167,13 @@
                             </div>
                             <div class="muted-text small">Trang <?= number_format($textLabelPage) ?>/<?= number_format($textLabelTotalPages) ?></div>
                         </div>
+                        <?php
+                        $labelPageParams = $_GET;
+                        unset($labelPageParams['edit']);
+                        $labelPageParams['section'] = 'country';
+                        $labelPageParams['tab'] = 'labels';
+                        ?>
+                        <?= admin_pagination($labelPageParams, 'label_page', $textLabelPage, $textLabelTotalPages, 'Phân trang nhãn', 'mb-3') ?>
                         <div class="table-responsive-sm">
                             <table class="table table-striped table-hover table-sm align-middle">
                                 <thead>
@@ -210,25 +217,7 @@
                                 </tbody>
                             </table>
                         </div>
-                        <?php if ($textLabelTotalPages > 1): ?>
-                            <?php
-                            $labelPageParams = $_GET;
-                            unset($labelPageParams['edit']);
-                            $labelPageParams['section'] = 'country';
-                            $labelPageParams['tab'] = 'labels';
-                            ?>
-                            <nav class="d-flex flex-wrap justify-content-end gap-2 mt-3" aria-label="Phân trang nhãn">
-                                <a class="btn btn-sm btn-light <?= $textLabelPage <= 1 ? 'disabled' : '' ?>" href="<?= admin_page_url(array_merge($labelPageParams, ['label_page' => max(1, $textLabelPage - 1)])) ?>">Trước</a>
-                                <?php
-                                $pageStart = max(1, $textLabelPage - 2);
-                                $pageEnd = min($textLabelTotalPages, $textLabelPage + 2);
-                                for ($pageNumber = $pageStart; $pageNumber <= $pageEnd; $pageNumber++):
-                                ?>
-                                    <a class="btn btn-sm <?= $pageNumber === $textLabelPage ? 'btn-dark' : 'btn-light' ?>" href="<?= admin_page_url(array_merge($labelPageParams, ['label_page' => $pageNumber])) ?>"><?= number_format($pageNumber) ?></a>
-                                <?php endfor; ?>
-                                <a class="btn btn-sm btn-light <?= $textLabelPage >= $textLabelTotalPages ? 'disabled' : '' ?>" href="<?= admin_page_url(array_merge($labelPageParams, ['label_page' => min($textLabelTotalPages, $textLabelPage + 1)])) ?>">Sau</a>
-                            </nav>
-                        <?php endif; ?>
+                        <?= admin_pagination($labelPageParams, 'label_page', $textLabelPage, $textLabelTotalPages, 'Phân trang nhãn') ?>
                     </div>
                 </div>
             </div>
