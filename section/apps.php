@@ -269,6 +269,12 @@
                                         <td><?= number_format((float) ($app['price'] ?? 0), 2) ?></td>
                                         <td class="text-end">
                                             <div class="d-inline-flex align-items-center justify-content-end gap-2 flex-nowrap">
+                                            <a class="btn btn-sm btn-secondary" href="index.php?section=apps&tab=photos&app_id=<?= urlencode($app['id']) ?>" title="Thêm ảnh mô tả" aria-label="Thêm ảnh mô tả">
+                                                <i data-lucide="image-plus" style="width:16px;height:16px"></i>
+                                            </a>
+                                            <a class="btn btn-sm btn-secondary" href="index.php?section=apps&tab=content&app_id=<?= urlencode($app['id']) ?>" title="Thêm nội dung mô tả" aria-label="Thêm nội dung mô tả">
+                                                <i data-lucide="file-plus-2" style="width:16px;height:16px"></i>
+                                            </a>
                                             <a class="btn btn-sm btn-warning" href="index.php?section=apps&edit=<?= urlencode($app['id']) ?>" title="Cập nhật" aria-label="Cập nhật">
                                                 <i data-lucide="pencil" style="width:16px;height:16px"></i>
                                             </a>
