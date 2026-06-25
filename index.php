@@ -68,16 +68,18 @@ endif;
 
 require __DIR__ . '/../CarrotCoc/config/database.php';
 require __DIR__ . '/../CarrotCoc/includes/coc_helpers.php';
+require __DIR__ . '/includes/schema.php';
 
 $message = '';
 $error = '';
-$allowedSections = ['overview', 'apps', 'pages', 'bank', 'coc', 'country'];
+$allowedSections = ['overview', 'apps', 'pages', 'bank', 'coc', 'country', 'paypal'];
 $section = in_array($_GET['section'] ?? 'overview', $allowedSections, true) ? ($_GET['section'] ?? 'overview') : 'overview';
 $editKey = trim($_GET['edit'] ?? '');
 $editId = isset($_GET['edit']) ? (int) $_GET['edit'] : 0;
 $cocTab = ($_GET['tab'] ?? 'accounts') === 'orders' ? 'orders' : 'accounts';
 $appTab = in_array($_GET['tab'] ?? 'main', ['main', 'photos', 'content'], true) ? ($_GET['tab'] ?? 'main') : 'main';
 $countryTab = ($_GET['tab'] ?? 'countries') === 'labels' ? 'labels' : 'countries';
+$paypalTab = ($_GET['tab'] ?? 'home') === 'coc' ? 'coc' : 'home';
 $editing = null;
 $editingLabel = null;
 $accounts = [];
@@ -248,6 +250,25 @@ function admin_fetch_text_label(PDO $pdo, int $id): ?array
     $stmt->execute([$id]);
     $row = $stmt->fetch();
     return $row ?: null;
+}
+
+function admin_fetch_paypal_config(PDO $pdo, string $site): ?array
+{
+    $stmt = $pdo->prepare('SELECT * FROM paypal_config WHERE site = ?');
+    $stmt->execute([$site]);
+    $row = $stmt->fetch();
+    return $row ?: null;
+}
+
+function admin_mask_secret(?string $value): string
+{
+    $value = trim((string) $value);
+    if ($value === '') {
+        return '';
+    }
+
+    $suffix = substr($value, -4);
+    return str_repeat('•', 8) . $suffix;
 }
 
 function admin_fetch_language_options(?PDO $pdo): array
@@ -637,6 +658,10 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages'], true)) {
             $languageOptions = admin_fetch_language_options($pdo instanceof PDO ? $pdo : null);
         }
 
+        if ($section === 'paypal') {
+            admin_ensure_paypal_config_table($pdo);
+        }
+
         if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $action = $_POST['action'] ?? '';
 
@@ -795,6 +820,40 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages'], true)) {
                     $stmt->execute([$appId, $langKey, $contentHtml]);
                     $message = 'Đã lưu nội dung mô tả.';
                 }
+            }
+
+            if ($section === 'paypal' && $action === 'save_paypal_config') {
+                $site = ($_POST['site'] ?? '') === 'coc' ? 'coc' : 'home';
+                $enabled = isset($_POST['enabled']) ? 1 : 0;
+                $activeMode = ($_POST['active_mode'] ?? 'sandbox') === 'live' ? 'live' : 'sandbox';
+                $currency = strtoupper(trim($_POST['currency'] ?? 'USD')) ?: 'USD';
+                $amount = (float) ($_POST['amount'] ?? 0);
+                $sandboxClientId = trim($_POST['sandbox_client_id'] ?? '');
+                $sandboxClientSecret = trim($_POST['sandbox_client_secret'] ?? '');
+                $liveClientId = trim($_POST['live_client_id'] ?? '');
+                $liveClientSecret = trim($_POST['live_client_secret'] ?? '');
+
+                if (!preg_match('/^[A-Z]{3,8}$/', $currency)) {
+                    throw new RuntimeException('Currency không hợp lệ, ví dụ USD.');
+                }
+
+                $stmt = $pdo->prepare('
+                    INSERT INTO paypal_config
+                        (site, enabled, active_mode, sandbox_client_id, sandbox_client_secret, live_client_id, live_client_secret, currency, amount)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ON DUPLICATE KEY UPDATE
+                        enabled = VALUES(enabled),
+                        active_mode = VALUES(active_mode),
+                        sandbox_client_id = VALUES(sandbox_client_id),
+                        sandbox_client_secret = VALUES(sandbox_client_secret),
+                        live_client_id = VALUES(live_client_id),
+                        live_client_secret = VALUES(live_client_secret),
+                        currency = VALUES(currency),
+                        amount = VALUES(amount)
+                ');
+                $stmt->execute([$site, $enabled, $activeMode, $sandboxClientId, $sandboxClientSecret, $liveClientId, $liveClientSecret, $currency, $amount]);
+                $message = 'Đã lưu cấu hình PayPal.';
+                $paypalTab = $site;
             }
 
             if ($section === 'pages' && $action === 'delete_page') {
@@ -1195,9 +1254,9 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages'], true)) {
 }
 
 $photoText = ($section === 'coc' && $editing) ? implode("\n", coc_decode_photos($editing['photos'])) : '';
-$pageTitle = ['overview' => 'Tổng quan', 'apps' => 'App', 'pages' => 'Page', 'bank' => 'Bank', 'coc' => 'Coc', 'country' => 'Country'][$section] ?? 'Tổng quan';
-$sectionLabels = ['overview' => 'tổng quan', 'apps' => 'ứng dụng', 'pages' => 'Page/SEO', 'bank' => 'ngân hàng', 'coc' => 'shop', 'country' => 'quốc gia hỗ trợ'];
-$sectionTitles = ['overview' => 'Tổng quan', 'apps' => 'App Carrot Home', 'pages' => 'Page Carrot Home', 'bank' => 'Bank', 'coc' => 'Acc Clash of Clans', 'country' => 'Country'];
+$pageTitle = ['overview' => 'Tổng quan', 'apps' => 'App', 'pages' => 'Page', 'bank' => 'Bank', 'coc' => 'Coc', 'country' => 'Country', 'paypal' => 'Paypal'][$section] ?? 'Tổng quan';
+$sectionLabels = ['overview' => 'tổng quan', 'apps' => 'ứng dụng', 'pages' => 'Page/SEO', 'bank' => 'ngân hàng', 'coc' => 'shop', 'country' => 'quốc gia hỗ trợ', 'paypal' => 'PayPal'];
+$sectionTitles = ['overview' => 'Tổng quan', 'apps' => 'App Carrot Home', 'pages' => 'Page Carrot Home', 'bank' => 'Bank', 'coc' => 'Acc Clash of Clans', 'country' => 'Country', 'paypal' => 'Paypal Config'];
 $dashboardCards = [
     ['label' => 'App', 'value' => $dashboardMetrics['apps'], 'icon' => 'boxes'],
     ['label' => 'Page', 'value' => $dashboardMetrics['pages'], 'icon' => 'file-text'],
@@ -1298,6 +1357,7 @@ $useSelect2 = $section === 'pages' || ($section === 'country' && $countryTab ===
                 <a class="list-group-item list-group-item-action <?= $section === 'apps' ? 'active' : '' ?>" href="index.php?section=apps"><i data-lucide="boxes"></i><span>App</span></a>
                 <a class="list-group-item list-group-item-action <?= $section === 'pages' ? 'active' : '' ?>" href="index.php?section=pages"><i data-lucide="file-text"></i><span>Page</span></a>
                 <a class="list-group-item list-group-item-action <?= $section === 'coc' ? 'active' : '' ?>" href="index.php?section=coc"><i data-lucide="shield"></i><span>Coc</span></a>
+                <a class="list-group-item list-group-item-action <?= $section === 'paypal' ? 'active' : '' ?>" href="index.php?section=paypal"><i data-lucide="credit-card"></i><span>Paypal</span></a>
                 <a class="list-group-item list-group-item-action <?= $section === 'bank' ? 'active' : '' ?>" href="index.php?section=bank"><i data-lucide="landmark"></i><span>Bank</span></a>
                 <a class="list-group-item list-group-item-action <?= $section === 'country' ? 'active' : '' ?>" href="index.php?section=country"><i data-lucide="globe-2"></i><span>Country</span></a>
             </div>

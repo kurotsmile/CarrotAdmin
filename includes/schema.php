@@ -118,6 +118,28 @@ function admin_ensure_app_content_table(PDO $pdo): void
     ");
 }
 
+function admin_ensure_paypal_config_table(PDO $pdo): void
+{
+    $pdo->exec("
+        CREATE TABLE IF NOT EXISTS paypal_config (
+          id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+          site VARCHAR(32) NOT NULL,
+          enabled TINYINT(1) NOT NULL DEFAULT 0,
+          active_mode ENUM('sandbox','live') NOT NULL DEFAULT 'sandbox',
+          sandbox_client_id TEXT DEFAULT NULL,
+          sandbox_client_secret TEXT DEFAULT NULL,
+          live_client_id TEXT DEFAULT NULL,
+          live_client_secret TEXT DEFAULT NULL,
+          currency VARCHAR(8) NOT NULL DEFAULT 'USD',
+          amount DECIMAL(10,2) NOT NULL DEFAULT 0.00,
+          created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+          PRIMARY KEY (id),
+          UNIQUE KEY uq_paypal_config_site (site)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    ");
+}
+
 function admin_ensure_country_table(PDO $pdo): void
 {
     $pdo->exec("

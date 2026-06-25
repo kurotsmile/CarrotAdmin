@@ -79,6 +79,14 @@ $results[] = install_run_step('CarrotCoc app content table', static function () 
     admin_ensure_app_content_table($cocPdo);
 });
 
+$results[] = install_run_step('PayPal config table', static function () use ($cocPdo, $cocError): void {
+    if (!$cocPdo instanceof PDO) {
+        throw new RuntimeException($cocError ?? 'Không thể kết nối database.');
+    }
+
+    admin_ensure_paypal_config_table($cocPdo);
+});
+
 $results[] = install_run_step('CarrotCoc country table', static function () use ($cocPdo, $cocError): void {
     if (!$cocPdo instanceof PDO) {
         throw new RuntimeException($cocError ?? 'Không thể kết nối CarrotCoc database.');
@@ -113,6 +121,10 @@ $results[] = install_run_step('CarrotCoc visit daily IP table', static function 
 
 $results[] = install_run_step('CarrotHome page table', static function (): void {
     admin_ensure_page_table(install_carrot_home_pdo());
+});
+
+$results[] = install_run_step('CarrotHome PayPal config table', static function (): void {
+    admin_ensure_paypal_config_table(install_carrot_home_pdo());
 });
 
 $results[] = install_run_step('CarrotHome visit daily IP table', static function (): void {
