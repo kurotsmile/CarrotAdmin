@@ -29,6 +29,20 @@
                         <button class="btn btn-sm btn-light js-traffic-toggle" type="button" data-traffic-view="ip">Theo IP</button>
                     </div>
                 </div>
+                <div class="traffic-chart-wrap mb-4">
+                    <div class="d-flex flex-wrap align-items-center justify-content-between gap-3 mb-2">
+                        <div>
+                            <div class="dashboard-eyebrow fw-bold">Đối chiếu theo giờ</div>
+                            <div class="traffic-chart-title">Hits hôm nay / hôm trước</div>
+                        </div>
+                        <div class="traffic-chart-legend">
+                            <span><i class="traffic-dot traffic-dot-today"></i>Hôm nay</span>
+                            <span><i class="traffic-dot traffic-dot-yesterday"></i>Hôm trước</span>
+                        </div>
+                    </div>
+                    <canvas id="traffic_compare_chart" height="260" aria-label="Biểu đồ so sánh lượng truy cập hôm nay và hôm trước"></canvas>
+                    <script type="application/json" id="traffic_compare_data"><?= json_encode($trafficChartData, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?></script>
+                </div>
                 <div class="traffic-view active" data-traffic-panel="site">
                     <div class="dashboard-eyebrow fw-bold mb-2">IP không lặp trong ngày</div>
                     <div class="table-responsive-sm">

@@ -113,6 +113,7 @@ $trafficMetrics = [
     ],
 ];
 $trafficIpRows = [];
+$trafficChartData = admin_empty_visit_hourly();
 $accountSort = 'id';
 $accountDir = 'DESC';
 $orderSort = 'created_at';
@@ -564,6 +565,67 @@ function admin_visit_metrics(?PDO $pdo, string $site): array
     ];
 }
 
+function admin_empty_visit_hourly(): array
+{
+    return [
+        'labels' => array_map(static fn(int $hour): string => str_pad((string) $hour, 2, '0', STR_PAD_LEFT) . ':00', range(0, 23)),
+        'today' => array_fill(0, 24, 0),
+        'yesterday' => array_fill(0, 24, 0),
+    ];
+}
+
+function admin_visit_hourly(?PDO $pdo, string $site): array
+{
+    $series = admin_empty_visit_hourly();
+    if (!$pdo instanceof PDO) {
+        return $series;
+    }
+
+    try {
+        $stmt = $pdo->prepare("
+            SELECT
+              visit_date,
+              HOUR(last_seen_at) AS visit_hour,
+              COALESCE(SUM(hits), 0) AS hits
+            FROM visit_daily_ip
+            WHERE site = :site
+              AND visit_date IN (CURRENT_DATE, DATE_SUB(CURRENT_DATE, INTERVAL 1 DAY))
+            GROUP BY visit_date, visit_hour
+            ORDER BY visit_date, visit_hour
+        ");
+        $stmt->execute([':site' => $site]);
+        $rows = $stmt->fetchAll();
+    } catch (Throwable $e) {
+        return $series;
+    }
+
+    $today = date('Y-m-d');
+    $yesterday = date('Y-m-d', strtotime('-1 day'));
+    foreach ($rows as $row) {
+        $hour = max(0, min(23, (int) ($row['visit_hour'] ?? 0)));
+        $hits = (int) ($row['hits'] ?? 0);
+        if (($row['visit_date'] ?? '') === $today) {
+            $series['today'][$hour] += $hits;
+        } elseif (($row['visit_date'] ?? '') === $yesterday) {
+            $series['yesterday'][$hour] += $hits;
+        }
+    }
+
+    return $series;
+}
+
+function admin_sum_visit_hourly(array $items): array
+{
+    $total = admin_empty_visit_hourly();
+    foreach ($items as $item) {
+        for ($hour = 0; $hour < 24; $hour++) {
+            $total['today'][$hour] += (int) ($item['today'][$hour] ?? 0);
+            $total['yesterday'][$hour] += (int) ($item['yesterday'][$hour] ?? 0);
+        }
+    }
+    return $total;
+}
+
 function admin_sum_visit_metrics(array $items): array
 {
     $total = admin_empty_visit_metrics();
@@ -641,6 +703,10 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages'], true)) {
             $trafficMetrics['coc'] = admin_visit_metrics($pdo, 'coc');
             $trafficMetrics['home'] = admin_visit_metrics($overviewHomePdo, 'home');
             $trafficMetrics['total'] = admin_sum_visit_metrics([$trafficMetrics['coc'], $trafficMetrics['home']]);
+            $trafficChartData = admin_sum_visit_hourly([
+                admin_visit_hourly($pdo, 'coc'),
+                admin_visit_hourly($overviewHomePdo, 'home'),
+            ]);
             $trafficIpRows = array_merge(
                 admin_visit_ip_rows($pdo, 'coc', 'COC Shop'),
                 admin_visit_ip_rows($overviewHomePdo, 'home', 'CarrotHome')
@@ -1329,12 +1395,20 @@ $useSelect2 = $section === 'pages' || ($section === 'country' && $countryTab ===
         .traffic-view.active{display:block}
         .traffic-toggle{border:1px solid rgba(15,23,42,.12);border-radius:8px;padding:.25rem;background:#f8fafc}
         .traffic-toggle .btn{border-radius:6px;font-weight:800}
+        .traffic-chart-wrap{border:1px solid rgba(15,23,42,.08);border-radius:8px;background:#f8fafc;padding:1rem}
+        .traffic-chart-title{font-size:1rem;font-weight:850;color:#172033}
+        .traffic-chart-legend{display:flex;align-items:center;gap:1rem;color:#475569;font-size:.82rem;font-weight:800}
+        .traffic-chart-legend span{display:inline-flex;align-items:center;gap:.35rem;white-space:nowrap}
+        .traffic-dot{display:inline-block;width:10px;height:10px;border-radius:999px}
+        .traffic-dot-today{background:#0f766e}
+        .traffic-dot-yesterday{background:#f59e0b}
+        #traffic_compare_chart{display:block;width:100%;height:260px}
         .glass-panel,.admin-shell{border:1px solid rgba(15,23,42,.08)!important;border-radius:8px!important;background:rgba(255,255,255,.96)!important;box-shadow:0 14px 36px rgba(15,23,42,.06)!important}
         .table{--bs-table-bg:transparent}
         .table thead th{color:#64748b;font-size:.78rem;text-transform:uppercase}
         @media (max-width:1199px){.dashboard-grid{grid-template-columns:repeat(3,minmax(0,1fr))}}
         @media (max-width:991px){.dashboard-sidebar{position:static;min-height:auto}.dashboard-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
-        @media (max-width:575px){.dashboard-grid{grid-template-columns:1fr}.dashboard-card-value{font-size:1.12rem}}
+        @media (max-width:575px){.dashboard-grid{grid-template-columns:1fr}.dashboard-card-value{font-size:1.12rem}.traffic-chart-legend{width:100%;justify-content:space-between}#traffic_compare_chart{height:220px}}
     </style>
     <?php if ($section === 'pages'): ?>
     <style>
@@ -1492,6 +1566,97 @@ document.querySelectorAll('.js-traffic-toggle').forEach((button) => {
         });
     });
 });
+
+const trafficChartCanvas = document.getElementById('traffic_compare_chart');
+const trafficChartDataEl = document.getElementById('traffic_compare_data');
+if (trafficChartCanvas && trafficChartDataEl) {
+    const trafficChartData = JSON.parse(trafficChartDataEl.textContent || '{}');
+    const drawTrafficChart = () => {
+        const canvas = trafficChartCanvas;
+        const context = canvas.getContext('2d');
+        const rect = canvas.getBoundingClientRect();
+        const ratio = window.devicePixelRatio || 1;
+        const width = Math.max(320, Math.floor(rect.width));
+        const height = Math.max(200, Math.floor(rect.height || 260));
+        canvas.width = width * ratio;
+        canvas.height = height * ratio;
+        context.setTransform(ratio, 0, 0, ratio, 0, 0);
+        context.clearRect(0, 0, width, height);
+
+        const labels = Array.isArray(trafficChartData.labels) ? trafficChartData.labels : [];
+        const today = Array.isArray(trafficChartData.today) ? trafficChartData.today.map(Number) : [];
+        const yesterday = Array.isArray(trafficChartData.yesterday) ? trafficChartData.yesterday.map(Number) : [];
+        const values = today.concat(yesterday);
+        const maxValue = Math.max(1, ...values);
+        const yMax = Math.ceil(maxValue / 5) * 5 || 5;
+        const padding = {top: 18, right: 18, bottom: 34, left: 46};
+        const chartWidth = width - padding.left - padding.right;
+        const chartHeight = height - padding.top - padding.bottom;
+        const pointX = (index) => padding.left + (chartWidth * index / Math.max(1, labels.length - 1));
+        const pointY = (value) => padding.top + chartHeight - (chartHeight * value / yMax);
+
+        context.font = '12px system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+        context.lineWidth = 1;
+        context.strokeStyle = 'rgba(100, 116, 139, .18)';
+        context.fillStyle = '#64748b';
+        context.textAlign = 'right';
+        context.textBaseline = 'middle';
+        for (let step = 0; step <= 4; step++) {
+            const value = Math.round(yMax * step / 4);
+            const y = pointY(value);
+            context.beginPath();
+            context.moveTo(padding.left, y);
+            context.lineTo(width - padding.right, y);
+            context.stroke();
+            context.fillText(value.toLocaleString('vi-VN'), padding.left - 10, y);
+        }
+
+        context.textAlign = 'center';
+        context.textBaseline = 'top';
+        labels.forEach((label, index) => {
+            if (index % 3 !== 0 && index !== labels.length - 1) {
+                return;
+            }
+            context.fillText(String(label).slice(0, 2), pointX(index), height - padding.bottom + 12);
+        });
+
+        const drawLine = (data, color) => {
+            context.beginPath();
+            data.forEach((value, index) => {
+                const x = pointX(index);
+                const y = pointY(value);
+                if (index === 0) {
+                    context.moveTo(x, y);
+                } else {
+                    context.lineTo(x, y);
+                }
+            });
+            context.lineWidth = 3;
+            context.lineJoin = 'round';
+            context.lineCap = 'round';
+            context.strokeStyle = color;
+            context.stroke();
+
+            data.forEach((value, index) => {
+                const x = pointX(index);
+                const y = pointY(value);
+                context.beginPath();
+                context.arc(x, y, 3, 0, Math.PI * 2);
+                context.fillStyle = '#fff';
+                context.fill();
+                context.lineWidth = 2;
+                context.strokeStyle = color;
+                context.stroke();
+            });
+        };
+
+        drawLine(yesterday, '#f59e0b');
+        drawLine(today, '#0f766e');
+    };
+
+    drawTrafficChart();
+    window.addEventListener('resize', drawTrafficChart);
+}
 
 const labelLanguages = <?= json_encode($languageOptions, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?>;
 const labelTranslations = <?= json_encode($labelTranslationMap, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?>;
