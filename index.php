@@ -268,10 +268,23 @@ function admin_fetch_paypal_config(PDO $pdo, string $site): ?array
 function admin_fetch_ai_support_config(PDO $pdo): ?array
 {
     admin_ensure_ai_support_table($pdo);
-    $stmt = $pdo->prepare('SELECT * FROM ai_support WHERE provider = ? LIMIT 1');
+    $stmt = $pdo->prepare('SELECT * FROM ai_support WHERE provider = ? ORDER BY priority ASC, id ASC LIMIT 1');
     $stmt->execute(['gemini']);
     $row = $stmt->fetch();
     return $row ?: null;
+}
+
+function admin_fetch_ai_support_configs(PDO $pdo, bool $enabledOnly = false): array
+{
+    admin_ensure_ai_support_table($pdo);
+    $sql = 'SELECT * FROM ai_support WHERE provider = ?';
+    if ($enabledOnly) {
+        $sql .= ' AND enabled = 1 AND TRIM(COALESCE(api_key, "")) <> ""';
+    }
+    $sql .= ' ORDER BY priority ASC, id ASC';
+    $stmt = $pdo->prepare($sql);
+    $stmt->execute(['gemini']);
+    return $stmt->fetchAll();
 }
 
 function admin_mask_secret(?string $value): string
@@ -302,101 +315,104 @@ function admin_json_error(string $message, int $statusCode = 400): void
 
 function admin_gemini_translate(PDO $pdo, string $sourceText, string $targetLang, string $contentType): string
 {
-    $config = admin_fetch_ai_support_config($pdo);
-    if (!$config || empty($config['enabled'])) {
+    $configs = admin_fetch_ai_support_configs($pdo, true);
+    if (!$configs) {
         throw new RuntimeException('AI Support chưa được bật.');
-    }
-
-    $apiKey = trim((string) ($config['api_key'] ?? ''));
-    if ($apiKey === '') {
-        throw new RuntimeException('Chưa cấu hình Gemini API Key.');
     }
 
     if (!function_exists('curl_init')) {
         throw new RuntimeException('Server cần bật PHP cURL để gọi Gemini.');
     }
 
-    $configuredModel = trim((string) ($config['model'] ?? 'gemini-3.5-flash')) ?: 'gemini-3.5-flash';
-    $models = array_values(array_unique(array_filter([
-        $configuredModel,
-        'gemini-3.5-flash',
-        'gemini-3.1-flash-lite',
-        'gemini-2.5-flash-lite',
-    ])));
-    $endpointTemplate = trim((string) ($config['endpoint'] ?? '')) ?: 'https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent';
-    $temperature = max(0, min(2, (float) ($config['temperature'] ?? 0.2)));
-    $systemPrompt = trim((string) ($config['system_prompt'] ?? ''));
-    if ($systemPrompt === '') {
-        $systemPrompt = 'You are a precise translation engine for a website CMS. Translate from English to the target language. Preserve HTML tags, attributes, URLs, whitespace intent, entities, and placeholders. Return only the translated content without markdown fences or explanations.';
-    }
-
-    $prompt = $systemPrompt . "\n\nTarget language: " . $targetLang . "\nContent type: " . $contentType . "\n\nSource content:\n" . $sourceText;
-    $payload = [
-        'contents' => [
-            [
-                'parts' => [
-                    ['text' => $prompt],
-                ],
-            ],
-        ],
-        'generationConfig' => [
-            'temperature' => $temperature,
-        ],
-    ];
-
     $errors = [];
-    foreach ($models as $model) {
-        $endpoint = str_replace('{model}', rawurlencode($model), $endpointTemplate);
-        $curl = curl_init($endpoint);
-        curl_setopt_array($curl, [
-            CURLOPT_POST => true,
-            CURLOPT_POSTFIELDS => json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
-            CURLOPT_HTTPHEADER => [
-                'Content-Type: application/json',
-                'x-goog-api-key: ' . $apiKey,
-            ],
-            CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_TIMEOUT => 90,
-        ]);
-
-        $response = curl_exec($curl);
-        $curlError = curl_error($curl);
-        $statusCode = (int) curl_getinfo($curl, CURLINFO_RESPONSE_CODE);
-        curl_close($curl);
-
-        if ($response === false) {
-            $errors[] = $model . ': ' . $curlError;
+    foreach ($configs as $config) {
+        $accountName = trim((string) ($config['account_name'] ?? 'Gemini account')) ?: 'Gemini account';
+        $apiKey = trim((string) ($config['api_key'] ?? ''));
+        if ($apiKey === '') {
             continue;
         }
 
-        $data = json_decode($response, true);
-        if ($statusCode >= 400 || !is_array($data)) {
-            $apiMessage = is_array($data) ? ($data['error']['message'] ?? 'unknown error') : trim($response);
-            $errors[] = $model . ': ' . $apiMessage;
-            $retryable = in_array($statusCode, [404, 429, 503], true) || preg_match('/high demand|overload|rate limit|quota|unavailable|try again|not found/i', $apiMessage);
-            if ($retryable) {
-                usleep(300000);
+        $configuredModel = trim((string) ($config['model'] ?? 'gemini-3.5-flash')) ?: 'gemini-3.5-flash';
+        $models = array_values(array_unique(array_filter([
+            $configuredModel,
+            'gemini-3.5-flash',
+            'gemini-3.1-flash-lite',
+            'gemini-2.5-flash-lite',
+        ])));
+        $endpointTemplate = trim((string) ($config['endpoint'] ?? '')) ?: 'https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent';
+        $temperature = max(0, min(2, (float) ($config['temperature'] ?? 0.2)));
+        $systemPrompt = trim((string) ($config['system_prompt'] ?? ''));
+        if ($systemPrompt === '') {
+            $systemPrompt = 'You are a precise translation engine for a website CMS. Translate from English to the target language. Preserve HTML tags, attributes, URLs, whitespace intent, entities, and placeholders. Return only the translated content without markdown fences or explanations.';
+        }
+
+        $prompt = $systemPrompt . "\n\nTarget language: " . $targetLang . "\nContent type: " . $contentType . "\n\nSource content:\n" . $sourceText;
+        $payload = [
+            'contents' => [
+                [
+                    'parts' => [
+                        ['text' => $prompt],
+                    ],
+                ],
+            ],
+            'generationConfig' => [
+                'temperature' => $temperature,
+            ],
+        ];
+
+        foreach ($models as $model) {
+            $endpoint = str_replace('{model}', rawurlencode($model), $endpointTemplate);
+            $curl = curl_init($endpoint);
+            curl_setopt_array($curl, [
+                CURLOPT_POST => true,
+                CURLOPT_POSTFIELDS => json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+                CURLOPT_HTTPHEADER => [
+                    'Content-Type: application/json',
+                    'x-goog-api-key: ' . $apiKey,
+                ],
+                CURLOPT_RETURNTRANSFER => true,
+                CURLOPT_TIMEOUT => 90,
+            ]);
+
+            $response = curl_exec($curl);
+            $curlError = curl_error($curl);
+            $statusCode = (int) curl_getinfo($curl, CURLINFO_RESPONSE_CODE);
+            curl_close($curl);
+
+            if ($response === false) {
+                $errors[] = $accountName . ' / ' . $model . ': ' . $curlError;
                 continue;
             }
 
-            throw new RuntimeException('Gemini lỗi: ' . $apiMessage);
-        }
+            $data = json_decode($response, true);
+            if ($statusCode >= 400 || !is_array($data)) {
+                $apiMessage = is_array($data) ? ($data['error']['message'] ?? 'unknown error') : trim($response);
+                $errors[] = $accountName . ' / ' . $model . ': ' . $apiMessage;
+                $retryable = in_array($statusCode, [401, 403, 404, 429, 503], true) || preg_match('/api key|permission|denied|high demand|overload|rate limit|quota|unavailable|try again|not found/i', $apiMessage);
+                if ($retryable) {
+                    usleep(300000);
+                    continue;
+                }
 
-        $parts = $data['candidates'][0]['content']['parts'] ?? [];
-        $text = '';
-        foreach ($parts as $part) {
-            $text .= (string) ($part['text'] ?? '');
-        }
+                throw new RuntimeException('Gemini lỗi: ' . $apiMessage);
+            }
 
-        $text = trim($text);
-        if ($text !== '') {
-            return preg_replace('/^```(?:html|text)?\s*|\s*```$/i', '', $text) ?? $text;
-        }
+            $parts = $data['candidates'][0]['content']['parts'] ?? [];
+            $text = '';
+            foreach ($parts as $part) {
+                $text .= (string) ($part['text'] ?? '');
+            }
 
-        $errors[] = $model . ': empty response';
+            $text = trim($text);
+            if ($text !== '') {
+                return preg_replace('/^```(?:html|text)?\s*|\s*```$/i', '', $text) ?? $text;
+            }
+
+            $errors[] = $accountName . ' / ' . $model . ': empty response';
+        }
     }
 
-    throw new RuntimeException('Gemini lỗi sau khi thử fallback: ' . implode(' | ', $errors));
+    throw new RuntimeException('Gemini lỗi sau khi thử tất cả tài khoản: ' . implode(' | ', $errors));
 }
 
 function admin_fetch_language_options(?PDO $pdo): array
@@ -1098,31 +1114,42 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages'], true)) {
             }
 
             if ($section === 'ai_support' && $action === 'save_ai_support_config') {
+                $id = (int) ($_POST['id'] ?? 0);
+                $accountName = trim($_POST['account_name'] ?? 'Gemini account') ?: 'Gemini account';
                 $enabled = isset($_POST['enabled']) ? 1 : 0;
                 $apiKey = trim($_POST['api_key'] ?? '');
-                $model = trim($_POST['model'] ?? 'gemini-2.5-flash') ?: 'gemini-2.5-flash';
+                $model = trim($_POST['model'] ?? 'gemini-3.5-flash') ?: 'gemini-3.5-flash';
                 $endpoint = trim($_POST['endpoint'] ?? 'https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent');
                 $temperature = max(0, min(2, (float) ($_POST['temperature'] ?? 0.2)));
                 $systemPrompt = trim($_POST['system_prompt'] ?? '');
+                $priority = (int) ($_POST['priority'] ?? 0);
 
                 if ($endpoint === '' || strpos($endpoint, '{model}') === false) {
                     throw new RuntimeException('Endpoint cần có placeholder {model}.');
                 }
 
-                $stmt = $pdo->prepare('
-                    INSERT INTO ai_support
-                        (provider, enabled, api_key, model, endpoint, temperature, system_prompt)
-                    VALUES ("gemini", ?, ?, ?, ?, ?, ?)
-                    ON DUPLICATE KEY UPDATE
-                        enabled = VALUES(enabled),
-                        api_key = VALUES(api_key),
-                        model = VALUES(model),
-                        endpoint = VALUES(endpoint),
-                        temperature = VALUES(temperature),
-                        system_prompt = VALUES(system_prompt)
-                ');
-                $stmt->execute([$enabled, $apiKey, $model, $endpoint, $temperature, $systemPrompt]);
+                if ($id > 0) {
+                    $stmt = $pdo->prepare('
+                        UPDATE ai_support
+                        SET account_name = ?, enabled = ?, api_key = ?, model = ?, endpoint = ?, temperature = ?, system_prompt = ?, priority = ?
+                        WHERE id = ? AND provider = "gemini"
+                    ');
+                    $stmt->execute([$accountName, $enabled, $apiKey, $model, $endpoint, $temperature, $systemPrompt, $priority, $id]);
+                } else {
+                    $stmt = $pdo->prepare('
+                        INSERT INTO ai_support
+                            (provider, account_name, enabled, api_key, model, endpoint, temperature, system_prompt, priority)
+                        VALUES ("gemini", ?, ?, ?, ?, ?, ?, ?, ?)
+                    ');
+                    $stmt->execute([$accountName, $enabled, $apiKey, $model, $endpoint, $temperature, $systemPrompt, $priority]);
+                }
                 $message = 'Đã lưu cấu hình AI Support.';
+            }
+
+            if ($section === 'ai_support' && $action === 'delete_ai_support_config') {
+                $stmt = $pdo->prepare('DELETE FROM ai_support WHERE id = ? AND provider = "gemini"');
+                $stmt->execute([(int) ($_POST['id'] ?? 0)]);
+                $message = 'Đã xóa tài khoản AI.';
             }
 
             if ($section === 'pages' && $action === 'delete_page') {

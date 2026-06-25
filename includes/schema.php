@@ -146,18 +146,37 @@ function admin_ensure_ai_support_table(PDO $pdo): void
         CREATE TABLE IF NOT EXISTS ai_support (
           id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
           provider VARCHAR(32) NOT NULL DEFAULT 'gemini',
+          account_name VARCHAR(120) NOT NULL DEFAULT 'Gemini account',
           enabled TINYINT(1) NOT NULL DEFAULT 0,
           api_key TEXT DEFAULT NULL,
           model VARCHAR(120) NOT NULL DEFAULT 'gemini-3.5-flash',
           endpoint VARCHAR(255) NOT NULL DEFAULT 'https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent',
           temperature DECIMAL(4,2) NOT NULL DEFAULT 0.20,
           system_prompt TEXT DEFAULT NULL,
+          priority INT NOT NULL DEFAULT 0,
           created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
           updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
           PRIMARY KEY (id),
-          UNIQUE KEY uq_ai_support_provider (provider)
+          KEY idx_ai_support_provider_enabled (provider, enabled, priority)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     ");
+
+    $columns = $pdo->query('SHOW COLUMNS FROM ai_support')->fetchAll(PDO::FETCH_COLUMN);
+    if (!in_array('account_name', $columns, true)) {
+        $pdo->exec("ALTER TABLE ai_support ADD account_name VARCHAR(120) NOT NULL DEFAULT 'Gemini account' AFTER provider");
+    }
+    if (!in_array('priority', $columns, true)) {
+        $pdo->exec('ALTER TABLE ai_support ADD priority INT NOT NULL DEFAULT 0 AFTER system_prompt');
+    }
+
+    $indexes = $pdo->query('SHOW INDEX FROM ai_support')->fetchAll(PDO::FETCH_ASSOC);
+    $indexNames = array_unique(array_column($indexes, 'Key_name'));
+    if (in_array('uq_ai_support_provider', $indexNames, true)) {
+        $pdo->exec('ALTER TABLE ai_support DROP INDEX uq_ai_support_provider');
+    }
+    if (!in_array('idx_ai_support_provider_enabled', $indexNames, true)) {
+        $pdo->exec('ALTER TABLE ai_support ADD KEY idx_ai_support_provider_enabled (provider, enabled, priority)');
+    }
 }
 
 function admin_ensure_country_table(PDO $pdo): void
