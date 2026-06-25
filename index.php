@@ -855,7 +855,7 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages'], true)) {
             admin_ensure_paypal_config_table($pdo);
         }
 
-        if ($section === 'ai_support' || in_array($_POST['action'] ?? '', ['save_ai_support_config', 'ajax_ai_translate_page', 'ajax_ai_translate_label', 'ajax_find_text_label_source'], true)) {
+        if ($section === 'ai_support' || in_array($_POST['action'] ?? '', ['save_ai_support_config', 'ajax_ai_translate_page', 'ajax_ai_translate_label', 'ajax_find_text_label_source', 'ajax_find_app_content_source', 'ajax_ai_translate_app_content'], true)) {
             admin_ensure_ai_support_table($pdo);
         }
 
@@ -1016,6 +1016,50 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages'], true)) {
                     ');
                     $stmt->execute([$appId, $langKey, $contentHtml]);
                     $message = 'Đã lưu nội dung mô tả.';
+                }
+            }
+
+            if ($section === 'apps' && $action === 'ajax_find_app_content_source') {
+                $appId = trim($_POST['app_id'] ?? '');
+                $langKey = trim($_POST['lang_key'] ?? '');
+                if ($appId === '' || $langKey === '' || $langKey === 'en') {
+                    admin_json_success(['source_en' => null]);
+                }
+
+                $stmt = $pdo->prepare('
+                    SELECT id, app_id, lang_key
+                    FROM app_content
+                    WHERE app_id = ? AND lang_key = "en" AND TRIM(content_html) <> ""
+                    LIMIT 1
+                ');
+                $stmt->execute([$appId]);
+                admin_json_success(['source_en' => $stmt->fetch() ?: null]);
+            }
+
+            if ($section === 'apps' && $action === 'ajax_ai_translate_app_content') {
+                try {
+                    $appId = trim($_POST['app_id'] ?? '');
+                    $langKey = trim($_POST['lang_key'] ?? '');
+                    if ($appId === '' || $langKey === '' || $langKey === 'en') {
+                        throw new RuntimeException('Vui lòng chọn app và lang khác en.');
+                    }
+
+                    $stmt = $pdo->prepare('
+                        SELECT content_html
+                        FROM app_content
+                        WHERE app_id = ? AND lang_key = "en" AND TRIM(content_html) <> ""
+                        LIMIT 1
+                    ');
+                    $stmt->execute([$appId]);
+                    $sourceHtml = (string) $stmt->fetchColumn();
+                    if ($sourceHtml === '') {
+                        throw new RuntimeException('Chưa có mô tả app tiếng Anh để dịch.');
+                    }
+
+                    $translated = admin_gemini_translate($pdo, $sourceHtml, $langKey, 'app description html');
+                    admin_json_success(['content_html' => $translated]);
+                } catch (Throwable $e) {
+                    admin_json_error($e->getMessage());
                 }
             }
 
@@ -2138,7 +2182,6 @@ bindSimpleEditor('app_content_editor', 'app_content_html', 'app_content');
 
 [
     ['app_photo_app_id', 'photos'],
-    ['app_content_app_id', 'content'],
 ].forEach(([selectId, tab]) => {
     const select = document.getElementById(selectId);
     if (!select) {
@@ -2152,6 +2195,102 @@ bindSimpleEditor('app_content_editor', 'app_content_html', 'app_content');
         window.location.href = `index.php?section=apps&tab=${tab}&app_id=${encodeURIComponent(appId)}`;
     });
 });
+
+const appContentAppInput = document.getElementById('app_content_app_id');
+const appContentLangInput = document.getElementById('app_content_lang_key');
+const aiAppContentButton = document.querySelector('.js-ai-app-content-generate');
+if (appContentAppInput && appContentLangInput) {
+    appContentAppInput.addEventListener('change', () => {
+        const appId = appContentAppInput.value.trim();
+        if (!appId) {
+            return;
+        }
+        window.location.href = `index.php?section=apps&tab=content&app_id=${encodeURIComponent(appId)}`;
+    });
+}
+if (appContentAppInput && appContentLangInput && aiAppContentButton) {
+    let appContentLookupTimer = null;
+    let hasEnglishAppContentSource = false;
+
+    const checkEnglishAppContentSource = () => {
+        window.clearTimeout(appContentLookupTimer);
+        appContentLookupTimer = window.setTimeout(async () => {
+            const appId = appContentAppInput.value.trim();
+            const langKey = appContentLangInput.value.trim();
+            hasEnglishAppContentSource = false;
+            aiAppContentButton.classList.add('d-none');
+            if (!appId || !langKey || langKey === 'en') {
+                return;
+            }
+
+            const formData = new FormData();
+            formData.append('action', 'ajax_find_app_content_source');
+            formData.append('app_id', appId);
+            formData.append('lang_key', langKey);
+
+            try {
+                const response = await fetch('index.php?section=apps&tab=content', {
+                    method: 'POST',
+                    body: formData,
+                });
+                const payload = await response.json();
+                hasEnglishAppContentSource = Boolean(payload.source_en);
+                if (response.ok && payload.status === 'success' && hasEnglishAppContentSource) {
+                    aiAppContentButton.classList.remove('d-none');
+                }
+            } catch (error) {
+            }
+        }, 250);
+    };
+
+    appContentAppInput.addEventListener('change', checkEnglishAppContentSource);
+    appContentLangInput.addEventListener('change', checkEnglishAppContentSource);
+
+    aiAppContentButton.addEventListener('click', async () => {
+        const appId = appContentAppInput.value.trim();
+        const langKey = appContentLangInput.value.trim();
+        if (!appId || !langKey || langKey === 'en' || !hasEnglishAppContentSource) {
+            return;
+        }
+
+        aiAppContentButton.disabled = true;
+        const originalHtml = aiAppContentButton.innerHTML;
+        aiAppContentButton.innerHTML = '<span class="d-inline-flex align-items-center gap-2"><span class="spinner-border spinner-border-sm" aria-hidden="true"></span>Đang tạo</span>';
+
+        const formData = new FormData();
+        formData.append('action', 'ajax_ai_translate_app_content');
+        formData.append('app_id', appId);
+        formData.append('lang_key', langKey);
+
+        try {
+            const response = await fetch('index.php?section=apps&tab=content', {
+                method: 'POST',
+                body: formData,
+            });
+            const payload = await response.json();
+            if (!response.ok || payload.status !== 'success') {
+                throw new Error(payload.message || 'Không tạo được mô tả app bằng AI.');
+            }
+
+            const editor = document.getElementById('app_content_editor');
+            const source = document.getElementById('app_content_html');
+            if (editor && source) {
+                editor.innerHTML = payload.content_html || '';
+                source.value = editor.innerHTML.trim();
+            }
+        } catch (error) {
+            await Swal.fire({icon: 'warning', title: 'AI lỗi', text: error.message});
+        } finally {
+            aiAppContentButton.disabled = false;
+            aiAppContentButton.innerHTML = originalHtml;
+            if (window.lucide) {
+                lucide.createIcons();
+            }
+        }
+    });
+
+    checkEnglishAppContentSource();
+}
 
 const pageSlugInput = document.getElementById('page_slug');
 const pageLangInput = document.getElementById('page_lang');
