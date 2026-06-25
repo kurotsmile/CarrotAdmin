@@ -33,7 +33,12 @@
                     <form class="glass-panel p-4" method="post">
                         <input type="hidden" name="action" value="save_ai_support_config">
                         <input type="hidden" name="id" value="<?= (int) ($aiEditing['id'] ?? 0) ?>">
-                        <h2 class="h5 mb-3"><?= !empty($aiEditing['id']) ? 'Cập nhật tài khoản Gemini' : 'Thêm tài khoản Gemini' ?></h2>
+                        <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-3">
+                            <h2 class="h5 mb-0"><?= !empty($aiEditing['id']) ? 'Cập nhật tài khoản Gemini' : 'Thêm tài khoản Gemini' ?></h2>
+                            <a class="btn btn-sm btn-secondary" href="index.php?section=ai_support" title="Thêm mới" aria-label="Thêm mới">
+                                <span class="d-inline-flex align-items-center gap-2"><i data-lucide="plus" style="width:16px;height:16px"></i>Thêm mới</span>
+                            </a>
+                        </div>
 
                         <div class="row g-3">
                             <div class="col-md-5">
@@ -88,7 +93,12 @@
 
                 <div class="col-xl-6">
                     <div class="glass-panel p-4">
-                        <h2 class="h5 mb-3">Danh sách tài khoản AI</h2>
+                        <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-3">
+                            <h2 class="h5 mb-0">Danh sách tài khoản AI</h2>
+                            <a class="btn btn-sm btn-success" href="index.php?section=ai_support" title="Thêm mới" aria-label="Thêm mới">
+                                <span class="d-inline-flex align-items-center gap-2"><i data-lucide="plus" style="width:16px;height:16px"></i>Thêm mới</span>
+                            </a>
+                        </div>
                         <div class="table-responsive-sm">
                             <table class="table table-striped table-hover table-sm align-middle">
                                 <thead>
