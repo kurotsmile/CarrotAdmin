@@ -38,7 +38,11 @@ if (empty($_SESSION['admin_user'])):
     <link rel="manifest" href="favicon/site.webmanifest">
     <link rel="shortcut icon" href="favicon/favicon.ico">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link href="/CarrotCoc/assets/css/style.css" rel="stylesheet">
+    <style>
+        body{background:#eef2f7;color:#172033}
+        .glass-panel{border:1px solid rgba(15,23,42,.08);border-radius:8px;background:rgba(255,255,255,.96);box-shadow:0 14px 36px rgba(15,23,42,.06)}
+        .brand-mark{width:56px;height:56px;object-fit:contain}
+    </style>
 </head>
 <body>
 <div class="container min-vh-100 d-flex align-items-center justify-content-center">
@@ -1568,7 +1572,6 @@ $useSelect2 = $section === 'pages' || ($section === 'country' && $countryTab ===
     <link href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/select2-bootstrap-5-theme@1.3.0/dist/select2-bootstrap-5-theme.min.css" rel="stylesheet">
     <?php endif; ?>
-    <link href="/CarrotCoc/assets/css/style.css" rel="stylesheet">
     <?php if ($useSelect2): ?>
     <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
@@ -1577,6 +1580,8 @@ $useSelect2 = $section === 'pages' || ($section === 'country' && $countryTab ===
     <script src="https://unpkg.com/lucide@latest"></script>
     <style>
         body{background:#eef2f7;color:#172033}
+        .brand-mark{width:48px;height:48px;object-fit:contain}
+        .muted-text{color:#64748b}
         .dashboard-layout{min-height:100vh;background:linear-gradient(180deg,#f8fafc 0,#eef2f7 42%,#e9edf4 100%)}
         .dashboard-sidebar{position:sticky;top:16px;min-height:calc(100vh - 32px);border:1px solid rgba(15,23,42,.08);border-radius:8px;background:rgba(255,255,255,.92);box-shadow:0 18px 48px rgba(15,23,42,.08)}
         .dashboard-brand{padding:.25rem .25rem 1rem;border-bottom:1px solid rgba(15,23,42,.08)}

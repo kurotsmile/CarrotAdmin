@@ -160,7 +160,11 @@ if ($isCli) {
     <link rel="manifest" href="favicon/site.webmanifest">
     <link rel="shortcut icon" href="favicon/favicon.ico">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link href="/CarrotCoc/assets/css/style.css" rel="stylesheet">
+    <style>
+        body{background:#eef2f7;color:#172033}
+        .glass-panel{border:1px solid rgba(15,23,42,.08);border-radius:8px;background:rgba(255,255,255,.96);box-shadow:0 14px 36px rgba(15,23,42,.06)}
+        .muted-text{color:#64748b}
+    </style>
 </head>
 <body>
 <div class="container py-5">
