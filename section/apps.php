@@ -7,6 +7,7 @@
             $appPhotoSummary = [];
             $appContentRows = [];
             $appContentSummary = [];
+            $appContentUsedLangKeys = [];
             $editingAppPhoto = null;
             $editingAppContent = null;
             $selectedAppId = trim($_GET['app_id'] ?? '');
@@ -95,6 +96,7 @@
                         ');
                         $appContentStmt->execute([$selectedAppId]);
                         $appContentRows = $appContentStmt->fetchAll();
+                        $appContentUsedLangKeys = array_values(array_unique(array_filter(array_map(static fn(array $row): string => (string) ($row['lang_key'] ?? ''), $appContentRows))));
                     }
                     $appContentSummary = $pdo->query('
                         SELECT app.id, app.icon, COALESCE(content_counts.content_count, 0) AS content_count, content_counts.last_content_at
@@ -466,13 +468,22 @@
 
                             <div class="mb-3">
                                 <label class="form-label" for="app_content_lang_key">Lang key</label>
-                                <?php $appContentLangValue = (string) ($editingAppContent['lang_key'] ?? ($languageOptions[0]['lang_key'] ?? 'vi')); ?>
+                                <?php
+                                $appContentLangValue = (string) ($editingAppContent['lang_key'] ?? '');
+                                $appContentAvailableLanguages = array_values(array_filter($languageOptions, static function (array $language) use ($appContentUsedLangKeys, $appContentLangValue): bool {
+                                    $langKey = (string) ($language['lang_key'] ?? '');
+                                    return $langKey === $appContentLangValue || !in_array($langKey, $appContentUsedLangKeys, true);
+                                }));
+                                if ($appContentLangValue === '') {
+                                    $appContentLangValue = (string) ($appContentAvailableLanguages[0]['lang_key'] ?? '');
+                                }
+                                ?>
                                 <select class="form-control js-app-content-lang-select" id="app_content_lang_key" name="lang_key" required>
                                     <?php if ($appContentLangValue === ''): ?>
                                         <option value=""></option>
                                     <?php endif; ?>
-                                    <?= admin_language_select_options($languageOptions, $appContentLangValue) ?>
-                                    <?php if ($appContentLangValue !== '' && !in_array($appContentLangValue, array_column($languageOptions, 'lang_key'), true)): ?>
+                                    <?= admin_language_select_options($appContentAvailableLanguages, $appContentLangValue) ?>
+                                    <?php if ($appContentLangValue !== '' && !in_array($appContentLangValue, array_column($appContentAvailableLanguages, 'lang_key'), true)): ?>
                                         <option value="<?= htmlspecialchars($appContentLangValue) ?>" selected><?= htmlspecialchars($appContentLangValue) ?></option>
                                     <?php endif; ?>
                                 </select>
