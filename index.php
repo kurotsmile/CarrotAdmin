@@ -1103,8 +1103,21 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages'], true)) {
                     }
 
                     $sourceDetail = admin_fetch_page($homePdo, (int) $sourcePage['id']);
-                    $translated = admin_gemini_translate($pdo, (string) ($sourceDetail['content_html'] ?? ''), $lang, 'html');
-                    admin_json_success(['content_html' => $translated, 'source' => $sourcePage]);
+                    $translated = [
+                        'content_html' => admin_gemini_translate($pdo, (string) ($sourceDetail['content_html'] ?? ''), $lang, 'html'),
+                        'seo_title' => '',
+                        'seo_description' => '',
+                        'seo_keywords' => '',
+                    ];
+
+                    foreach (['seo_title' => 'SEO title', 'seo_description' => 'SEO description', 'seo_keywords' => 'SEO keywords'] as $field => $label) {
+                        $sourceValue = trim((string) ($sourceDetail[$field] ?? ''));
+                        if ($sourceValue !== '') {
+                            $translated[$field] = admin_gemini_translate($pdo, $sourceValue, $lang, $label);
+                        }
+                    }
+
+                    admin_json_success(array_merge($translated, ['source' => $sourcePage]));
                 } catch (Throwable $e) {
                     admin_json_error($e->getMessage());
                 }
@@ -2217,6 +2230,16 @@ if (pageSlugInput && pageLangInput && pageIdInput) {
                     editor.innerHTML = payload.content_html || '';
                     source.value = editor.innerHTML.trim();
                 }
+                [
+                    ['seo_title', payload.seo_title],
+                    ['seo_description', payload.seo_description],
+                    ['seo_keywords', payload.seo_keywords],
+                ].forEach(([fieldId, value]) => {
+                    const field = document.getElementById(fieldId);
+                    if (field && typeof value === 'string' && value !== '') {
+                        field.value = value;
+                    }
+                });
             } catch (error) {
                 await Swal.fire({icon: 'warning', title: 'AI lỗi', text: error.message});
             } finally {
