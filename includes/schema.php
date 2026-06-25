@@ -140,6 +140,26 @@ function admin_ensure_paypal_config_table(PDO $pdo): void
     ");
 }
 
+function admin_ensure_ai_support_table(PDO $pdo): void
+{
+    $pdo->exec("
+        CREATE TABLE IF NOT EXISTS ai_support (
+          id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+          provider VARCHAR(32) NOT NULL DEFAULT 'gemini',
+          enabled TINYINT(1) NOT NULL DEFAULT 0,
+          api_key TEXT DEFAULT NULL,
+          model VARCHAR(120) NOT NULL DEFAULT 'gemini-2.5-flash',
+          endpoint VARCHAR(255) NOT NULL DEFAULT 'https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent',
+          temperature DECIMAL(4,2) NOT NULL DEFAULT 0.20,
+          system_prompt TEXT DEFAULT NULL,
+          created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+          PRIMARY KEY (id),
+          UNIQUE KEY uq_ai_support_provider (provider)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    ");
+}
+
 function admin_ensure_country_table(PDO $pdo): void
 {
     $pdo->exec("

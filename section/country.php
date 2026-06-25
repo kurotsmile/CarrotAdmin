@@ -132,7 +132,12 @@
                         </div>
 
                         <div class="mb-3">
-                            <label class="form-label" for="label_value">Value default</label>
+                            <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2">
+                                <label class="form-label mb-0" for="label_value">Value default</label>
+                                <button class="btn btn-sm btn-secondary d-none js-ai-label-generate" type="button">
+                                    <span class="d-inline-flex align-items-center gap-2"><i data-lucide="sparkles" style="width:16px;height:16px"></i>Tạo bằng AI</span>
+                                </button>
+                            </div>
                             <textarea class="form-control" id="label_value" name="value" rows="4" required><?= htmlspecialchars($editingLabel['value'] ?? '') ?></textarea>
                         </div>
 

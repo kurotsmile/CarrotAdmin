@@ -87,6 +87,14 @@ $results[] = install_run_step('PayPal config table', static function () use ($co
     admin_ensure_paypal_config_table($cocPdo);
 });
 
+$results[] = install_run_step('AI support config table', static function () use ($cocPdo, $cocError): void {
+    if (!$cocPdo instanceof PDO) {
+        throw new RuntimeException($cocError ?? 'Không thể kết nối database.');
+    }
+
+    admin_ensure_ai_support_table($cocPdo);
+});
+
 $results[] = install_run_step('CarrotCoc country table', static function () use ($cocPdo, $cocError): void {
     if (!$cocPdo instanceof PDO) {
         throw new RuntimeException($cocError ?? 'Không thể kết nối CarrotCoc database.');

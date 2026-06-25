@@ -72,7 +72,7 @@ require __DIR__ . '/includes/schema.php';
 
 $message = '';
 $error = '';
-$allowedSections = ['overview', 'apps', 'pages', 'bank', 'coc', 'country', 'paypal'];
+$allowedSections = ['overview', 'apps', 'pages', 'bank', 'coc', 'country', 'paypal', 'ai_support'];
 $section = in_array($_GET['section'] ?? 'overview', $allowedSections, true) ? ($_GET['section'] ?? 'overview') : 'overview';
 $editKey = trim($_GET['edit'] ?? '');
 $editId = isset($_GET['edit']) ? (int) $_GET['edit'] : 0;
@@ -261,6 +261,15 @@ function admin_fetch_paypal_config(PDO $pdo, string $site): ?array
     return $row ?: null;
 }
 
+function admin_fetch_ai_support_config(PDO $pdo): ?array
+{
+    admin_ensure_ai_support_table($pdo);
+    $stmt = $pdo->prepare('SELECT * FROM ai_support WHERE provider = ? LIMIT 1');
+    $stmt->execute(['gemini']);
+    $row = $stmt->fetch();
+    return $row ?: null;
+}
+
 function admin_mask_secret(?string $value): string
 {
     $value = trim((string) $value);
@@ -270,6 +279,101 @@ function admin_mask_secret(?string $value): string
 
     $suffix = substr($value, -4);
     return str_repeat('•', 8) . $suffix;
+}
+
+function admin_json_success(array $payload = []): void
+{
+    header('Content-Type: application/json; charset=utf-8');
+    echo json_encode(array_merge(['status' => 'success'], $payload), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    exit;
+}
+
+function admin_json_error(string $message, int $statusCode = 400): void
+{
+    http_response_code($statusCode);
+    header('Content-Type: application/json; charset=utf-8');
+    echo json_encode(['status' => 'error', 'message' => $message], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    exit;
+}
+
+function admin_gemini_translate(PDO $pdo, string $sourceText, string $targetLang, string $contentType): string
+{
+    $config = admin_fetch_ai_support_config($pdo);
+    if (!$config || empty($config['enabled'])) {
+        throw new RuntimeException('AI Support chưa được bật.');
+    }
+
+    $apiKey = trim((string) ($config['api_key'] ?? ''));
+    if ($apiKey === '') {
+        throw new RuntimeException('Chưa cấu hình Gemini API Key.');
+    }
+
+    if (!function_exists('curl_init')) {
+        throw new RuntimeException('Server cần bật PHP cURL để gọi Gemini.');
+    }
+
+    $model = trim((string) ($config['model'] ?? 'gemini-2.5-flash')) ?: 'gemini-2.5-flash';
+    $endpointTemplate = trim((string) ($config['endpoint'] ?? '')) ?: 'https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent';
+    $endpoint = str_replace('{model}', rawurlencode($model), $endpointTemplate);
+    $temperature = max(0, min(2, (float) ($config['temperature'] ?? 0.2)));
+    $systemPrompt = trim((string) ($config['system_prompt'] ?? ''));
+    if ($systemPrompt === '') {
+        $systemPrompt = 'You are a precise translation engine for a website CMS. Translate from English to the target language. Preserve HTML tags, attributes, URLs, whitespace intent, entities, and placeholders. Return only the translated content without markdown fences or explanations.';
+    }
+
+    $prompt = $systemPrompt . "\n\nTarget language: " . $targetLang . "\nContent type: " . $contentType . "\n\nSource content:\n" . $sourceText;
+    $payload = [
+        'contents' => [
+            [
+                'parts' => [
+                    ['text' => $prompt],
+                ],
+            ],
+        ],
+        'generationConfig' => [
+            'temperature' => $temperature,
+        ],
+    ];
+
+    $curl = curl_init($endpoint);
+    curl_setopt_array($curl, [
+        CURLOPT_POST => true,
+        CURLOPT_POSTFIELDS => json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+        CURLOPT_HTTPHEADER => [
+            'Content-Type: application/json',
+            'x-goog-api-key: ' . $apiKey,
+        ],
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_TIMEOUT => 90,
+    ]);
+
+    $response = curl_exec($curl);
+    $curlError = curl_error($curl);
+    $statusCode = (int) curl_getinfo($curl, CURLINFO_RESPONSE_CODE);
+    curl_close($curl);
+
+    if ($response === false) {
+        throw new RuntimeException('Không gọi được Gemini: ' . $curlError);
+    }
+
+    $data = json_decode($response, true);
+    if ($statusCode >= 400 || !is_array($data)) {
+        $apiMessage = is_array($data) ? ($data['error']['message'] ?? 'unknown error') : trim($response);
+        throw new RuntimeException('Gemini lỗi: ' . $apiMessage);
+    }
+
+    $parts = $data['candidates'][0]['content']['parts'] ?? [];
+    $text = '';
+    foreach ($parts as $part) {
+        $text .= (string) ($part['text'] ?? '');
+    }
+
+    $text = trim($text);
+    if ($text === '') {
+        throw new RuntimeException('Gemini không trả về nội dung dịch.');
+    }
+
+    return preg_replace('/^```(?:html|text)?\s*|\s*```$/i', '', $text) ?? $text;
 }
 
 function admin_fetch_language_options(?PDO $pdo): array
@@ -728,6 +832,10 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages'], true)) {
             admin_ensure_paypal_config_table($pdo);
         }
 
+        if ($section === 'ai_support' || in_array($_POST['action'] ?? '', ['save_ai_support_config', 'ajax_ai_translate_page', 'ajax_ai_translate_label', 'ajax_find_text_label_source'], true)) {
+            admin_ensure_ai_support_table($pdo);
+        }
+
         if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $action = $_POST['action'] ?? '';
 
@@ -922,6 +1030,34 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages'], true)) {
                 $paypalTab = $site;
             }
 
+            if ($section === 'ai_support' && $action === 'save_ai_support_config') {
+                $enabled = isset($_POST['enabled']) ? 1 : 0;
+                $apiKey = trim($_POST['api_key'] ?? '');
+                $model = trim($_POST['model'] ?? 'gemini-2.5-flash') ?: 'gemini-2.5-flash';
+                $endpoint = trim($_POST['endpoint'] ?? 'https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent');
+                $temperature = max(0, min(2, (float) ($_POST['temperature'] ?? 0.2)));
+                $systemPrompt = trim($_POST['system_prompt'] ?? '');
+
+                if ($endpoint === '' || strpos($endpoint, '{model}') === false) {
+                    throw new RuntimeException('Endpoint cần có placeholder {model}.');
+                }
+
+                $stmt = $pdo->prepare('
+                    INSERT INTO ai_support
+                        (provider, enabled, api_key, model, endpoint, temperature, system_prompt)
+                    VALUES ("gemini", ?, ?, ?, ?, ?, ?)
+                    ON DUPLICATE KEY UPDATE
+                        enabled = VALUES(enabled),
+                        api_key = VALUES(api_key),
+                        model = VALUES(model),
+                        endpoint = VALUES(endpoint),
+                        temperature = VALUES(temperature),
+                        system_prompt = VALUES(system_prompt)
+                ');
+                $stmt->execute([$enabled, $apiKey, $model, $endpoint, $temperature, $systemPrompt]);
+                $message = 'Đã lưu cấu hình AI Support.';
+            }
+
             if ($section === 'pages' && $action === 'delete_page') {
                 $stmt = $homePdo->prepare('DELETE FROM page WHERE id = ?');
                 $stmt->execute([(int) ($_POST['id'] ?? 0)]);
@@ -939,8 +1075,39 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages'], true)) {
                 }
 
                 $page = admin_fetch_page_by_slug_lang($homePdo, $slug, $lang);
-                echo json_encode(['status' => 'success', 'page' => $page], JSON_UNESCAPED_UNICODE);
-                exit;
+                $sourcePage = null;
+                if ($lang !== 'en') {
+                    $sourceStmt = $homePdo->prepare('
+                        SELECT id, slug, lang, title
+                        FROM page
+                        WHERE slug = ? AND lang = "en" AND TRIM(content_html) <> ""
+                        LIMIT 1
+                    ');
+                    $sourceStmt->execute([$slug]);
+                    $sourcePage = $sourceStmt->fetch() ?: null;
+                }
+                admin_json_success(['page' => $page, 'source_en' => $sourcePage]);
+            }
+
+            if ($section === 'pages' && $action === 'ajax_ai_translate_page') {
+                try {
+                    $slug = trim($_POST['slug'] ?? '');
+                    $lang = trim($_POST['lang'] ?? '');
+                    if ($slug === '' || $lang === '' || $lang === 'en') {
+                        throw new RuntimeException('Vui lòng chọn slug và lang khác en.');
+                    }
+
+                    $sourcePage = admin_fetch_page_by_slug_lang($homePdo, $slug, 'en');
+                    if (!$sourcePage) {
+                        throw new RuntimeException('Chưa có page tiếng Anh để dịch.');
+                    }
+
+                    $sourceDetail = admin_fetch_page($homePdo, (int) $sourcePage['id']);
+                    $translated = admin_gemini_translate($pdo, (string) ($sourceDetail['content_html'] ?? ''), $lang, 'html');
+                    admin_json_success(['content_html' => $translated, 'source' => $sourcePage]);
+                } catch (Throwable $e) {
+                    admin_json_error($e->getMessage());
+                }
             }
 
             if ($section === 'pages' && $action === 'save_page') {
@@ -1021,6 +1188,40 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages'], true)) {
                 $stmt = $pdo->prepare('DELETE FROM text_label WHERE id = ?');
                 $stmt->execute([(int) ($_POST['id'] ?? 0)]);
                 $message = 'Đã xóa nhãn.';
+            }
+
+            if ($section === 'country' && $action === 'ajax_find_text_label_source') {
+                $labelKey = trim($_POST['key'] ?? '');
+                $langKey = trim($_POST['lang_key'] ?? '');
+                if ($labelKey === '' || $langKey === '' || $langKey === 'en') {
+                    admin_json_success(['source_en' => null]);
+                }
+
+                $stmt = $pdo->prepare('SELECT id, `key`, lang_key, value FROM text_label WHERE `key` = ? AND lang_key = "en" AND TRIM(value) <> "" LIMIT 1');
+                $stmt->execute([$labelKey]);
+                admin_json_success(['source_en' => $stmt->fetch() ?: null]);
+            }
+
+            if ($section === 'country' && $action === 'ajax_ai_translate_label') {
+                try {
+                    $labelKey = trim($_POST['key'] ?? '');
+                    $langKey = trim($_POST['lang_key'] ?? '');
+                    if ($labelKey === '' || $langKey === '' || $langKey === 'en') {
+                        throw new RuntimeException('Vui lòng chọn key và lang khác en.');
+                    }
+
+                    $stmt = $pdo->prepare('SELECT value FROM text_label WHERE `key` = ? AND lang_key = "en" LIMIT 1');
+                    $stmt->execute([$labelKey]);
+                    $sourceValue = (string) $stmt->fetchColumn();
+                    if ($sourceValue === '') {
+                        throw new RuntimeException('Chưa có nhãn tiếng Anh để dịch.');
+                    }
+
+                    $translated = admin_gemini_translate($pdo, $sourceValue, $langKey, 'plain text label');
+                    admin_json_success(['value' => $translated]);
+                } catch (Throwable $e) {
+                    admin_json_error($e->getMessage());
+                }
             }
 
             if ($section === 'country' && $action === 'save_country') {
@@ -1320,9 +1521,9 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages'], true)) {
 }
 
 $photoText = ($section === 'coc' && $editing) ? implode("\n", coc_decode_photos($editing['photos'])) : '';
-$pageTitle = ['overview' => 'Tổng quan', 'apps' => 'App', 'pages' => 'Page', 'bank' => 'Bank', 'coc' => 'Coc', 'country' => 'Country', 'paypal' => 'Paypal'][$section] ?? 'Tổng quan';
-$sectionLabels = ['overview' => 'tổng quan', 'apps' => 'ứng dụng', 'pages' => 'Page/SEO', 'bank' => 'ngân hàng', 'coc' => 'shop', 'country' => 'quốc gia hỗ trợ', 'paypal' => 'PayPal'];
-$sectionTitles = ['overview' => 'Tổng quan', 'apps' => 'App Carrot Home', 'pages' => 'Page Carrot Home', 'bank' => 'Bank', 'coc' => 'Acc Clash of Clans', 'country' => 'Country', 'paypal' => 'Paypal Config'];
+$pageTitle = ['overview' => 'Tổng quan', 'apps' => 'App', 'pages' => 'Page', 'bank' => 'Bank', 'coc' => 'Coc', 'country' => 'Country', 'paypal' => 'Paypal', 'ai_support' => 'AI Support'][$section] ?? 'Tổng quan';
+$sectionLabels = ['overview' => 'tổng quan', 'apps' => 'ứng dụng', 'pages' => 'Page/SEO', 'bank' => 'ngân hàng', 'coc' => 'shop', 'country' => 'quốc gia hỗ trợ', 'paypal' => 'PayPal', 'ai_support' => 'AI Support'];
+$sectionTitles = ['overview' => 'Tổng quan', 'apps' => 'App Carrot Home', 'pages' => 'Page Carrot Home', 'bank' => 'Bank', 'coc' => 'Acc Clash of Clans', 'country' => 'Country', 'paypal' => 'Paypal Config', 'ai_support' => 'AI - Support'];
 $dashboardCards = [
     ['label' => 'App', 'value' => $dashboardMetrics['apps'], 'icon' => 'boxes'],
     ['label' => 'Page', 'value' => $dashboardMetrics['pages'], 'icon' => 'file-text'],
@@ -1432,6 +1633,7 @@ $useSelect2 = $section === 'pages' || ($section === 'country' && $countryTab ===
                 <a class="list-group-item list-group-item-action <?= $section === 'pages' ? 'active' : '' ?>" href="index.php?section=pages"><i data-lucide="file-text"></i><span>Page</span></a>
                 <a class="list-group-item list-group-item-action <?= $section === 'coc' ? 'active' : '' ?>" href="index.php?section=coc"><i data-lucide="shield"></i><span>Coc</span></a>
                 <a class="list-group-item list-group-item-action <?= $section === 'paypal' ? 'active' : '' ?>" href="index.php?section=paypal"><i data-lucide="credit-card"></i><span>Paypal</span></a>
+                <a class="list-group-item list-group-item-action <?= $section === 'ai_support' ? 'active' : '' ?>" href="index.php?section=ai_support"><i data-lucide="sparkles"></i><span>AI - Support</span></a>
                 <a class="list-group-item list-group-item-action <?= $section === 'bank' ? 'active' : '' ?>" href="index.php?section=bank"><i data-lucide="landmark"></i><span>Bank</span></a>
                 <a class="list-group-item list-group-item-action <?= $section === 'country' ? 'active' : '' ?>" href="index.php?section=country"><i data-lucide="globe-2"></i><span>Country</span></a>
             </div>
@@ -1917,9 +2119,11 @@ bindSimpleEditor('app_content_editor', 'app_content_html', 'app_content');
 const pageSlugInput = document.getElementById('page_slug');
 const pageLangInput = document.getElementById('page_lang');
 const pageIdInput = pageSlugInput ? pageSlugInput.closest('form')?.querySelector('input[name="id"]') : null;
+const aiPageButton = document.querySelector('.js-ai-page-generate');
 if (pageSlugInput && pageLangInput && pageIdInput) {
     let pageLookupTimer = null;
     let lastPageLookup = '';
+    let hasEnglishPageSource = false;
 
     const checkExistingPage = () => {
         window.clearTimeout(pageLookupTimer);
@@ -1929,6 +2133,10 @@ if (pageSlugInput && pageLangInput && pageIdInput) {
             const currentId = Number(pageIdInput.value || 0);
             const lookupKey = `${slug}|${lang}|${currentId}`;
 
+            hasEnglishPageSource = false;
+            if (aiPageButton) {
+                aiPageButton.classList.add('d-none');
+            }
             if (!slug || !lang || lookupKey === lastPageLookup) {
                 return;
             }
@@ -1945,6 +2153,10 @@ if (pageSlugInput && pageLangInput && pageIdInput) {
                     body: formData,
                 });
                 const payload = await response.json();
+                hasEnglishPageSource = Boolean(payload.source_en);
+                if (aiPageButton && hasEnglishPageSource && lang !== 'en') {
+                    aiPageButton.classList.remove('d-none');
+                }
                 const page = payload.page || null;
                 if (!response.ok || payload.status !== 'success' || !page || Number(page.id) === currentId) {
                     return;
@@ -1971,6 +2183,139 @@ if (pageSlugInput && pageLangInput && pageIdInput) {
     pageSlugInput.addEventListener('change', checkExistingPage);
     pageSlugInput.addEventListener('blur', checkExistingPage);
     pageLangInput.addEventListener('change', checkExistingPage);
+
+    if (aiPageButton) {
+        aiPageButton.addEventListener('click', async () => {
+            const slug = pageSlugInput.value.trim();
+            const lang = pageLangInput.value.trim();
+            if (!slug || !lang || lang === 'en' || !hasEnglishPageSource) {
+                return;
+            }
+
+            aiPageButton.disabled = true;
+            const originalHtml = aiPageButton.innerHTML;
+            aiPageButton.innerHTML = '<span class="d-inline-flex align-items-center gap-2"><span class="spinner-border spinner-border-sm" aria-hidden="true"></span>Đang tạo</span>';
+
+            const formData = new FormData();
+            formData.append('action', 'ajax_ai_translate_page');
+            formData.append('slug', slug);
+            formData.append('lang', lang);
+
+            try {
+                const response = await fetch('index.php?section=pages', {
+                    method: 'POST',
+                    body: formData,
+                });
+                const payload = await response.json();
+                if (!response.ok || payload.status !== 'success') {
+                    throw new Error(payload.message || 'Không tạo được nội dung AI.');
+                }
+
+                const editor = document.getElementById('page_content_editor');
+                const source = document.getElementById('page_content_html');
+                if (editor && source) {
+                    editor.innerHTML = payload.content_html || '';
+                    source.value = editor.innerHTML.trim();
+                }
+            } catch (error) {
+                await Swal.fire({icon: 'warning', title: 'AI lỗi', text: error.message});
+            } finally {
+                aiPageButton.disabled = false;
+                aiPageButton.innerHTML = originalHtml;
+                if (window.lucide) {
+                    lucide.createIcons();
+                }
+            }
+        });
+    }
+
+    checkExistingPage();
+}
+
+const labelKeyInput = document.getElementById('label_key');
+const labelLangInput = document.getElementById('label_lang_key');
+const aiLabelButton = document.querySelector('.js-ai-label-generate');
+if (labelKeyInput && labelLangInput && aiLabelButton) {
+    let labelLookupTimer = null;
+    let hasEnglishLabelSource = false;
+
+    const checkEnglishLabelSource = () => {
+        window.clearTimeout(labelLookupTimer);
+        labelLookupTimer = window.setTimeout(async () => {
+            const labelKey = labelKeyInput.value.trim();
+            const langKey = labelLangInput.value.trim();
+            hasEnglishLabelSource = false;
+            aiLabelButton.classList.add('d-none');
+            if (!labelKey || !langKey || langKey === 'en') {
+                return;
+            }
+
+            const formData = new FormData();
+            formData.append('action', 'ajax_find_text_label_source');
+            formData.append('key', labelKey);
+            formData.append('lang_key', langKey);
+
+            try {
+                const response = await fetch('index.php?section=country&tab=labels', {
+                    method: 'POST',
+                    body: formData,
+                });
+                const payload = await response.json();
+                hasEnglishLabelSource = Boolean(payload.source_en);
+                if (response.ok && payload.status === 'success' && hasEnglishLabelSource) {
+                    aiLabelButton.classList.remove('d-none');
+                }
+            } catch (error) {
+            }
+        }, 250);
+    };
+
+    labelKeyInput.addEventListener('input', checkEnglishLabelSource);
+    labelKeyInput.addEventListener('change', checkEnglishLabelSource);
+    labelLangInput.addEventListener('change', checkEnglishLabelSource);
+
+    aiLabelButton.addEventListener('click', async () => {
+        const labelKey = labelKeyInput.value.trim();
+        const langKey = labelLangInput.value.trim();
+        if (!labelKey || !langKey || langKey === 'en' || !hasEnglishLabelSource) {
+            return;
+        }
+
+        aiLabelButton.disabled = true;
+        const originalHtml = aiLabelButton.innerHTML;
+        aiLabelButton.innerHTML = '<span class="d-inline-flex align-items-center gap-2"><span class="spinner-border spinner-border-sm" aria-hidden="true"></span>Đang tạo</span>';
+
+        const formData = new FormData();
+        formData.append('action', 'ajax_ai_translate_label');
+        formData.append('key', labelKey);
+        formData.append('lang_key', langKey);
+
+        try {
+            const response = await fetch('index.php?section=country&tab=labels', {
+                method: 'POST',
+                body: formData,
+            });
+            const payload = await response.json();
+            if (!response.ok || payload.status !== 'success') {
+                throw new Error(payload.message || 'Không tạo được nhãn AI.');
+            }
+
+            const valueInput = document.getElementById('label_value');
+            if (valueInput) {
+                valueInput.value = payload.value || '';
+            }
+        } catch (error) {
+            await Swal.fire({icon: 'warning', title: 'AI lỗi', text: error.message});
+        } finally {
+            aiLabelButton.disabled = false;
+            aiLabelButton.innerHTML = originalHtml;
+            if (window.lucide) {
+                lucide.createIcons();
+            }
+        }
+    });
+
+    checkEnglishLabelSource();
 }
 
 const serverUptime = document.getElementById('server_uptime');
