@@ -316,9 +316,14 @@ function admin_gemini_translate(PDO $pdo, string $sourceText, string $targetLang
         throw new RuntimeException('Server cần bật PHP cURL để gọi Gemini.');
     }
 
-    $model = trim((string) ($config['model'] ?? 'gemini-2.5-flash')) ?: 'gemini-2.5-flash';
+    $configuredModel = trim((string) ($config['model'] ?? 'gemini-3.5-flash')) ?: 'gemini-3.5-flash';
+    $models = array_values(array_unique(array_filter([
+        $configuredModel,
+        'gemini-3.5-flash',
+        'gemini-3.1-flash-lite',
+        'gemini-2.5-flash-lite',
+    ])));
     $endpointTemplate = trim((string) ($config['endpoint'] ?? '')) ?: 'https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent';
-    $endpoint = str_replace('{model}', rawurlencode($model), $endpointTemplate);
     $temperature = max(0, min(2, (float) ($config['temperature'] ?? 0.2)));
     $systemPrompt = trim((string) ($config['system_prompt'] ?? ''));
     if ($systemPrompt === '') {
@@ -339,45 +344,59 @@ function admin_gemini_translate(PDO $pdo, string $sourceText, string $targetLang
         ],
     ];
 
-    $curl = curl_init($endpoint);
-    curl_setopt_array($curl, [
-        CURLOPT_POST => true,
-        CURLOPT_POSTFIELDS => json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
-        CURLOPT_HTTPHEADER => [
-            'Content-Type: application/json',
-            'x-goog-api-key: ' . $apiKey,
-        ],
-        CURLOPT_RETURNTRANSFER => true,
-        CURLOPT_TIMEOUT => 90,
-    ]);
+    $errors = [];
+    foreach ($models as $model) {
+        $endpoint = str_replace('{model}', rawurlencode($model), $endpointTemplate);
+        $curl = curl_init($endpoint);
+        curl_setopt_array($curl, [
+            CURLOPT_POST => true,
+            CURLOPT_POSTFIELDS => json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+            CURLOPT_HTTPHEADER => [
+                'Content-Type: application/json',
+                'x-goog-api-key: ' . $apiKey,
+            ],
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_TIMEOUT => 90,
+        ]);
 
-    $response = curl_exec($curl);
-    $curlError = curl_error($curl);
-    $statusCode = (int) curl_getinfo($curl, CURLINFO_RESPONSE_CODE);
-    curl_close($curl);
+        $response = curl_exec($curl);
+        $curlError = curl_error($curl);
+        $statusCode = (int) curl_getinfo($curl, CURLINFO_RESPONSE_CODE);
+        curl_close($curl);
 
-    if ($response === false) {
-        throw new RuntimeException('Không gọi được Gemini: ' . $curlError);
+        if ($response === false) {
+            $errors[] = $model . ': ' . $curlError;
+            continue;
+        }
+
+        $data = json_decode($response, true);
+        if ($statusCode >= 400 || !is_array($data)) {
+            $apiMessage = is_array($data) ? ($data['error']['message'] ?? 'unknown error') : trim($response);
+            $errors[] = $model . ': ' . $apiMessage;
+            $retryable = in_array($statusCode, [404, 429, 503], true) || preg_match('/high demand|overload|rate limit|quota|unavailable|try again|not found/i', $apiMessage);
+            if ($retryable) {
+                usleep(300000);
+                continue;
+            }
+
+            throw new RuntimeException('Gemini lỗi: ' . $apiMessage);
+        }
+
+        $parts = $data['candidates'][0]['content']['parts'] ?? [];
+        $text = '';
+        foreach ($parts as $part) {
+            $text .= (string) ($part['text'] ?? '');
+        }
+
+        $text = trim($text);
+        if ($text !== '') {
+            return preg_replace('/^```(?:html|text)?\s*|\s*```$/i', '', $text) ?? $text;
+        }
+
+        $errors[] = $model . ': empty response';
     }
 
-    $data = json_decode($response, true);
-    if ($statusCode >= 400 || !is_array($data)) {
-        $apiMessage = is_array($data) ? ($data['error']['message'] ?? 'unknown error') : trim($response);
-        throw new RuntimeException('Gemini lỗi: ' . $apiMessage);
-    }
-
-    $parts = $data['candidates'][0]['content']['parts'] ?? [];
-    $text = '';
-    foreach ($parts as $part) {
-        $text .= (string) ($part['text'] ?? '');
-    }
-
-    $text = trim($text);
-    if ($text === '') {
-        throw new RuntimeException('Gemini không trả về nội dung dịch.');
-    }
-
-    return preg_replace('/^```(?:html|text)?\s*|\s*```$/i', '', $text) ?? $text;
+    throw new RuntimeException('Gemini lỗi sau khi thử fallback: ' . implode(' | ', $errors));
 }
 
 function admin_fetch_language_options(?PDO $pdo): array

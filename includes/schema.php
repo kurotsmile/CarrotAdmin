@@ -148,7 +148,7 @@ function admin_ensure_ai_support_table(PDO $pdo): void
           provider VARCHAR(32) NOT NULL DEFAULT 'gemini',
           enabled TINYINT(1) NOT NULL DEFAULT 0,
           api_key TEXT DEFAULT NULL,
-          model VARCHAR(120) NOT NULL DEFAULT 'gemini-2.5-flash',
+          model VARCHAR(120) NOT NULL DEFAULT 'gemini-3.5-flash',
           endpoint VARCHAR(255) NOT NULL DEFAULT 'https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent',
           temperature DECIMAL(4,2) NOT NULL DEFAULT 0.20,
           system_prompt TEXT DEFAULT NULL,

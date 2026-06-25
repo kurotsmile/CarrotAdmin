@@ -3,7 +3,7 @@
             $aiEditing = [
                 'enabled' => 0,
                 'api_key' => '',
-                'model' => 'gemini-2.5-flash',
+                'model' => 'gemini-3.5-flash',
                 'endpoint' => 'https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent',
                 'temperature' => '0.20',
                 'system_prompt' => 'You are a precise translation engine for a website CMS. Translate from English to the target language. Preserve HTML tags, attributes, URLs, whitespace intent, entities, and placeholders. Return only the translated content without markdown fences or explanations.',
@@ -34,7 +34,7 @@
                             </div>
                             <div class="col-md-5">
                                 <label class="form-label" for="ai_model">Model</label>
-                                <input class="form-control" id="ai_model" name="model" value="<?= htmlspecialchars($aiEditing['model'] ?? 'gemini-2.5-flash') ?>">
+                                <input class="form-control" id="ai_model" name="model" value="<?= htmlspecialchars($aiEditing['model'] ?? 'gemini-3.5-flash') ?>">
                             </div>
                             <div class="col-md-3">
                                 <label class="form-label" for="ai_temperature">Temperature</label>
