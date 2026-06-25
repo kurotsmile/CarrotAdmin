@@ -41,7 +41,7 @@ if (empty($_SESSION['admin_user'])):
     <style>
         body{background:#eef2f7;color:#172033}
         .glass-panel{border:1px solid rgba(15,23,42,.08);border-radius:8px;background:rgba(255,255,255,.96);box-shadow:0 14px 36px rgba(15,23,42,.06)}
-        .brand-mark{width:56px;height:56px;object-fit:contain}
+        .brand-mark{width:100%;height:56px;object-fit:contain}
     </style>
 </head>
 <body>
@@ -1580,7 +1580,7 @@ $useSelect2 = $section === 'pages' || ($section === 'country' && $countryTab ===
     <script src="https://unpkg.com/lucide@latest"></script>
     <style>
         body{background:#eef2f7;color:#172033}
-        .brand-mark{width:48px;height:48px;object-fit:contain}
+        .brand-mark{width:100%;height:96px;object-fit:contain}
         .muted-text{color:#64748b}
         .dashboard-layout{min-height:100vh;background:linear-gradient(180deg,#f8fafc 0,#eef2f7 42%,#e9edf4 100%)}
         .dashboard-sidebar{position:sticky;top:16px;min-height:calc(100vh - 32px);border:1px solid rgba(15,23,42,.08);border-radius:8px;background:rgba(255,255,255,.92);box-shadow:0 18px 48px rgba(15,23,42,.08)}
