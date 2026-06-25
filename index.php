@@ -2014,6 +2014,11 @@ document.querySelectorAll('.js-label-translations').forEach((button) => {
         const result = await Swal.fire({
             title: `Dịch nhanh: ${labelKey}`,
             html: `
+                <div class="d-flex justify-content-end mb-3">
+                    <button class="btn btn-sm btn-secondary js-ai-label-batch-generate" type="button" ${englishValue ? '' : 'disabled'}>
+                        <span class="d-inline-flex align-items-center gap-2"><i data-lucide="sparkles" style="width:16px;height:16px"></i>Tạo bằng AI</span>
+                    </button>
+                </div>
                 <div class="table-responsive" style="max-height:60vh">
                     <table class="table table-sm align-middle">
                         <thead>
@@ -2037,6 +2042,49 @@ document.querySelectorAll('.js-label-translations').forEach((button) => {
                 if (window.lucide) {
                     lucide.createIcons();
                 }
+                const aiBatchButton = document.querySelector('.swal2-container .js-ai-label-batch-generate');
+                if (!aiBatchButton) {
+                    return;
+                }
+
+                aiBatchButton.addEventListener('click', async () => {
+                    const inputs = Array.from(document.querySelectorAll('.swal2-container .js-translation-input'))
+                        .filter((input) => input.dataset.langKey && input.dataset.langKey !== 'en');
+                    if (!inputs.length || !englishValue) {
+                        return;
+                    }
+
+                    aiBatchButton.disabled = true;
+                    const originalHtml = aiBatchButton.innerHTML;
+                    aiBatchButton.innerHTML = '<span class="d-inline-flex align-items-center gap-2"><span class="spinner-border spinner-border-sm" aria-hidden="true"></span>Đang tạo</span>';
+
+                    try {
+                        for (const input of inputs) {
+                            const formData = new FormData();
+                            formData.append('action', 'ajax_ai_translate_label');
+                            formData.append('key', labelKey);
+                            formData.append('lang_key', input.dataset.langKey);
+
+                            const response = await fetch('index.php?section=country&tab=labels', {
+                                method: 'POST',
+                                body: formData,
+                            });
+                            const payload = await response.json();
+                            if (!response.ok || payload.status !== 'success') {
+                                throw new Error(payload.message || `Không dịch được ${input.dataset.langKey}.`);
+                            }
+                            input.value = payload.value || '';
+                        }
+                    } catch (error) {
+                        Swal.showValidationMessage(error.message);
+                    } finally {
+                        aiBatchButton.disabled = false;
+                        aiBatchButton.innerHTML = originalHtml;
+                        if (window.lucide) {
+                            lucide.createIcons();
+                        }
+                    }
+                });
             },
             preConfirm: async () => {
                 const formData = new FormData();
