@@ -1324,6 +1324,17 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages'], true)) {
                 $message = 'Đã xóa page.';
             }
 
+            if ($section === 'pages' && $action === 'delete_page_group') {
+                $slug = trim($_POST['slug'] ?? '');
+                if ($slug === '') {
+                    throw new RuntimeException('Không tìm thấy slug cần xóa.');
+                }
+
+                $stmt = $homePdo->prepare('DELETE FROM page WHERE slug = ?');
+                $stmt->execute([$slug]);
+                $message = 'Đã xóa toàn bộ page thuộc slug "' . $slug . '".';
+            }
+
             if ($section === 'pages' && $action === 'ajax_find_page') {
                 header('Content-Type: application/json; charset=utf-8');
                 $slug = trim($_POST['slug'] ?? '');

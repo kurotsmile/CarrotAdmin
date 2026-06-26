@@ -1,44 +1,150 @@
             <?php if ($section === 'pages'): ?>
             <?php
             $pageSearch = trim($_GET['page_q'] ?? '');
+            $selectedPageSlug = trim($_GET['slug'] ?? '');
+            if ($selectedPageSlug === '' && $editing && !empty($editing['slug'])) {
+                $selectedPageSlug = (string) $editing['slug'];
+            }
+
             $pageListPage = max(1, (int) ($_GET['page_page'] ?? 1));
             $pagePerPage = 25;
             $pageTotal = 0;
             $pageTotalPages = 1;
+            $pageSlugGroups = [];
+            $selectedSlugPages = [];
+            $selectedSlugStats = ['page_count' => 0, 'langs' => '', 'latest_update' => null];
+
             if ($homePdo instanceof PDO) {
-                $pageSearchWhere = '';
+                $pageSearchHaving = '';
                 $pageSearchParams = [];
                 if ($pageSearch !== '') {
-                    $pageSearchWhere = ' WHERE title LIKE :page_title_q OR slug LIKE :page_slug_q OR lang LIKE :page_lang_q OR seo_title LIKE :page_seo_title_q OR seo_description LIKE :page_seo_description_q';
+                    $pageSearchHaving = ' HAVING slug LIKE :page_slug_q OR searchable_text LIKE :page_text_q OR langs LIKE :page_lang_q';
                     $pageSearchValue = '%' . $pageSearch . '%';
                     $pageSearchParams = [
-                        ':page_title_q' => $pageSearchValue,
                         ':page_slug_q' => $pageSearchValue,
+                        ':page_text_q' => $pageSearchValue,
                         ':page_lang_q' => $pageSearchValue,
-                        ':page_seo_title_q' => $pageSearchValue,
-                        ':page_seo_description_q' => $pageSearchValue,
                     ];
                 }
 
-                $pageCountStmt = $homePdo->prepare('SELECT COUNT(*) FROM page' . $pageSearchWhere);
+                $pageGroupSql = '
+                    SELECT slug, COUNT(*) AS page_count, GROUP_CONCAT(DISTINCT lang ORDER BY lang SEPARATOR ", ") AS langs,
+                           MAX(updated_at) AS latest_update,
+                           CONCAT_WS(" ", GROUP_CONCAT(title SEPARATOR " "), GROUP_CONCAT(seo_title SEPARATOR " "), GROUP_CONCAT(seo_description SEPARATOR " ")) AS searchable_text
+                    FROM page
+                    GROUP BY slug
+                ';
+                $pageCountStmt = $homePdo->prepare('SELECT COUNT(*) FROM (' . $pageGroupSql . $pageSearchHaving . ') page_groups');
                 $pageCountStmt->execute($pageSearchParams);
                 $pageTotal = (int) $pageCountStmt->fetchColumn();
                 $pageTotalPages = max(1, (int) ceil($pageTotal / $pagePerPage));
                 $pageListPage = min($pageListPage, $pageTotalPages);
                 $pageOffset = ($pageListPage - 1) * $pagePerPage;
-                $pageStmt = $homePdo->prepare('SELECT * FROM page' . $pageSearchWhere . ' ORDER BY ' . admin_order_by($pageSortColumns, $pageSort, $pageDir) . ', id DESC LIMIT :limit OFFSET :offset');
+
+                $pageGroupStmt = $homePdo->prepare($pageGroupSql . $pageSearchHaving . ' ORDER BY latest_update DESC, slug ASC LIMIT :limit OFFSET :offset');
                 foreach ($pageSearchParams as $paramKey => $paramValue) {
-                    $pageStmt->bindValue($paramKey, $paramValue);
+                    $pageGroupStmt->bindValue($paramKey, $paramValue);
                 }
-                $pageStmt->bindValue(':limit', $pagePerPage, PDO::PARAM_INT);
-                $pageStmt->bindValue(':offset', $pageOffset, PDO::PARAM_INT);
-                $pageStmt->execute();
-                $pages = $pageStmt->fetchAll();
+                $pageGroupStmt->bindValue(':limit', $pagePerPage, PDO::PARAM_INT);
+                $pageGroupStmt->bindValue(':offset', $pageOffset, PDO::PARAM_INT);
+                $pageGroupStmt->execute();
+                $pageSlugGroups = $pageGroupStmt->fetchAll();
+
+                if ($selectedPageSlug !== '') {
+                    $selectedStatsStmt = $homePdo->prepare('
+                        SELECT COUNT(*) AS page_count, GROUP_CONCAT(DISTINCT lang ORDER BY lang SEPARATOR ", ") AS langs, MAX(updated_at) AS latest_update
+                        FROM page
+                        WHERE slug = ?
+                    ');
+                    $selectedStatsStmt->execute([$selectedPageSlug]);
+                    $selectedSlugStats = $selectedStatsStmt->fetch() ?: $selectedSlugStats;
+
+                    $selectedPagesStmt = $homePdo->prepare('SELECT * FROM page WHERE slug = ? ORDER BY lang ASC, id DESC');
+                    $selectedPagesStmt->execute([$selectedPageSlug]);
+                    $selectedSlugPages = $selectedPagesStmt->fetchAll();
+                }
             }
             ?>
             <div class="row g-4">
                 <div class="col-xl-5">
-                    <form class="glass-panel p-4" method="post">
+                    <div class="glass-panel p-4">
+                        <div class="d-flex flex-wrap align-items-center justify-content-between gap-3 mb-3">
+                            <h2 class="h5 mb-0">Danh sách slug</h2>
+                            <form class="d-flex gap-2" method="get">
+                                <input type="hidden" name="section" value="pages">
+                                <input class="form-control form-control-sm" name="page_q" value="<?= htmlspecialchars($pageSearch) ?>" placeholder="Tìm slug, title, lang">
+                                <button class="btn btn-sm btn-secondary" type="submit" title="Search" aria-label="Search">
+                                    <i data-lucide="search" style="width:16px;height:16px"></i>
+                                </button>
+                                <?php if ($pageSearch !== ''): ?>
+                                    <a class="btn btn-sm btn-light" href="index.php?section=pages" title="Clear" aria-label="Clear">
+                                        <i data-lucide="x" style="width:16px;height:16px"></i>
+                                    </a>
+                                <?php endif; ?>
+                            </form>
+                        </div>
+                        <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2">
+                            <div class="muted-text small"><?= number_format($pageTotal) ?> slug<?= $pageSearch !== '' ? ' phù hợp' : '' ?></div>
+                            <div class="muted-text small">Trang <?= number_format($pageListPage) ?>/<?= number_format($pageTotalPages) ?></div>
+                        </div>
+                        <?php
+                        $pagePageParams = $_GET;
+                        unset($pagePageParams['edit']);
+                        $pagePageParams['section'] = 'pages';
+                        ?>
+                        <?= admin_pagination($pagePageParams, 'page_page', $pageListPage, $pageTotalPages, 'Phân trang slug', 'mb-3') ?>
+                        <div class="table-responsive-sm">
+                            <table class="table table-striped table-hover table-sm align-middle">
+                                <thead>
+                                <tr>
+                                    <th>Slug</th>
+                                    <th>Page</th>
+                                    <th>Lang</th>
+                                    <th></th>
+                                </tr>
+                                </thead>
+                                <tbody>
+                                <?php foreach ($pageSlugGroups as $group): ?>
+                                    <?php $groupSlug = (string) $group['slug']; ?>
+                                    <tr class="<?= $groupSlug === $selectedPageSlug ? 'table-success' : '' ?>">
+                                        <td>
+                                            <a class="fw-bold font-monospace text-decoration-none" href="index.php?section=pages&slug=<?= urlencode($groupSlug) ?>">
+                                                <?= htmlspecialchars($groupSlug) ?>
+                                            </a>
+                                            <?php if (!empty($group['latest_update'])): ?>
+                                                <div class="muted-text small">Update: <?= htmlspecialchars((string) $group['latest_update']) ?></div>
+                                            <?php endif; ?>
+                                        </td>
+                                        <td><span class="badge text-bg-secondary"><?= number_format((int) $group['page_count']) ?></span></td>
+                                        <td class="small"><?= htmlspecialchars((string) $group['langs']) ?></td>
+                                        <td class="text-end">
+                                            <div class="d-inline-flex align-items-center justify-content-end gap-2 flex-nowrap">
+                                                <a class="btn btn-sm btn-warning" href="index.php?section=pages&slug=<?= urlencode($groupSlug) ?>" title="Quản lý slug" aria-label="Quản lý slug">
+                                                    <i data-lucide="pencil" style="width:16px;height:16px"></i>
+                                                </a>
+                                                <form class="js-delete" method="post" data-confirm="Xóa toàn bộ <?= number_format((int) $group['page_count']) ?> page thuộc slug <?= htmlspecialchars($groupSlug) ?>?">
+                                                    <input type="hidden" name="action" value="delete_page_group">
+                                                    <input type="hidden" name="slug" value="<?= htmlspecialchars($groupSlug) ?>">
+                                                    <button class="btn btn-sm btn-danger" type="submit" title="Xóa slug" aria-label="Xóa slug">
+                                                        <i data-lucide="trash-2" style="width:16px;height:16px"></i>
+                                                    </button>
+                                                </form>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                <?php endforeach; ?>
+                                <?php if (!$pageSlugGroups): ?>
+                                    <tr><td colspan="4" class="text-center muted-text py-4">Chưa có dữ liệu.</td></tr>
+                                <?php endif; ?>
+                                </tbody>
+                            </table>
+                        </div>
+                        <?= admin_pagination($pagePageParams, 'page_page', $pageListPage, $pageTotalPages, 'Phân trang slug') ?>
+                    </div>
+                </div>
+
+                <div class="col-xl-7">
+                    <form class="glass-panel p-4 mb-4" method="post">
                         <input type="hidden" name="action" value="save_page">
                         <input type="hidden" name="id" value="<?= (int) ($editing['id'] ?? 0) ?>">
                         <h2 class="h5 mb-3"><?= $editing ? 'Cập nhật page' : 'Thêm page mới' ?></h2>
@@ -61,7 +167,7 @@
                         <div class="row g-3 mt-0">
                             <div class="col-md-12">
                                 <label class="form-label" for="page_slug">Slug</label>
-                                <?php $pageSlugValue = (string) ($editing['slug'] ?? ''); ?>
+                                <?php $pageSlugValue = (string) ($editing['slug'] ?? $selectedPageSlug); ?>
                                 <select class="form-control font-monospace js-page-slug-select" id="page_slug" name="slug" required>
                                     <?php if ($pageSlugValue === ''): ?>
                                         <option value=""></option>
@@ -118,88 +224,64 @@
 
                         <button class="btn <?= $editing ? 'btn-warning' : 'btn-success' ?> fw-bold w-100 mt-4" type="submit"><?= $editing ? 'Lưu cập nhật' : 'Thêm page' ?></button>
                     </form>
-                </div>
 
-                <div class="col-xl-7">
-                    <div class="glass-panel p-4">
-                        <div class="d-flex flex-wrap align-items-center justify-content-between gap-3 mb-3">
-                            <h2 class="h5 mb-0">Danh sách page</h2>
-                            <form class="d-flex gap-2" method="get">
-                                <input type="hidden" name="section" value="pages">
-                                <input class="form-control form-control-sm" name="page_q" value="<?= htmlspecialchars($pageSearch) ?>" placeholder="Search page">
-                                <button class="btn btn-sm btn-secondary" type="submit" title="Search" aria-label="Search">
-                                    <i data-lucide="search" style="width:16px;height:16px"></i>
-                                </button>
-                                <?php if ($pageSearch !== ''): ?>
-                                    <a class="btn btn-sm btn-light" href="index.php?section=pages" title="Clear" aria-label="Clear">
-                                        <i data-lucide="x" style="width:16px;height:16px"></i>
-                                    </a>
-                                <?php endif; ?>
-                            </form>
-                        </div>
-                        <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2">
-                            <div class="muted-text small">
-                                <?= number_format($pageTotal) ?> page
-                                <?php if ($pageSearch !== ''): ?>
-                                    cho từ khóa "<?= htmlspecialchars($pageSearch) ?>"
-                                <?php endif; ?>
+                    <?php if ($selectedPageSlug !== ''): ?>
+                        <div class="glass-panel p-4">
+                            <div class="d-flex flex-wrap align-items-center justify-content-between gap-3 mb-3">
+                                <div>
+                                    <h2 class="h5 mb-1">Page thuộc slug <span class="font-monospace"><?= htmlspecialchars($selectedPageSlug) ?></span></h2>
+                                    <div class="muted-text small"><?= number_format((int) ($selectedSlugStats['page_count'] ?? 0)) ?> page · <?= htmlspecialchars((string) ($selectedSlugStats['langs'] ?? '')) ?></div>
+                                </div>
+                                <a class="btn btn-sm btn-success fw-bold" href="index.php?section=pages&slug=<?= urlencode($selectedPageSlug) ?>">Thêm lang mới</a>
                             </div>
-                            <div class="muted-text small">Trang <?= number_format($pageListPage) ?>/<?= number_format($pageTotalPages) ?></div>
-                        </div>
-                        <?php
-                        $pagePageParams = $_GET;
-                        unset($pagePageParams['edit']);
-                        $pagePageParams['section'] = 'pages';
-                        ?>
-                        <?= admin_pagination($pagePageParams, 'page_page', $pageListPage, $pageTotalPages, 'Phân trang page', 'mb-3') ?>
-                        <div class="table-responsive-sm">
-                            <table class="table table-striped table-hover table-sm align-middle">
-                                <thead>
-                                <tr>
-                                    <th><?= admin_sort_link('id', 'ID', $pageSort, $pageDir) ?></th>
-                                    <th><?= admin_sort_link('title', 'Page', $pageSort, $pageDir) ?></th>
-                                    <th><?= admin_sort_link('lang', 'Lang', $pageSort, $pageDir) ?></th>
-                                    <th></th>
-                                </tr>
-                                </thead>
-                                <tbody>
-                                <?php foreach ($pages as $page): ?>
+                            <div class="table-responsive-sm">
+                                <table class="table table-striped table-hover table-sm align-middle">
+                                    <thead>
                                     <tr>
-                                        <td><?= (int) $page['id'] ?></td>
-                                        <td>
-                                            <strong><?= htmlspecialchars($page['title']) ?></strong>
-                                            <div class="muted-text small">
-                                                <?= htmlspecialchars($page['slug']) ?>
-                                            </div>
-                                        </td>
-                                        <td><?= htmlspecialchars($page['lang']) ?></td>
-                                        <td class="text-end">
-                                            <div class="d-inline-flex align-items-center justify-content-end gap-2 flex-nowrap">
-                                                <a class="btn btn-sm btn-secondary" href="https://home.carrot28.com/index.php?page=<?= urlencode($page['slug']) ?>&lang=<?= urlencode($page['lang']) ?>" target="_blank" rel="noopener noreferrer" title="Xem page" aria-label="Xem page">
-                                                    <i data-lucide="external-link" style="width:16px;height:16px"></i>
-                                                </a>
-                                                <a class="btn btn-sm btn-warning" href="index.php?section=pages&edit=<?= (int) $page['id'] ?>" title="Cập nhật" aria-label="Cập nhật">
-                                                    <i data-lucide="pencil" style="width:16px;height:16px"></i>
-                                                </a>
-                                                <form class="js-delete" method="post" data-confirm="Xóa page này?">
-                                                    <input type="hidden" name="action" value="delete_page">
-                                                    <input type="hidden" name="id" value="<?= (int) $page['id'] ?>">
-                                                    <button class="btn btn-sm btn-danger" type="submit" title="Xóa" aria-label="Xóa">
-                                                        <i data-lucide="trash-2" style="width:16px;height:16px"></i>
-                                                    </button>
-                                                </form>
-                                            </div>
-                                        </td>
+                                        <th>ID</th>
+                                        <th>Page</th>
+                                        <th>Lang</th>
+                                        <th></th>
                                     </tr>
-                                <?php endforeach; ?>
-                                <?php if (!$pages): ?>
-                                    <tr><td colspan="4" class="text-center muted-text py-4">Chưa có dữ liệu.</td></tr>
-                                <?php endif; ?>
-                                </tbody>
-                            </table>
+                                    </thead>
+                                    <tbody>
+                                    <?php foreach ($selectedSlugPages as $page): ?>
+                                        <tr class="<?= (int) ($editing['id'] ?? 0) === (int) $page['id'] ? 'table-warning' : '' ?>">
+                                            <td><?= (int) $page['id'] ?></td>
+                                            <td>
+                                                <strong><?= htmlspecialchars($page['title']) ?></strong>
+                                                <?php if (!empty($page['seo_title'])): ?>
+                                                    <div class="muted-text small"><?= htmlspecialchars($page['seo_title']) ?></div>
+                                                <?php endif; ?>
+                                            </td>
+                                            <td><?= htmlspecialchars($page['lang']) ?></td>
+                                            <td class="text-end">
+                                                <div class="d-inline-flex align-items-center justify-content-end gap-2 flex-nowrap">
+                                                    <a class="btn btn-sm btn-secondary" href="https://home.carrot28.com/index.php?page=<?= urlencode($page['slug']) ?>&lang=<?= urlencode($page['lang']) ?>" target="_blank" rel="noopener noreferrer" title="Xem page" aria-label="Xem page">
+                                                        <i data-lucide="external-link" style="width:16px;height:16px"></i>
+                                                    </a>
+                                                    <a class="btn btn-sm btn-warning" href="index.php?section=pages&slug=<?= urlencode($selectedPageSlug) ?>&edit=<?= (int) $page['id'] ?>" title="Cập nhật" aria-label="Cập nhật">
+                                                        <i data-lucide="pencil" style="width:16px;height:16px"></i>
+                                                    </a>
+                                                    <form class="js-delete" method="post" data-confirm="Xóa page <?= htmlspecialchars($page['title']) ?>?">
+                                                        <input type="hidden" name="action" value="delete_page">
+                                                        <input type="hidden" name="id" value="<?= (int) $page['id'] ?>">
+                                                        <button class="btn btn-sm btn-danger" type="submit" title="Xóa" aria-label="Xóa">
+                                                            <i data-lucide="trash-2" style="width:16px;height:16px"></i>
+                                                        </button>
+                                                    </form>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    <?php endforeach; ?>
+                                    <?php if (!$selectedSlugPages): ?>
+                                        <tr><td colspan="4" class="text-center muted-text py-4">Slug này chưa có page.</td></tr>
+                                    <?php endif; ?>
+                                    </tbody>
+                                </table>
+                            </div>
                         </div>
-                        <?= admin_pagination($pagePageParams, 'page_page', $pageListPage, $pageTotalPages, 'Phân trang page') ?>
-                    </div>
+                    <?php endif; ?>
                 </div>
             </div>
             <?php endif; ?>
