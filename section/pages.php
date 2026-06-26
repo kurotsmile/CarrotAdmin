@@ -79,9 +79,14 @@
                         <div class="mb-3 mt-3">
                             <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2">
                                 <label class="form-label mb-0" for="page_content_html">HTML content</label>
-                                <button class="btn btn-sm btn-secondary d-none js-ai-page-generate" type="button">
-                                    <span class="d-inline-flex align-items-center gap-2"><i data-lucide="sparkles" style="width:16px;height:16px"></i>Tạo bằng AI</span>
-                                </button>
+                                <div class="d-flex flex-wrap gap-2">
+                                    <button class="btn btn-sm btn-primary js-ai-page-request" type="button">
+                                        <span class="d-inline-flex align-items-center gap-2"><i data-lucide="wand-sparkles" style="width:16px;height:16px"></i>Yêu cầu AI</span>
+                                    </button>
+                                    <button class="btn btn-sm btn-secondary d-none js-ai-page-generate" type="button">
+                                        <span class="d-inline-flex align-items-center gap-2"><i data-lucide="sparkles" style="width:16px;height:16px"></i>Tạo bằng AI</span>
+                                    </button>
+                                </div>
                             </div>
                             <div class="simple-editor-toolbar" aria-label="Editor toolbar">
                                 <button class="btn btn-sm btn-light" type="button" data-editor-command="bold"><strong>B</strong></button>

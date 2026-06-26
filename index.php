@@ -415,6 +415,172 @@ function admin_gemini_translate(PDO $pdo, string $sourceText, string $targetLang
     throw new RuntimeException('Gemini lỗi sau khi thử tất cả tài khoản: ' . implode(' | ', $errors));
 }
 
+function admin_substr(string $value, int $length): string
+{
+    return function_exists('mb_substr') ? mb_substr($value, 0, $length) : substr($value, 0, $length);
+}
+
+function admin_gemini_complete(PDO $pdo, string $prompt, float $temperature = 0.7): string
+{
+    $configs = admin_fetch_ai_support_configs($pdo, true);
+    if (!$configs) {
+        throw new RuntimeException('AI Support chưa được bật.');
+    }
+
+    if (!function_exists('curl_init')) {
+        throw new RuntimeException('Server cần bật PHP cURL để gọi Gemini.');
+    }
+
+    $errors = [];
+    foreach ($configs as $config) {
+        $accountName = trim((string) ($config['account_name'] ?? 'Gemini account')) ?: 'Gemini account';
+        $apiKey = trim((string) ($config['api_key'] ?? ''));
+        if ($apiKey === '') {
+            continue;
+        }
+
+        $configuredModel = trim((string) ($config['model'] ?? 'gemini-3.5-flash')) ?: 'gemini-3.5-flash';
+        $models = array_values(array_unique(array_filter([
+            $configuredModel,
+            'gemini-3.5-flash',
+            'gemini-3.1-flash-lite',
+            'gemini-2.5-flash-lite',
+        ])));
+        $endpointTemplate = trim((string) ($config['endpoint'] ?? '')) ?: 'https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent';
+        $payload = [
+            'contents' => [
+                [
+                    'parts' => [
+                        ['text' => $prompt],
+                    ],
+                ],
+            ],
+            'generationConfig' => [
+                'temperature' => max(0, min(2, $temperature)),
+            ],
+        ];
+
+        foreach ($models as $model) {
+            $endpoint = str_replace('{model}', rawurlencode($model), $endpointTemplate);
+            $curl = curl_init($endpoint);
+            curl_setopt_array($curl, [
+                CURLOPT_POST => true,
+                CURLOPT_POSTFIELDS => json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+                CURLOPT_HTTPHEADER => [
+                    'Content-Type: application/json',
+                    'x-goog-api-key: ' . $apiKey,
+                ],
+                CURLOPT_RETURNTRANSFER => true,
+                CURLOPT_TIMEOUT => 90,
+            ]);
+
+            $response = curl_exec($curl);
+            $curlError = curl_error($curl);
+            $statusCode = (int) curl_getinfo($curl, CURLINFO_RESPONSE_CODE);
+            curl_close($curl);
+
+            if ($response === false) {
+                $errors[] = $accountName . ' / ' . $model . ': ' . $curlError;
+                continue;
+            }
+
+            $data = json_decode($response, true);
+            if ($statusCode >= 400 || !is_array($data)) {
+                $apiMessage = is_array($data) ? ($data['error']['message'] ?? 'unknown error') : trim($response);
+                $errors[] = $accountName . ' / ' . $model . ': ' . $apiMessage;
+                $retryable = in_array($statusCode, [401, 403, 404, 429, 503], true) || preg_match('/api key|permission|denied|high demand|overload|rate limit|quota|unavailable|try again|not found/i', $apiMessage);
+                if ($retryable) {
+                    usleep(300000);
+                    continue;
+                }
+
+                throw new RuntimeException('Gemini lỗi: ' . $apiMessage);
+            }
+
+            $parts = $data['candidates'][0]['content']['parts'] ?? [];
+            $text = '';
+            foreach ($parts as $part) {
+                $text .= (string) ($part['text'] ?? '');
+            }
+
+            $text = trim($text);
+            if ($text !== '') {
+                return $text;
+            }
+
+            $errors[] = $accountName . ' / ' . $model . ': empty response';
+        }
+    }
+
+    throw new RuntimeException('Gemini lỗi sau khi thử tất cả tài khoản: ' . implode(' | ', $errors));
+}
+
+function admin_gemini_generate_page(PDO $pdo, string $idea, string $slug, string $lang, string $currentTitle = '', string $currentContentHtml = ''): array
+{
+    $prompt = <<<PROMPT
+You are a senior website content writer and SEO editor for a CMS.
+Write a complete page from the admin's request and return only valid JSON.
+
+Target language: {$lang}
+Page slug: {$slug}
+Current title: {$currentTitle}
+Current HTML content, if any:
+{$currentContentHtml}
+
+Admin request:
+{$idea}
+
+Return exactly this JSON shape:
+{
+  "title": "natural page title",
+  "content_html": "<h2>...</h2><p>...</p>",
+  "seo_title": "SEO title, max 60 characters if possible",
+  "seo_description": "SEO description, max 160 characters if possible",
+  "seo_keywords": "comma separated keywords"
+}
+
+Rules:
+- content_html must be clean HTML only, without html/body tags, script tags, markdown fences, or inline event handlers.
+- Use useful headings, short paragraphs, and lists where helpful.
+- Make title, SEO title, description, and keywords consistent with the content and target language.
+- Do not include explanations outside the JSON.
+PROMPT;
+
+    $text = admin_gemini_complete($pdo, $prompt, 0.7);
+    $text = trim(preg_replace('/^```(?:json)?\s*|\s*```$/i', '', $text) ?? $text);
+    $data = json_decode($text, true);
+    if (!is_array($data)) {
+        $start = strpos($text, '{');
+        $end = strrpos($text, '}');
+        if ($start !== false && $end !== false && $end > $start) {
+            $data = json_decode(substr($text, $start, $end - $start + 1), true);
+        }
+    }
+
+    if (!is_array($data)) {
+        throw new RuntimeException('AI không trả về JSON hợp lệ.');
+    }
+
+    $contentHtml = trim((string) ($data['content_html'] ?? ''));
+    $contentHtml = preg_replace('/<\/?(?:html|body)[^>]*>/i', '', $contentHtml) ?? $contentHtml;
+    $contentHtml = preg_replace('/<script\b[^>]*>.*?<\/script>/is', '', $contentHtml) ?? $contentHtml;
+    $contentHtml = preg_replace('/\son\w+\s*=\s*(".*?"|\'.*?\'|[^\s>]+)/i', '', $contentHtml) ?? $contentHtml;
+
+    $result = [
+        'title' => trim((string) ($data['title'] ?? '')),
+        'content_html' => trim($contentHtml),
+        'seo_title' => admin_substr(trim((string) ($data['seo_title'] ?? '')), 255),
+        'seo_description' => admin_substr(trim((string) ($data['seo_description'] ?? '')), 320),
+        'seo_keywords' => admin_substr(trim((string) ($data['seo_keywords'] ?? '')), 500),
+    ];
+
+    if ($result['title'] === '' || $result['content_html'] === '') {
+        throw new RuntimeException('AI chưa tạo đủ title và HTML content.');
+    }
+
+    return $result;
+}
+
 function admin_fetch_language_options(?PDO $pdo): array
 {
     if (!$pdo instanceof PDO) {
@@ -1212,6 +1378,26 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages'], true)) {
                     }
 
                     admin_json_success(array_merge($translated, ['source' => $sourcePage]));
+                } catch (Throwable $e) {
+                    admin_json_error($e->getMessage());
+                }
+            }
+
+            if ($section === 'pages' && $action === 'ajax_ai_request_page') {
+                try {
+                    $idea = trim($_POST['idea'] ?? '');
+                    $slug = trim($_POST['slug'] ?? '');
+                    $lang = trim($_POST['lang'] ?? 'vi');
+                    $currentTitle = trim($_POST['title'] ?? '');
+                    $currentContentHtml = trim($_POST['content_html'] ?? '');
+                    if ($idea === '') {
+                        throw new RuntimeException('Vui lòng nhập yêu cầu nội dung cho AI.');
+                    }
+                    if ($slug === '' || $lang === '') {
+                        throw new RuntimeException('Vui lòng chọn slug và lang trước khi yêu cầu AI.');
+                    }
+
+                    admin_json_success(admin_gemini_generate_page($pdo, $idea, $slug, $lang, $currentTitle, $currentContentHtml));
                 } catch (Throwable $e) {
                     admin_json_error($e->getMessage());
                 }
@@ -2371,10 +2557,36 @@ const pageSlugInput = document.getElementById('page_slug');
 const pageLangInput = document.getElementById('page_lang');
 const pageIdInput = pageSlugInput ? pageSlugInput.closest('form')?.querySelector('input[name="id"]') : null;
 const aiPageButton = document.querySelector('.js-ai-page-generate');
+const aiPageRequestButton = document.querySelector('.js-ai-page-request');
 if (pageSlugInput && pageLangInput && pageIdInput) {
     let pageLookupTimer = null;
     let lastPageLookup = '';
     let hasEnglishPageSource = false;
+
+    const fillPageAiFields = (payload) => {
+        const titleField = document.getElementById('page_title');
+        if (titleField && typeof payload.title === 'string' && payload.title !== '') {
+            titleField.value = payload.title;
+        }
+
+        const editor = document.getElementById('page_content_editor');
+        const source = document.getElementById('page_content_html');
+        if (editor && source && typeof payload.content_html === 'string' && payload.content_html !== '') {
+            editor.innerHTML = payload.content_html;
+            source.value = editor.innerHTML.trim();
+        }
+
+        [
+            ['seo_title', payload.seo_title],
+            ['seo_description', payload.seo_description],
+            ['seo_keywords', payload.seo_keywords],
+        ].forEach(([fieldId, value]) => {
+            const field = document.getElementById(fieldId);
+            if (field && typeof value === 'string' && value !== '') {
+                field.value = value;
+            }
+        });
+    };
 
     const checkExistingPage = () => {
         window.clearTimeout(pageLookupTimer);
@@ -2435,6 +2647,82 @@ if (pageSlugInput && pageLangInput && pageIdInput) {
     pageSlugInput.addEventListener('blur', checkExistingPage);
     pageLangInput.addEventListener('change', checkExistingPage);
 
+    if (aiPageRequestButton) {
+        aiPageRequestButton.addEventListener('click', async () => {
+            const slug = pageSlugInput.value.trim();
+            const lang = pageLangInput.value.trim();
+            if (!slug || !lang) {
+                await Swal.fire({icon: 'warning', title: 'Thiếu thông tin', text: 'Vui lòng chọn slug và lang trước khi yêu cầu AI.'});
+                return;
+            }
+
+            const requestResult = await Swal.fire({
+                title: 'Yêu cầu AI',
+                input: 'textarea',
+                inputLabel: 'Bạn muốn AI viết nội dung gì?',
+                inputPlaceholder: 'Ví dụ: Viết trang giới thiệu Carrot Store, giọng thân thiện, nhấn mạnh tải app miễn phí và tối ưu SEO...',
+                inputAttributes: {
+                    'aria-label': 'Yêu cầu nội dung cho AI',
+                },
+                inputAutoTrim: true,
+                showCancelButton: true,
+                confirmButtonText: 'Tạo nội dung',
+                cancelButtonText: 'Hủy',
+                preConfirm: (value) => {
+                    if (!value || !value.trim()) {
+                        Swal.showValidationMessage('Vui lòng nhập yêu cầu cho AI.');
+                        return false;
+                    }
+                    return value.trim();
+                },
+            });
+
+            if (!requestResult.isConfirmed) {
+                return;
+            }
+
+            aiPageRequestButton.disabled = true;
+            const originalHtml = aiPageRequestButton.innerHTML;
+            aiPageRequestButton.innerHTML = '<span class="d-inline-flex align-items-center gap-2"><span class="spinner-border spinner-border-sm" aria-hidden="true"></span>Đang viết</span>';
+
+            const editor = document.getElementById('page_content_editor');
+            const source = document.getElementById('page_content_html');
+            if (editor && source) {
+                source.value = editor.innerHTML.trim();
+            }
+
+            const formData = new FormData();
+            formData.append('action', 'ajax_ai_request_page');
+            formData.append('idea', requestResult.value);
+            formData.append('slug', slug);
+            formData.append('lang', lang);
+            formData.append('title', document.getElementById('page_title')?.value.trim() || '');
+            formData.append('content_html', source?.value || '');
+
+            try {
+                const response = await fetch('index.php?section=pages', {
+                    method: 'POST',
+                    body: formData,
+                });
+                const payload = await response.json();
+                if (!response.ok || payload.status !== 'success') {
+                    throw new Error(payload.message || 'Không tạo được nội dung theo yêu cầu AI.');
+                }
+
+                fillPageAiFields(payload);
+                await Swal.fire({icon: 'success', title: 'Đã tạo nội dung', text: 'AI đã chèn Title, HTML content và SEO vào form.'});
+            } catch (error) {
+                await Swal.fire({icon: 'warning', title: 'AI lỗi', text: error.message});
+            } finally {
+                aiPageRequestButton.disabled = false;
+                aiPageRequestButton.innerHTML = originalHtml;
+                if (window.lucide) {
+                    lucide.createIcons();
+                }
+            }
+        });
+    }
+
     if (aiPageButton) {
         aiPageButton.addEventListener('click', async () => {
             const slug = pageSlugInput.value.trim();
@@ -2462,22 +2750,7 @@ if (pageSlugInput && pageLangInput && pageIdInput) {
                     throw new Error(payload.message || 'Không tạo được nội dung AI.');
                 }
 
-                const editor = document.getElementById('page_content_editor');
-                const source = document.getElementById('page_content_html');
-                if (editor && source) {
-                    editor.innerHTML = payload.content_html || '';
-                    source.value = editor.innerHTML.trim();
-                }
-                [
-                    ['seo_title', payload.seo_title],
-                    ['seo_description', payload.seo_description],
-                    ['seo_keywords', payload.seo_keywords],
-                ].forEach(([fieldId, value]) => {
-                    const field = document.getElementById(fieldId);
-                    if (field && typeof value === 'string' && value !== '') {
-                        field.value = value;
-                    }
-                });
+                fillPageAiFields(payload);
             } catch (error) {
                 await Swal.fire({icon: 'warning', title: 'AI lỗi', text: error.message});
             } finally {
