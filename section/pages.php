@@ -12,6 +12,7 @@
             $pageTotalPages = 1;
             $pageSlugGroups = [];
             $selectedSlugPages = [];
+            $selectedSlugLangs = [];
             $selectedSlugStats = ['page_count' => 0, 'langs' => '', 'latest_update' => null];
 
             if ($homePdo instanceof PDO) {
@@ -62,6 +63,7 @@
                     $selectedPagesStmt = $homePdo->prepare('SELECT * FROM page WHERE slug = ? ORDER BY lang ASC, id DESC');
                     $selectedPagesStmt->execute([$selectedPageSlug]);
                     $selectedSlugPages = $selectedPagesStmt->fetchAll();
+                    $selectedSlugLangs = array_values(array_unique(array_filter(array_map(static fn(array $page): string => (string) ($page['lang'] ?? ''), $selectedSlugPages))));
                 }
             }
             ?>
@@ -159,7 +161,33 @@
                                 <?php $pageLangValue = (string) ($editing['lang'] ?? 'vi'); ?>
                                 <select class="form-control js-page-lang-select" id="page_lang" name="lang" required>
                                     <option value="">Chọn lang</option>
-                                    <?= admin_language_select_options($languageOptions, $pageLangValue) ?>
+                                    <?php
+                                    $pageLangFound = $pageLangValue === '';
+                                    foreach ($languageOptions as $pageLanguageOption):
+                                        $pageLangKey = (string) ($pageLanguageOption['lang_key'] ?? '');
+                                        if ($pageLangKey === '') {
+                                            continue;
+                                        }
+                                        $pageLangSelected = $pageLangKey === $pageLangValue;
+                                        $pageLangFound = $pageLangFound || $pageLangSelected;
+                                        $pageLangDisabled = in_array($pageLangKey, $selectedSlugLangs, true) && !$pageLangSelected;
+                                        $pageLangLabelParts = [$pageLangKey];
+                                        if (!empty($pageLanguageOption['countries'])) {
+                                            $pageLangLabelParts[] = (string) $pageLanguageOption['countries'];
+                                        } elseif (!empty($pageLanguageOption['name'])) {
+                                            $pageLangLabelParts[] = (string) $pageLanguageOption['name'];
+                                        } elseif (!empty($pageLanguageOption['lang_country'])) {
+                                            $pageLangLabelParts[] = (string) $pageLanguageOption['lang_country'];
+                                        }
+                                        if ($pageLangDisabled) {
+                                            $pageLangLabelParts[] = 'đã có page';
+                                        }
+                                    ?>
+                                        <option value="<?= htmlspecialchars($pageLangKey) ?>" <?= $pageLangSelected ? 'selected' : '' ?> <?= $pageLangDisabled ? 'disabled' : '' ?>><?= htmlspecialchars(implode(' - ', $pageLangLabelParts)) ?></option>
+                                    <?php endforeach; ?>
+                                    <?php if (!$pageLangFound): ?>
+                                        <option value="<?= htmlspecialchars($pageLangValue) ?>" selected><?= htmlspecialchars($pageLangValue . ' - Giá trị hiện tại') ?></option>
+                                    <?php endif; ?>
                                 </select>
                             </div>
                         </div>
