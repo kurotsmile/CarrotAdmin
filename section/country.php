@@ -140,7 +140,6 @@
                                 <tr>
                                     <th>Key</th>
                                     <th>Value</th>
-                                    <th>Lang</th>
                                     <th></th>
                                 </tr>
                                 </thead>
@@ -157,7 +156,6 @@
                                             <?php endif; ?>
                                         </td>
                                         <td><span class="badge text-bg-secondary"><?= number_format((int) $label['label_count']) ?></span></td>
-                                        <td class="small"><?= htmlspecialchars((string) $label['langs']) ?></td>
                                         <td class="text-end">
                                             <div class="d-inline-flex align-items-center justify-content-end gap-2 flex-nowrap">
                                                 <button class="btn btn-sm btn-secondary js-label-translations" type="button" data-label-key="<?= htmlspecialchars($labelGroupKey) ?>" title="Dịch nhanh theo country" aria-label="Dịch nhanh theo country">
@@ -178,7 +176,7 @@
                                     </tr>
                                 <?php endforeach; ?>
                                 <?php if (!$textLabels): ?>
-                                    <tr><td colspan="4" class="text-center muted-text py-4">Chưa có dữ liệu.</td></tr>
+                                    <tr><td colspan="3" class="text-center muted-text py-4">Chưa có dữ liệu.</td></tr>
                                 <?php endif; ?>
                                 </tbody>
                             </table>
