@@ -682,9 +682,6 @@
                                 <label class="form-label" for="app_category_icon">Icon</label>
                                 <div class="input-group">
                                     <input class="form-control" id="app_category_icon" name="icon" value="<?= htmlspecialchars($editingAppCategory['icon'] ?? '') ?>">
-                                    <button class="btn btn-primary js-ai-image" type="button" data-target="app_category_icon" data-type-media="carrot_app" data-context-target="app_category_id" title="AI image" aria-label="AI image">
-                                        <i data-lucide="image-plus" style="width:16px;height:16px"></i>
-                                    </button>
                                     <button class="btn btn-secondary js-upload" type="button" data-target="app_category_icon" data-type-media="carrot_app" data-mode="replace" data-accept="image/*">Upload</button>
                                 </div>
                             </div>

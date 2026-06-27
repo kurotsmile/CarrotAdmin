@@ -145,42 +145,4 @@
                     </div>
                 </div>
             </div>
-            <div class="row g-4 mt-1">
-                <div class="col-xl-12">
-                    <div class="glass-panel p-4">
-                        <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-3">
-                            <h2 class="h5 mb-0">Trình tạo ảnh AI</h2>
-                            <span class="badge text-bg-primary">Gemini image</span>
-                        </div>
-                        <div class="row g-3">
-                            <div class="col-lg-8">
-                                <label class="form-label" for="ai_image_prompt">Lệnh tạo ảnh</label>
-                                <textarea class="form-control" id="ai_image_prompt" rows="4" placeholder="Ví dụ: Icon app store cho chuyên mục puzzle game, phong cách 3D tối giản, nền trong, màu tươi sáng..."></textarea>
-                            </div>
-                            <div class="col-lg-4">
-                                <label class="form-label" for="ai_image_type_media">Type media</label>
-                                <select class="form-control" id="ai_image_type_media">
-                                    <option value="carrot_app">carrot_app</option>
-                                    <option value="carrot_app_photo">carrot_app_photo</option>
-                                    <option value="coc_images">coc_images</option>
-                                    <option value="bank">bank</option>
-                                    <option value="country">country</option>
-                                </select>
-                                <button class="btn btn-primary fw-bold w-100 mt-3 js-ai-image-tool" type="button">
-                                    <span class="d-inline-flex align-items-center gap-2"><i data-lucide="image-plus" style="width:16px;height:16px"></i>Tạo và upload</span>
-                                </button>
-                            </div>
-                        </div>
-                        <div class="input-group mt-3">
-                            <input class="form-control font-monospace small" id="ai_image_result_url" readonly placeholder="URL ảnh NAS sẽ hiện ở đây">
-                            <button class="btn btn-secondary js-copy-ai-image-url" type="button" title="Copy URL" aria-label="Copy URL">
-                                <i data-lucide="copy" style="width:16px;height:16px"></i>
-                            </button>
-                        </div>
-                        <div class="mt-3 d-none" id="ai_image_preview_wrap">
-                            <img id="ai_image_preview" src="" alt="" class="rounded-2 border object-fit-cover" style="width:160px;height:160px">
-                        </div>
-                    </div>
-                </div>
-            </div>
             <?php endif; ?>

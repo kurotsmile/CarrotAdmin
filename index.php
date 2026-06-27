@@ -148,7 +148,7 @@ function admin_nas_upload_endpoint(): string
     return 'https://nas.carrot28.com/index.php?api=upload_image';
 }
 
-function admin_upload_image_to_nas(array $file, string $typeMedia, bool $requireUploadedFile = true): string
+function admin_upload_image_to_nas(array $file, string $typeMedia): string
 {
     if (($file['error'] ?? UPLOAD_ERR_NO_FILE) === UPLOAD_ERR_NO_FILE) {
         return '';
@@ -158,7 +158,7 @@ function admin_upload_image_to_nas(array $file, string $typeMedia, bool $require
         throw new RuntimeException('Upload ảnh lỗi, mã: ' . (int) $file['error']);
     }
 
-    if ($requireUploadedFile && !is_uploaded_file($file['tmp_name'] ?? '')) {
+    if (!is_uploaded_file($file['tmp_name'] ?? '')) {
         throw new RuntimeException('File upload không hợp lệ.');
     }
 
@@ -671,163 +671,6 @@ PROMPT;
     return $result;
 }
 
-function admin_find_inline_image_data(array $value): ?array
-{
-    foreach (['inlineData', 'inline_data'] as $key) {
-        if (isset($value[$key]) && is_array($value[$key]) && !empty($value[$key]['data'])) {
-            return [
-                'data' => (string) $value[$key]['data'],
-                'mime_type' => (string) ($value[$key]['mimeType'] ?? $value[$key]['mime_type'] ?? 'image/png'),
-            ];
-        }
-    }
-
-    if (isset($value['output_image']) && is_array($value['output_image']) && !empty($value['output_image']['data'])) {
-        return [
-            'data' => (string) $value['output_image']['data'],
-            'mime_type' => (string) ($value['output_image']['mime_type'] ?? $value['output_image']['mimeType'] ?? 'image/png'),
-        ];
-    }
-
-    foreach ($value as $child) {
-        if (is_array($child)) {
-            $found = admin_find_inline_image_data($child);
-            if ($found !== null) {
-                return $found;
-            }
-        }
-    }
-
-    return null;
-}
-
-function admin_gemini_generate_image_upload(PDO $pdo, string $prompt, string $typeMedia): string
-{
-    if (!in_array($typeMedia, ['carrot_app', 'carrot_app_photo', 'coc_images', 'bank', 'country'], true)) {
-        throw new RuntimeException('Type media không hợp lệ.');
-    }
-
-    $configs = admin_fetch_ai_support_configs($pdo, true);
-    if (!$configs) {
-        throw new RuntimeException('AI Support chưa được bật.');
-    }
-
-    if (!function_exists('curl_init')) {
-        throw new RuntimeException('Server cần bật PHP cURL để gọi Gemini.');
-    }
-
-    $errors = [];
-    foreach ($configs as $config) {
-        $accountName = trim((string) ($config['account_name'] ?? 'Gemini account')) ?: 'Gemini account';
-        $apiKey = trim((string) ($config['api_key'] ?? ''));
-        if ($apiKey === '') {
-            continue;
-        }
-
-        $configuredModel = trim((string) ($config['model'] ?? ''));
-        $models = array_values(array_unique(array_filter([
-            $configuredModel,
-            'gemini-2.0-flash-preview-image-generation',
-            'gemini-2.5-flash-image-preview',
-        ])));
-
-        foreach ($models as $model) {
-            $requests = [
-                [
-                    'endpoint' => 'https://generativelanguage.googleapis.com/v1beta/interactions?key=' . rawurlencode($apiKey),
-                    'payload' => [
-                        'model' => 'models/' . $model,
-                        'input' => $prompt,
-                        'response_format' => ['type' => 'image'],
-                    ],
-                ],
-                [
-                    'endpoint' => 'https://generativelanguage.googleapis.com/v1beta/models/' . rawurlencode($model) . ':generateContent',
-                    'payload' => [
-                        'contents' => [
-                            [
-                                'parts' => [
-                                    ['text' => $prompt],
-                                ],
-                            ],
-                        ],
-                        'generationConfig' => [
-                            'temperature' => max(0, min(2, (float) ($config['temperature'] ?? 0.7))),
-                            'responseModalities' => ['IMAGE'],
-                        ],
-                    ],
-                    'headers' => ['x-goog-api-key: ' . $apiKey],
-                ],
-            ];
-
-            foreach ($requests as $request) {
-                $headers = array_merge(['Content-Type: application/json'], $request['headers'] ?? []);
-                $curl = curl_init($request['endpoint']);
-                curl_setopt_array($curl, [
-                    CURLOPT_POST => true,
-                    CURLOPT_POSTFIELDS => json_encode($request['payload'], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
-                    CURLOPT_HTTPHEADER => $headers,
-                    CURLOPT_RETURNTRANSFER => true,
-                    CURLOPT_TIMEOUT => 120,
-                ]);
-
-                $response = curl_exec($curl);
-                $curlError = curl_error($curl);
-                $statusCode = (int) curl_getinfo($curl, CURLINFO_RESPONSE_CODE);
-                curl_close($curl);
-
-                if ($response === false) {
-                    $errors[] = $accountName . ' / ' . $model . ': ' . $curlError;
-                    continue;
-                }
-
-                $data = json_decode($response, true);
-                if ($statusCode >= 400 || !is_array($data)) {
-                    $apiMessage = is_array($data) ? ($data['error']['message'] ?? 'unknown error') : trim($response);
-                    $errors[] = $accountName . ' / ' . $model . ': ' . $apiMessage;
-                    continue;
-                }
-
-                $image = admin_find_inline_image_data($data);
-                if ($image === null) {
-                    $errors[] = $accountName . ' / ' . $model . ': empty image response';
-                    continue;
-                }
-
-                $binary = base64_decode($image['data'], true);
-                if ($binary === false || $binary === '') {
-                    $errors[] = $accountName . ' / ' . $model . ': invalid image data';
-                    continue;
-                }
-
-                $mimeType = strtolower($image['mime_type']);
-                $extension = strpos($mimeType, 'jpeg') !== false || strpos($mimeType, 'jpg') !== false ? 'jpg' : 'png';
-                $tmpPath = tempnam(sys_get_temp_dir(), 'carrot_ai_image_');
-                if ($tmpPath === false) {
-                    throw new RuntimeException('Không tạo được file tạm cho ảnh AI.');
-                }
-                $imagePath = $tmpPath . '.' . $extension;
-                rename($tmpPath, $imagePath);
-                file_put_contents($imagePath, $binary);
-
-                try {
-                    return admin_upload_image_to_nas([
-                        'error' => UPLOAD_ERR_OK,
-                        'tmp_name' => $imagePath,
-                        'name' => 'ai-image-' . date('Ymd-His') . '.' . $extension,
-                    ], $typeMedia, false);
-                } finally {
-                    if (is_file($imagePath)) {
-                        unlink($imagePath);
-                    }
-                }
-            }
-        }
-    }
-
-    throw new RuntimeException('Gemini tạo ảnh lỗi sau khi thử tất cả tài khoản: ' . implode(' | ', $errors));
-}
-
 function admin_fetch_language_options(?PDO $pdo): array
 {
     if (!$pdo instanceof PDO) {
@@ -1288,7 +1131,7 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages'], true)) {
             admin_ensure_paypal_config_table($pdo);
         }
 
-        if ($section === 'ai_support' || in_array($_POST['action'] ?? '', ['save_ai_support_config', 'ajax_ai_translate_page', 'ajax_ai_translate_label', 'ajax_find_text_label_source', 'ajax_find_app_content_source', 'ajax_ai_translate_app_content', 'ajax_find_app_category_content_source', 'ajax_ai_translate_app_category_content', 'ajax_ai_request_app_category_content', 'ajax_ai_generate_image_upload'], true)) {
+        if ($section === 'ai_support' || in_array($_POST['action'] ?? '', ['save_ai_support_config', 'ajax_ai_translate_page', 'ajax_ai_translate_label', 'ajax_find_text_label_source', 'ajax_find_app_content_source', 'ajax_ai_translate_app_content', 'ajax_find_app_category_content_source', 'ajax_ai_translate_app_category_content', 'ajax_ai_request_app_category_content'], true)) {
             admin_ensure_ai_support_table($pdo);
         }
 
@@ -1530,28 +1373,6 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages'], true)) {
                     }
 
                     admin_json_success(admin_gemini_generate_category_content($pdo, $idea, $categoryId, $keyLang, $currentTitle, $currentDescription));
-                } catch (Throwable $e) {
-                    admin_json_error($e->getMessage());
-                }
-            }
-
-            if (in_array($section, ['apps', 'ai_support'], true) && $action === 'ajax_ai_generate_image_upload') {
-                try {
-                    $prompt = trim($_POST['prompt'] ?? '');
-                    $typeMedia = trim($_POST['type_media'] ?? 'carrot_app');
-                    $context = trim($_POST['context'] ?? '');
-                    if ($prompt === '') {
-                        throw new RuntimeException('Vui lòng nhập lệnh tạo ảnh.');
-                    }
-
-                    $fullPrompt = $prompt;
-                    if ($context !== '') {
-                        $fullPrompt .= "\n\nContext: " . $context;
-                    }
-                    $fullPrompt .= "\n\nCreate a clean, high quality app/category icon or image. No text, no watermark.";
-
-                    $url = admin_gemini_generate_image_upload($pdo, $fullPrompt, $typeMedia);
-                    admin_json_success(['url' => $url]);
                 } catch (Throwable $e) {
                     admin_json_error($e->getMessage());
                 }
@@ -2526,151 +2347,6 @@ document.querySelectorAll('.js-upload').forEach((button) => {
         });
     });
 });
-
-document.querySelectorAll('.js-ai-image').forEach((button) => {
-    button.addEventListener('click', async () => {
-        const target = document.getElementById(button.dataset.target);
-        if (!target) {
-            return;
-        }
-
-        const contextTarget = button.dataset.contextTarget ? document.getElementById(button.dataset.contextTarget) : null;
-        const contextValue = contextTarget ? contextTarget.value.trim() : '';
-        const promptResult = await Swal.fire({
-            title: 'AI image',
-            input: 'textarea',
-            inputLabel: 'Nhập lệnh tạo ảnh',
-            inputPlaceholder: contextValue ? `Ví dụ: Icon phong cách app store cho chuyên mục "${contextValue}", nền trong, màu tươi sáng...` : 'Ví dụ: Icon phong cách app store, nền trong, màu tươi sáng...',
-            inputAutoTrim: true,
-            showCancelButton: true,
-            confirmButtonText: 'Tạo và upload',
-            cancelButtonText: 'Hủy',
-            preConfirm: (value) => {
-                if (!value || !value.trim()) {
-                    Swal.showValidationMessage('Vui lòng nhập lệnh tạo ảnh.');
-                    return false;
-                }
-                return value.trim();
-            },
-        });
-
-        if (!promptResult.isConfirmed) {
-            return;
-        }
-
-        const originalHtml = button.innerHTML;
-        button.disabled = true;
-        button.innerHTML = '<span class="spinner-border spinner-border-sm" aria-hidden="true"></span>';
-
-        const formData = new FormData();
-        formData.append('action', 'ajax_ai_generate_image_upload');
-        formData.append('prompt', promptResult.value);
-        formData.append('type_media', button.dataset.typeMedia || 'carrot_app');
-        formData.append('context', contextValue);
-
-        try {
-            const response = await fetch('index.php?section=apps&tab=categories', {
-                method: 'POST',
-                body: formData,
-            });
-            const payload = await response.json();
-            if (!response.ok || payload.status !== 'success' || !payload.url) {
-                throw new Error(payload.message || 'Không tạo/upload được ảnh AI.');
-            }
-
-            target.value = payload.url;
-            await Swal.fire({
-                icon: 'success',
-                title: 'Đã tạo ảnh',
-                text: payload.url,
-                imageUrl: payload.url,
-                imageAlt: 'AI image',
-                imageWidth: 160,
-                confirmButtonText: 'OK',
-            });
-        } catch (error) {
-            await Swal.fire({icon: 'warning', title: 'AI image lỗi', text: error.message});
-        } finally {
-            button.disabled = false;
-            button.innerHTML = originalHtml;
-            if (window.lucide) {
-                lucide.createIcons();
-            }
-        }
-    });
-});
-
-const aiImageToolButton = document.querySelector('.js-ai-image-tool');
-if (aiImageToolButton) {
-    aiImageToolButton.addEventListener('click', async () => {
-        const promptInput = document.getElementById('ai_image_prompt');
-        const typeMediaInput = document.getElementById('ai_image_type_media');
-        const resultInput = document.getElementById('ai_image_result_url');
-        const previewWrap = document.getElementById('ai_image_preview_wrap');
-        const previewImage = document.getElementById('ai_image_preview');
-        const prompt = promptInput ? promptInput.value.trim() : '';
-
-        if (!prompt) {
-            await Swal.fire({icon: 'warning', title: 'Thiếu lệnh tạo ảnh', text: 'Vui lòng nhập lệnh tạo ảnh.'});
-            return;
-        }
-
-        const originalHtml = aiImageToolButton.innerHTML;
-        aiImageToolButton.disabled = true;
-        aiImageToolButton.innerHTML = '<span class="d-inline-flex align-items-center gap-2"><span class="spinner-border spinner-border-sm" aria-hidden="true"></span>Đang tạo</span>';
-
-        const formData = new FormData();
-        formData.append('action', 'ajax_ai_generate_image_upload');
-        formData.append('prompt', prompt);
-        formData.append('type_media', typeMediaInput?.value || 'carrot_app');
-
-        try {
-            const response = await fetch('index.php?section=ai_support', {
-                method: 'POST',
-                body: formData,
-            });
-            const payload = await response.json();
-            if (!response.ok || payload.status !== 'success' || !payload.url) {
-                throw new Error(payload.message || 'Không tạo/upload được ảnh AI.');
-            }
-
-            if (resultInput) {
-                resultInput.value = payload.url;
-            }
-            if (previewImage && previewWrap) {
-                previewImage.src = payload.url;
-                previewWrap.classList.remove('d-none');
-            }
-            await Swal.fire({icon: 'success', title: 'Đã tạo ảnh', text: payload.url, imageUrl: payload.url, imageWidth: 160});
-        } catch (error) {
-            await Swal.fire({icon: 'warning', title: 'AI image lỗi', text: error.message});
-        } finally {
-            aiImageToolButton.disabled = false;
-            aiImageToolButton.innerHTML = originalHtml;
-            if (window.lucide) {
-                lucide.createIcons();
-            }
-        }
-    });
-}
-
-const copyAiImageUrlButton = document.querySelector('.js-copy-ai-image-url');
-if (copyAiImageUrlButton) {
-    copyAiImageUrlButton.addEventListener('click', async () => {
-        const resultInput = document.getElementById('ai_image_result_url');
-        const url = resultInput ? resultInput.value.trim() : '';
-        if (!url) {
-            return;
-        }
-        try {
-            await navigator.clipboard.writeText(url);
-            await Swal.fire({icon: 'success', title: 'Đã copy URL', timer: 1000, showConfirmButton: false});
-        } catch (error) {
-            resultInput.select();
-            document.execCommand('copy');
-        }
-    });
-}
 
 document.querySelectorAll('.js-traffic-toggle').forEach((button) => {
     button.addEventListener('click', () => {
