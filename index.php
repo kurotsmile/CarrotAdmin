@@ -1622,6 +1622,7 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages'], true)) {
 
                     $sourceDetail = admin_fetch_page($homePdo, (int) $sourcePage['id']);
                     $translated = [
+                        'title' => admin_gemini_translate($pdo, (string) ($sourceDetail['title'] ?? $slug), $lang, 'page title plain text'),
                         'content_html' => admin_gemini_translate($pdo, (string) ($sourceDetail['content_html'] ?? ''), $lang, 'html'),
                         'seo_title' => '',
                         'seo_description' => '',
