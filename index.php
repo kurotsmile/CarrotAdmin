@@ -1412,6 +1412,7 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages'], true)) {
                 $id = (int) ($_POST['id'] ?? 0);
                 $appId = trim($_POST['app_id'] ?? '');
                 $langKey = trim($_POST['lang_key'] ?? '');
+                $title = trim($_POST['title'] ?? '');
                 $contentHtml = trim($_POST['content_html'] ?? '');
 
                 if ($appId === '' || $langKey === '' || $contentHtml === '') {
@@ -1427,16 +1428,16 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages'], true)) {
                 }
 
                 if ($id > 0) {
-                    $stmt = $pdo->prepare('UPDATE app_content SET app_id = ?, lang_key = ?, content_html = ? WHERE id = ?');
-                    $stmt->execute([$appId, $langKey, $contentHtml, $id]);
+                    $stmt = $pdo->prepare('UPDATE app_content SET app_id = ?, lang_key = ?, title = ?, content_html = ? WHERE id = ?');
+                    $stmt->execute([$appId, $langKey, $title !== '' ? $title : null, $contentHtml, $id]);
                     $message = 'Đã cập nhật nội dung mô tả.';
                 } else {
                     $stmt = $pdo->prepare('
-                        INSERT INTO app_content (app_id, lang_key, content_html)
-                        VALUES (?, ?, ?)
-                        ON DUPLICATE KEY UPDATE content_html = VALUES(content_html)
+                        INSERT INTO app_content (app_id, lang_key, title, content_html)
+                        VALUES (?, ?, ?, ?)
+                        ON DUPLICATE KEY UPDATE title = VALUES(title), content_html = VALUES(content_html)
                     ');
-                    $stmt->execute([$appId, $langKey, $contentHtml]);
+                    $stmt->execute([$appId, $langKey, $title !== '' ? $title : null, $contentHtml]);
                     $message = 'Đã lưu nội dung mô tả.';
                 }
             }
@@ -1467,19 +1468,25 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages'], true)) {
                     }
 
                     $stmt = $pdo->prepare('
-                        SELECT content_html
+                        SELECT title, content_html
                         FROM app_content
                         WHERE app_id = ? AND lang_key = "en" AND TRIM(content_html) <> ""
                         LIMIT 1
                     ');
                     $stmt->execute([$appId]);
-                    $sourceHtml = (string) $stmt->fetchColumn();
+                    $sourceContent = $stmt->fetch() ?: null;
+                    $sourceTitle = trim((string) ($sourceContent['title'] ?? ''));
+                    $sourceHtml = trim((string) ($sourceContent['content_html'] ?? ''));
                     if ($sourceHtml === '') {
                         throw new RuntimeException('Chưa có mô tả app tiếng Anh để dịch.');
                     }
 
+                    $translatedTitle = '';
+                    if ($sourceTitle !== '') {
+                        $translatedTitle = admin_gemini_translate($pdo, $sourceTitle, $langKey, 'app title plain text');
+                    }
                     $translated = admin_gemini_translate($pdo, $sourceHtml, $langKey, 'app description html');
-                    admin_json_success(['content_html' => $translated]);
+                    admin_json_success(['title' => $translatedTitle, 'content_html' => $translated]);
                 } catch (Throwable $e) {
                     admin_json_error($e->getMessage());
                 }
@@ -2833,6 +2840,10 @@ if (appContentAppInput && appContentLangInput && aiAppContentButton) {
 
             const editor = document.getElementById('app_content_editor');
             const source = document.getElementById('app_content_html');
+            const titleInput = document.getElementById('app_content_title');
+            if (titleInput && typeof payload.title === 'string' && payload.title.trim() !== '') {
+                titleInput.value = payload.title.trim();
+            }
             if (editor && source) {
                 editor.innerHTML = payload.content_html || '';
                 source.value = editor.innerHTML.trim();

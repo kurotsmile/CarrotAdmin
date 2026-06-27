@@ -545,6 +545,11 @@
                             </div>
 
                             <div class="mb-3">
+                                <label class="form-label" for="app_content_title">Title</label>
+                                <input class="form-control" id="app_content_title" name="title" value="<?= htmlspecialchars($editingAppContent['title'] ?? '') ?>" placeholder="<?= htmlspecialchars((string) ($editingAppContent['app_id'] ?? $selectedAppId)) ?>">
+                            </div>
+
+                            <div class="mb-3">
                                 <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2">
                                     <label class="form-label mb-0" for="app_content_html">HTML content</label>
                                     <button class="btn btn-sm btn-secondary d-none js-ai-app-content-generate" type="button">
@@ -578,6 +583,7 @@
                                     <thead>
                                     <tr>
                                         <th>Lang</th>
+                                        <th>Title</th>
                                         <th>Cập nhật</th>
                                         <th></th>
                                     </tr>
@@ -586,6 +592,7 @@
                                     <?php foreach ($appContentRows as $content): ?>
                                         <tr>
                                             <td class="font-monospace small"><?= htmlspecialchars($content['lang_key']) ?></td>
+                                            <td><?= htmlspecialchars(trim((string) ($content['title'] ?? '')) ?: (string) ($content['app_id'] ?? '')) ?></td>
                                             <td><?= htmlspecialchars($content['updated_at'] ?? '') ?></td>
                                             <td class="text-end">
                                                 <div class="d-inline-flex align-items-center justify-content-end gap-2 flex-nowrap">
@@ -604,7 +611,7 @@
                                         </tr>
                                     <?php endforeach; ?>
                                     <?php if (!$appContentRows): ?>
-                                        <tr><td colspan="3" class="text-center muted-text py-4">App này chưa có nội dung mô tả.</td></tr>
+                                        <tr><td colspan="4" class="text-center muted-text py-4">App này chưa có nội dung mô tả.</td></tr>
                                     <?php endif; ?>
                                     </tbody>
                                 </table>

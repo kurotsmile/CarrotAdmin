@@ -177,6 +177,7 @@ function admin_ensure_app_content_table(PDO $pdo): void
           id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
           app_id VARCHAR(255) NOT NULL,
           lang_key VARCHAR(24) NOT NULL,
+          title VARCHAR(255) DEFAULT NULL,
           content_html LONGTEXT NOT NULL,
           created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
           updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -188,6 +189,11 @@ function admin_ensure_app_content_table(PDO $pdo): void
             ON DELETE CASCADE ON UPDATE CASCADE
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     ");
+
+    $columns = $pdo->query('SHOW COLUMNS FROM app_content')->fetchAll(PDO::FETCH_COLUMN);
+    if (!in_array('title', $columns, true)) {
+        $pdo->exec('ALTER TABLE app_content ADD title VARCHAR(255) DEFAULT NULL AFTER lang_key');
+    }
 }
 
 function admin_ensure_paypal_config_table(PDO $pdo): void
