@@ -1734,6 +1734,17 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages'], true)) {
                 $message = 'Đã xóa nhãn.';
             }
 
+            if ($section === 'country' && $action === 'delete_text_label_group') {
+                $labelKey = trim($_POST['key'] ?? '');
+                if ($labelKey === '') {
+                    throw new RuntimeException('Không tìm thấy key cần xóa.');
+                }
+
+                $stmt = $pdo->prepare('DELETE FROM text_label WHERE `key` = ?');
+                $stmt->execute([$labelKey]);
+                $message = 'Đã xóa toàn bộ value thuộc key "' . $labelKey . '".';
+            }
+
             if ($section === 'country' && $action === 'ajax_find_text_label_source') {
                 $labelKey = trim($_POST['key'] ?? '');
                 $langKey = trim($_POST['lang_key'] ?? '');
@@ -2007,25 +2018,40 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages'], true)) {
         $textLabels = ($section === 'country' && $countryTab === 'labels')
             ? []
             : [];
+        $selectedLabelKey = trim($_GET['label_key'] ?? '');
+        if ($selectedLabelKey === '' && $editingLabel && !empty($editingLabel['key'])) {
+            $selectedLabelKey = (string) $editingLabel['key'];
+        }
+        $selectedLabelRows = [];
+        $selectedLabelLangs = [];
+        $selectedLabelStats = ['label_count' => 0, 'langs' => '', 'latest_update' => null];
         if ($section === 'country' && $countryTab === 'labels') {
-            $labelSearchWhere = '';
+            $labelSearchHaving = '';
             $labelSearchParams = [];
             if ($textLabelSearch !== '') {
-                $labelSearchWhere = ' WHERE `key` LIKE :label_q';
-                $labelSearchParams[':label_q'] = '%' . $textLabelSearch . '%';
+                $labelSearchHaving = ' HAVING `key` LIKE :label_key_q OR langs LIKE :label_lang_q OR searchable_text LIKE :label_text_q';
+                $labelSearchValue = '%' . $textLabelSearch . '%';
+                $labelSearchParams = [
+                    ':label_key_q' => $labelSearchValue,
+                    ':label_lang_q' => $labelSearchValue,
+                    ':label_text_q' => $labelSearchValue,
+                ];
             }
 
-            $countStmt = $pdo->prepare('SELECT COUNT(*) FROM text_label' . $labelSearchWhere);
+            $labelGroupSql = '
+                SELECT `key`, COUNT(*) AS label_count, GROUP_CONCAT(DISTINCT lang_key ORDER BY lang_key SEPARATOR ", ") AS langs,
+                       MAX(updated_at) AS latest_update, GROUP_CONCAT(value SEPARATOR " ") AS searchable_text
+                FROM text_label
+                GROUP BY `key`
+            ';
+            $countStmt = $pdo->prepare('SELECT COUNT(*) FROM (' . $labelGroupSql . $labelSearchHaving . ') label_groups');
             $countStmt->execute($labelSearchParams);
             $textLabelTotal = (int) $countStmt->fetchColumn();
             $textLabelTotalPages = max(1, (int) ceil($textLabelTotal / $textLabelPerPage));
             $textLabelPage = min($textLabelPage, $textLabelTotalPages);
             $textLabelOffset = ($textLabelPage - 1) * $textLabelPerPage;
 
-            $labelStmt = $pdo->prepare(
-                'SELECT * FROM text_label' . $labelSearchWhere .
-                ' ORDER BY ' . admin_order_by($textLabelSortColumns, $textLabelSort, $textLabelDir) . ', lang_key ASC LIMIT :limit OFFSET :offset'
-            );
+            $labelStmt = $pdo->prepare($labelGroupSql . $labelSearchHaving . ' ORDER BY latest_update DESC, `key` ASC LIMIT :limit OFFSET :offset');
             foreach ($labelSearchParams as $paramKey => $paramValue) {
                 $labelStmt->bindValue($paramKey, $paramValue);
             }
@@ -2033,6 +2059,21 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages'], true)) {
             $labelStmt->bindValue(':offset', $textLabelOffset, PDO::PARAM_INT);
             $labelStmt->execute();
             $textLabels = $labelStmt->fetchAll();
+
+            if ($selectedLabelKey !== '') {
+                $selectedLabelStatsStmt = $pdo->prepare('
+                    SELECT COUNT(*) AS label_count, GROUP_CONCAT(DISTINCT lang_key ORDER BY lang_key SEPARATOR ", ") AS langs, MAX(updated_at) AS latest_update
+                    FROM text_label
+                    WHERE `key` = ?
+                ');
+                $selectedLabelStatsStmt->execute([$selectedLabelKey]);
+                $selectedLabelStats = $selectedLabelStatsStmt->fetch() ?: $selectedLabelStats;
+
+                $selectedLabelStmt = $pdo->prepare('SELECT * FROM text_label WHERE `key` = ? ORDER BY lang_key ASC, id DESC');
+                $selectedLabelStmt->execute([$selectedLabelKey]);
+                $selectedLabelRows = $selectedLabelStmt->fetchAll();
+                $selectedLabelLangs = array_values(array_unique(array_filter(array_map(static fn(array $label): string => (string) ($label['lang_key'] ?? ''), $selectedLabelRows))));
+            }
 
             $allLabelRows = $pdo->query('SELECT `key`, lang_key, value FROM text_label ORDER BY `key` ASC, lang_key ASC')->fetchAll();
             foreach ($allLabelRows as $label) {
