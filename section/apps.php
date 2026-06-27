@@ -11,6 +11,7 @@
             $appCategoryOptions = [];
             $appCategoryRows = [];
             $appCategoryContentRows = [];
+            $appCategoryContentUsedLangKeys = [];
             $editingAppCategory = null;
             $editingAppCategoryContent = null;
             $selectedCategoryId = trim($_GET['category_id'] ?? '');
@@ -137,6 +138,7 @@
                         $categoryContentStmt = $pdo->prepare('SELECT * FROM app_category_content WHERE category_id = ? ORDER BY key_lang ASC, id DESC');
                         $categoryContentStmt->execute([$selectedCategoryId]);
                         $appCategoryContentRows = $categoryContentStmt->fetchAll();
+                        $appCategoryContentUsedLangKeys = array_values(array_unique(array_filter(array_map(static fn(array $row): string => (string) ($row['key_lang'] ?? ''), $appCategoryContentRows))));
                     }
                     $appCategoryRows = $pdo->query('
                         SELECT c.category_id, c.icon, COUNT(DISTINCT ca.app_id) AS app_count, COUNT(DISTINCT cc.id) AS content_count
@@ -701,9 +703,24 @@
                             </div>
                             <div class="mb-3">
                                 <label class="form-label" for="category_content_key_lang">Key lang</label>
-                                <?php $categoryLangValue = (string) ($editingAppCategoryContent['key_lang'] ?? ($languageOptions[0]['lang_key'] ?? 'en')); ?>
+                                <?php
+                                $categoryLangValue = (string) ($editingAppCategoryContent['key_lang'] ?? '');
+                                $categoryAvailableLanguages = array_values(array_filter($languageOptions, static function (array $language) use ($appCategoryContentUsedLangKeys, $categoryLangValue): bool {
+                                    $langKey = (string) ($language['lang_key'] ?? '');
+                                    return $langKey === $categoryLangValue || !in_array($langKey, $appCategoryContentUsedLangKeys, true);
+                                }));
+                                if ($categoryLangValue === '') {
+                                    $categoryLangValue = (string) ($categoryAvailableLanguages[0]['lang_key'] ?? '');
+                                }
+                                ?>
                                 <select class="form-control js-app-content-lang-select" id="category_content_key_lang" name="key_lang" required>
-                                    <?= admin_language_select_options($languageOptions, $categoryLangValue) ?>
+                                    <?php if ($categoryLangValue === ''): ?>
+                                        <option value=""></option>
+                                    <?php endif; ?>
+                                    <?= admin_language_select_options($categoryAvailableLanguages, $categoryLangValue) ?>
+                                    <?php if ($categoryLangValue !== '' && !in_array($categoryLangValue, array_column($categoryAvailableLanguages, 'lang_key'), true)): ?>
+                                        <option value="<?= htmlspecialchars($categoryLangValue) ?>" selected><?= htmlspecialchars($categoryLangValue) ?></option>
+                                    <?php endif; ?>
                                 </select>
                             </div>
                             <div class="mb-3">
