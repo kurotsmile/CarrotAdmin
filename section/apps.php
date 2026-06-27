@@ -8,11 +8,19 @@
             $appContentRows = [];
             $appContentSummary = [];
             $appContentUsedLangKeys = [];
+            $appCategoryOptions = [];
+            $appCategoryRows = [];
+            $appCategoryContentRows = [];
+            $editingAppCategory = null;
+            $editingAppCategoryContent = null;
+            $selectedCategoryId = trim($_GET['category_id'] ?? '');
             $editingAppPhoto = null;
             $editingAppContent = null;
             $selectedAppId = trim($_GET['app_id'] ?? '');
             $photoEditId = (int) ($_GET['photo_edit'] ?? 0);
             $contentEditId = (int) ($_GET['content_edit'] ?? 0);
+            $categoryEditId = trim($_GET['category_edit'] ?? '');
+            $categoryContentEditId = (int) ($_GET['category_content_edit'] ?? 0);
             $appPerPage = 25;
             $appTotal = 0;
             $appTotalPages = 1;
@@ -44,6 +52,7 @@
                 $appStmt->bindValue(':offset', $appOffset, PDO::PARAM_INT);
                 $appStmt->execute();
                 $apps = $appStmt->fetchAll();
+                $appCategoryOptions = $pdo->query('SELECT category_id, icon FROM app_category ORDER BY category_id ASC')->fetchAll();
 
                 if ($appTab === 'photos') {
                     $appOptions = $pdo->query('SELECT id FROM app ORDER BY id ASC')->fetchAll();
@@ -109,6 +118,35 @@
                         ORDER BY content_count DESC, app.id ASC
                     ')->fetchAll();
                 }
+
+                if ($appTab === 'categories') {
+                    if ($categoryEditId !== '') {
+                        $editingCategoryStmt = $pdo->prepare('SELECT * FROM app_category WHERE category_id = ?');
+                        $editingCategoryStmt->execute([$categoryEditId]);
+                        $editingAppCategory = $editingCategoryStmt->fetch() ?: null;
+                    }
+                    if ($categoryContentEditId > 0) {
+                        $editingCategoryContentStmt = $pdo->prepare('SELECT * FROM app_category_content WHERE id = ?');
+                        $editingCategoryContentStmt->execute([$categoryContentEditId]);
+                        $editingAppCategoryContent = $editingCategoryContentStmt->fetch() ?: null;
+                        if ($editingAppCategoryContent && $selectedCategoryId === '') {
+                            $selectedCategoryId = (string) $editingAppCategoryContent['category_id'];
+                        }
+                    }
+                    if ($selectedCategoryId !== '') {
+                        $categoryContentStmt = $pdo->prepare('SELECT * FROM app_category_content WHERE category_id = ? ORDER BY key_lang ASC, id DESC');
+                        $categoryContentStmt->execute([$selectedCategoryId]);
+                        $appCategoryContentRows = $categoryContentStmt->fetchAll();
+                    }
+                    $appCategoryRows = $pdo->query('
+                        SELECT c.category_id, c.icon, COUNT(DISTINCT ca.app_id) AS app_count, COUNT(DISTINCT cc.id) AS content_count
+                        FROM app_category c
+                        LEFT JOIN category_app ca ON ca.category_id = c.category_id
+                        LEFT JOIN app_category_content cc ON cc.category_id = c.category_id
+                        GROUP BY c.category_id, c.icon
+                        ORDER BY c.category_id ASC
+                    ')->fetchAll();
+                }
             }
             ?>
             <ul class="nav nav-tabs mb-4">
@@ -120,6 +158,9 @@
                 </li>
                 <li class="nav-item">
                     <a class="nav-link <?= $appTab === 'content' ? 'active' : '' ?>" href="index.php?section=apps&tab=content">Nội dung mô tả</a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link <?= $appTab === 'categories' ? 'active' : '' ?>" href="index.php?section=apps&tab=categories">Chuyên mục</a>
                 </li>
             </ul>
 
@@ -163,7 +204,19 @@
                             </div>
                             <div class="col-md-6">
                                 <label class="form-label" for="category">Category</label>
-                                <input class="form-control" id="category" name="category" value="<?= htmlspecialchars($editing['category'] ?? '') ?>">
+                                <?php
+                                $selectedCategoryIds = $editing ? admin_fetch_app_category_ids($pdo, (string) $editing['id']) : [];
+                                if (!$selectedCategoryIds && !empty($editing['category'])) {
+                                    $selectedCategoryIds = array_values(array_filter(array_map('trim', explode(',', (string) $editing['category']))));
+                                }
+                                ?>
+                                <select class="form-control js-app-category-select" id="category" name="category_ids[]" multiple>
+                                    <?php foreach ($appCategoryOptions as $categoryOption): ?>
+                                        <option value="<?= htmlspecialchars($categoryOption['category_id']) ?>" <?= in_array((string) $categoryOption['category_id'], $selectedCategoryIds, true) ? 'selected' : '' ?>>
+                                            <?= htmlspecialchars($categoryOption['category_id']) ?>
+                                        </option>
+                                    <?php endforeach; ?>
+                                </select>
                             </div>
                         </div>
 
@@ -599,6 +652,170 @@
                                 </tbody>
                             </table>
                         </div>
+                    </div>
+                </div>
+            </div>
+            <?php endif; ?>
+
+            <?php if ($appTab === 'categories'): ?>
+            <div class="row g-4">
+                <div class="col-xl-5">
+                    <div class="glass-panel p-4 mb-4">
+                        <form method="post">
+                            <input type="hidden" name="action" value="save_app_category">
+                            <input type="hidden" name="original_category_id" value="<?= htmlspecialchars($editingAppCategory['category_id'] ?? '') ?>">
+                            <h2 class="h5 mb-3"><?= $editingAppCategory ? 'Cập nhật chuyên mục' : 'Thêm chuyên mục' ?></h2>
+                            <div class="mb-3">
+                                <label class="form-label" for="app_category_id">Category ID</label>
+                                <input class="form-control" id="app_category_id" name="category_id" value="<?= htmlspecialchars($editingAppCategory['category_id'] ?? '') ?>" required>
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label" for="app_category_icon">Icon</label>
+                                <div class="input-group">
+                                    <input class="form-control" id="app_category_icon" name="icon" value="<?= htmlspecialchars($editingAppCategory['icon'] ?? '') ?>">
+                                    <button class="btn btn-secondary js-upload" type="button" data-target="app_category_icon" data-type-media="carrot_app" data-mode="replace" data-accept="image/*">Upload</button>
+                                </div>
+                            </div>
+                            <button class="btn <?= $editingAppCategory ? 'btn-warning' : 'btn-success' ?> fw-bold w-100" type="submit"><?= $editingAppCategory ? 'Lưu cập nhật' : 'Lưu chuyên mục' ?></button>
+                            <?php if ($editingAppCategory): ?>
+                                <a class="btn btn-light fw-bold w-100 mt-2" href="index.php?section=apps&tab=categories">Hủy sửa</a>
+                            <?php endif; ?>
+                        </form>
+                    </div>
+
+                    <div class="glass-panel p-4">
+                        <form method="post">
+                            <input type="hidden" name="action" value="save_app_category_content">
+                            <input type="hidden" name="id" value="<?= (int) ($editingAppCategoryContent['id'] ?? 0) ?>">
+                            <h2 class="h5 mb-3"><?= $editingAppCategoryContent ? 'Cập nhật nội dung chuyên mục' : 'Thêm nội dung chuyên mục' ?></h2>
+                            <div class="mb-3">
+                                <label class="form-label" for="category_content_category_id">Category</label>
+                                <select class="form-select" id="category_content_category_id" name="category_id" required>
+                                    <option value="">Chọn category</option>
+                                    <?php foreach ($appCategoryOptions as $categoryOption): ?>
+                                        <option value="<?= htmlspecialchars($categoryOption['category_id']) ?>" <?= (($editingAppCategoryContent['category_id'] ?? $selectedCategoryId) === $categoryOption['category_id']) ? 'selected' : '' ?>>
+                                            <?= htmlspecialchars($categoryOption['category_id']) ?>
+                                        </option>
+                                    <?php endforeach; ?>
+                                </select>
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label" for="category_content_key_lang">Key lang</label>
+                                <?php $categoryLangValue = (string) ($editingAppCategoryContent['key_lang'] ?? ($languageOptions[0]['lang_key'] ?? 'en')); ?>
+                                <select class="form-control js-app-content-lang-select" id="category_content_key_lang" name="key_lang" required>
+                                    <?= admin_language_select_options($languageOptions, $categoryLangValue) ?>
+                                </select>
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label" for="category_content_title">Title</label>
+                                <input class="form-control" id="category_content_title" name="title" value="<?= htmlspecialchars($editingAppCategoryContent['title'] ?? '') ?>" required>
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label" for="category_content_description">Description</label>
+                                <textarea class="form-control" id="category_content_description" name="description" rows="5"><?= htmlspecialchars($editingAppCategoryContent['description'] ?? '') ?></textarea>
+                            </div>
+                            <button class="btn <?= $editingAppCategoryContent ? 'btn-warning' : 'btn-success' ?> fw-bold w-100" type="submit"><?= $editingAppCategoryContent ? 'Lưu cập nhật' : 'Lưu nội dung' ?></button>
+                            <?php if ($editingAppCategoryContent): ?>
+                                <a class="btn btn-light fw-bold w-100 mt-2" href="index.php?section=apps&tab=categories&category_id=<?= urlencode((string) $editingAppCategoryContent['category_id']) ?>">Hủy sửa</a>
+                            <?php endif; ?>
+                        </form>
+                    </div>
+                </div>
+
+                <div class="col-xl-7">
+                    <div class="glass-panel p-4">
+                        <h2 class="h5 mb-3">Danh sách chuyên mục</h2>
+                        <div class="table-responsive-sm">
+                            <table class="table table-striped table-hover table-sm align-middle">
+                                <thead>
+                                <tr>
+                                    <th>Category</th>
+                                    <th class="text-center">App</th>
+                                    <th class="text-center">Lang</th>
+                                    <th></th>
+                                </tr>
+                                </thead>
+                                <tbody>
+                                <?php foreach ($appCategoryRows as $category): ?>
+                                    <tr>
+                                        <td>
+                                            <div class="d-flex align-items-center gap-3">
+                                                <?php if (!empty($category['icon'])): ?>
+                                                    <img src="<?= htmlspecialchars($category['icon']) ?>" alt="" width="44" height="44" class="rounded-2 object-fit-cover">
+                                                <?php endif; ?>
+                                                <strong><?= htmlspecialchars($category['category_id']) ?></strong>
+                                            </div>
+                                        </td>
+                                        <td class="text-center"><span class="badge text-bg-secondary"><?= (int) $category['app_count'] ?></span></td>
+                                        <td class="text-center"><span class="badge text-bg-secondary"><?= (int) $category['content_count'] ?></span></td>
+                                        <td class="text-end">
+                                            <div class="d-inline-flex align-items-center justify-content-end gap-2 flex-nowrap">
+                                                <a class="btn btn-sm <?= $selectedCategoryId === $category['category_id'] ? 'btn-success' : 'btn-secondary' ?>" href="index.php?section=apps&tab=categories&category_id=<?= urlencode($category['category_id']) ?>" title="Xem nội dung" aria-label="Xem nội dung">
+                                                    <i data-lucide="languages" style="width:16px;height:16px"></i>
+                                                </a>
+                                                <a class="btn btn-sm btn-warning" href="index.php?section=apps&tab=categories&category_edit=<?= urlencode($category['category_id']) ?>" title="Cập nhật" aria-label="Cập nhật">
+                                                    <i data-lucide="pencil" style="width:16px;height:16px"></i>
+                                                </a>
+                                                <form class="js-delete" method="post" data-confirm="Xóa chuyên mục này?">
+                                                    <input type="hidden" name="action" value="delete_app_category">
+                                                    <input type="hidden" name="category_id" value="<?= htmlspecialchars($category['category_id']) ?>">
+                                                    <button class="btn btn-sm btn-danger" type="submit" title="Xóa" aria-label="Xóa">
+                                                        <i data-lucide="trash-2" style="width:16px;height:16px"></i>
+                                                    </button>
+                                                </form>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                <?php endforeach; ?>
+                                <?php if (!$appCategoryRows): ?>
+                                    <tr><td colspan="4" class="text-center muted-text py-4">Chưa có chuyên mục.</td></tr>
+                                <?php endif; ?>
+                                </tbody>
+                            </table>
+                        </div>
+
+                        <?php if ($selectedCategoryId !== ''): ?>
+                            <hr>
+                            <h3 class="h6 mb-3">Nội dung: <?= htmlspecialchars($selectedCategoryId) ?></h3>
+                            <div class="table-responsive-sm">
+                                <table class="table table-striped table-hover table-sm align-middle">
+                                    <thead>
+                                    <tr>
+                                        <th>Lang</th>
+                                        <th>Title</th>
+                                        <th>Cập nhật</th>
+                                        <th></th>
+                                    </tr>
+                                    </thead>
+                                    <tbody>
+                                    <?php foreach ($appCategoryContentRows as $content): ?>
+                                        <tr>
+                                            <td class="font-monospace small"><?= htmlspecialchars($content['key_lang']) ?></td>
+                                            <td><?= htmlspecialchars($content['title']) ?></td>
+                                            <td><?= htmlspecialchars($content['updated_at'] ?? '') ?></td>
+                                            <td class="text-end">
+                                                <div class="d-inline-flex align-items-center justify-content-end gap-2 flex-nowrap">
+                                                    <a class="btn btn-sm btn-warning" href="index.php?section=apps&tab=categories&category_id=<?= urlencode($content['category_id']) ?>&category_content_edit=<?= (int) $content['id'] ?>" title="Cập nhật" aria-label="Cập nhật">
+                                                        <i data-lucide="pencil" style="width:16px;height:16px"></i>
+                                                    </a>
+                                                    <form class="js-delete" method="post" data-confirm="Xóa nội dung chuyên mục này?">
+                                                        <input type="hidden" name="action" value="delete_app_category_content">
+                                                        <input type="hidden" name="id" value="<?= (int) $content['id'] ?>">
+                                                        <button class="btn btn-sm btn-danger" type="submit" title="Xóa" aria-label="Xóa">
+                                                            <i data-lucide="trash-2" style="width:16px;height:16px"></i>
+                                                        </button>
+                                                    </form>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    <?php endforeach; ?>
+                                    <?php if (!$appCategoryContentRows): ?>
+                                        <tr><td colspan="4" class="text-center muted-text py-4">Chuyên mục này chưa có nội dung.</td></tr>
+                                    <?php endif; ?>
+                                    </tbody>
+                                </table>
+                            </div>
+                        <?php endif; ?>
                     </div>
                 </div>
             </div>

@@ -81,7 +81,7 @@ $section = in_array($_GET['section'] ?? 'overview', $allowedSections, true) ? ($
 $editKey = trim($_GET['edit'] ?? '');
 $editId = isset($_GET['edit']) ? (int) $_GET['edit'] : 0;
 $cocTab = ($_GET['tab'] ?? 'accounts') === 'orders' ? 'orders' : 'accounts';
-$appTab = in_array($_GET['tab'] ?? 'main', ['main', 'photos', 'content'], true) ? ($_GET['tab'] ?? 'main') : 'main';
+$appTab = in_array($_GET['tab'] ?? 'main', ['main', 'photos', 'content', 'categories'], true) ? ($_GET['tab'] ?? 'main') : 'main';
 $countryTab = ($_GET['tab'] ?? 'countries') === 'labels' ? 'labels' : 'countries';
 $paypalTab = ($_GET['tab'] ?? 'home') === 'coc' ? 'coc' : 'home';
 $editing = null;
@@ -229,6 +229,42 @@ function admin_fetch_app(PDO $pdo, string $id): ?array
 {
     $stmt = $pdo->prepare('SELECT * FROM app WHERE id = ?');
     $stmt->execute([$id]);
+    $row = $stmt->fetch();
+    return $row ?: null;
+}
+
+function admin_fetch_app_category_ids(PDO $pdo, string $appId): array
+{
+    try {
+        $stmt = $pdo->prepare('SELECT category_id FROM category_app WHERE app_id = ? ORDER BY category_id ASC');
+        $stmt->execute([$appId]);
+        return array_values(array_filter(array_map('strval', $stmt->fetchAll(PDO::FETCH_COLUMN))));
+    } catch (Throwable $e) {
+        return [];
+    }
+}
+
+function admin_sync_app_categories(PDO $pdo, string $appId, array $categoryIds): void
+{
+    $categoryIds = array_values(array_unique(array_filter(array_map(static function ($value): string {
+        return trim((string) $value);
+    }, $categoryIds))));
+
+    $pdo->prepare('DELETE FROM category_app WHERE app_id = ?')->execute([$appId]);
+    if (!$categoryIds) {
+        return;
+    }
+
+    $insert = $pdo->prepare('INSERT IGNORE INTO category_app (app_id, category_id) VALUES (?, ?)');
+    foreach ($categoryIds as $categoryId) {
+        $insert->execute([$appId, $categoryId]);
+    }
+}
+
+function admin_fetch_app_category(PDO $pdo, string $categoryId): ?array
+{
+    $stmt = $pdo->prepare('SELECT * FROM app_category WHERE category_id = ?');
+    $stmt->execute([$categoryId]);
     $row = $stmt->fetch();
     return $row ?: null;
 }
@@ -1033,6 +1069,10 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages'], true)) {
             $languageOptions = admin_fetch_language_options($pdo instanceof PDO ? $pdo : null);
         }
 
+        if ($section === 'apps') {
+            admin_ensure_app_category_tables($pdo);
+        }
+
         if ($section === 'paypal') {
             admin_ensure_paypal_config_table($pdo);
         }
@@ -1104,6 +1144,18 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages'], true)) {
                 $message = 'Đã xóa nội dung mô tả.';
             }
 
+            if ($section === 'apps' && $action === 'delete_app_category') {
+                $stmt = $pdo->prepare('DELETE FROM app_category WHERE category_id = ?');
+                $stmt->execute([trim($_POST['category_id'] ?? '')]);
+                $message = 'Đã xóa chuyên mục.';
+            }
+
+            if ($section === 'apps' && $action === 'delete_app_category_content') {
+                $stmt = $pdo->prepare('DELETE FROM app_category_content WHERE id = ?');
+                $stmt->execute([(int) ($_POST['id'] ?? 0)]);
+                $message = 'Đã xóa nội dung chuyên mục.';
+            }
+
             if ($section === 'apps' && $action === 'save_app') {
                 $originalId = trim($_POST['original_id'] ?? '');
                 $id = trim($_POST['id'] ?? '');
@@ -1127,14 +1179,76 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages'], true)) {
                     $values[$field] = trim($_POST[$field] ?? '');
                 }
 
+                $categoryIds = $_POST['category_ids'] ?? [];
+                if (!is_array($categoryIds)) {
+                    $categoryIds = [$categoryIds];
+                }
+                $values['category'] = implode(',', array_values(array_unique(array_filter(array_map(static fn($value): string => trim((string) $value), $categoryIds)))));
+
                 if ($originalId !== '') {
                     $stmt = $pdo->prepare('UPDATE app SET id = ?, decription = ?, github = ?, microsoft_store = ?, icon = ?, itch = ?, exe_file = ?, ipa_file = ?, deb_file = ?, amazon_app_store = ?, huawei_store = ?, youtube_link = ?, google_play = ?, dmg_file = ?, uptodown = ?, simmer = ?, type = ?, apk_file = ?, status = ?, priority = ?, price = ?, category = ? WHERE id = ?');
                     $stmt->execute([$id, $decription, $values['github'], $values['microsoft_store'], $values['icon'], $values['itch'], $values['exe_file'], $values['ipa_file'], $values['deb_file'], $values['amazon_app_store'], $values['huawei_store'], $values['youtube_link'], $values['google_play'], $values['dmg_file'], $values['uptodown'], $values['simmer'], $type, $values['apk_file'], $status, $priority, $price, $values['category'], $originalId]);
+                    admin_sync_app_categories($pdo, $id, $categoryIds);
                     $message = 'Đã cập nhật app.';
                 } else {
                     $stmt = $pdo->prepare('INSERT INTO app (id, decription, github, microsoft_store, icon, itch, exe_file, ipa_file, deb_file, amazon_app_store, huawei_store, youtube_link, google_play, dmg_file, uptodown, simmer, type, apk_file, status, priority, price, category) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
                     $stmt->execute([$id, $decription, $values['github'], $values['microsoft_store'], $values['icon'], $values['itch'], $values['exe_file'], $values['ipa_file'], $values['deb_file'], $values['amazon_app_store'], $values['huawei_store'], $values['youtube_link'], $values['google_play'], $values['dmg_file'], $values['uptodown'], $values['simmer'], $type, $values['apk_file'], $status, $priority, $price, $values['category']]);
+                    admin_sync_app_categories($pdo, $id, $categoryIds);
                     $message = 'Đã thêm app mới.';
+                }
+            }
+
+            if ($section === 'apps' && $action === 'save_app_category') {
+                $originalId = trim($_POST['original_category_id'] ?? '');
+                $categoryId = trim($_POST['category_id'] ?? '');
+                $icon = trim($_POST['icon'] ?? '');
+
+                if ($categoryId === '') {
+                    throw new RuntimeException('Vui lòng nhập category_id.');
+                }
+
+                if ($originalId !== '') {
+                    $stmt = $pdo->prepare('UPDATE app_category SET category_id = ?, icon = ? WHERE category_id = ?');
+                    $stmt->execute([$categoryId, $icon, $originalId]);
+                    $message = 'Đã cập nhật chuyên mục.';
+                } else {
+                    $stmt = $pdo->prepare('INSERT INTO app_category (category_id, icon) VALUES (?, ?) ON DUPLICATE KEY UPDATE icon = VALUES(icon)');
+                    $stmt->execute([$categoryId, $icon]);
+                    $message = 'Đã lưu chuyên mục.';
+                }
+            }
+
+            if ($section === 'apps' && $action === 'save_app_category_content') {
+                $id = (int) ($_POST['id'] ?? 0);
+                $categoryId = trim($_POST['category_id'] ?? '');
+                $title = trim($_POST['title'] ?? '');
+                $description = trim($_POST['description'] ?? '');
+                $keyLang = trim($_POST['key_lang'] ?? '');
+
+                if ($categoryId === '' || $title === '' || $keyLang === '') {
+                    throw new RuntimeException('Vui lòng chọn category, nhập title và key_lang.');
+                }
+
+                if (!preg_match('/^[a-z]{2,3}(?:[-_][A-Za-z]{2})?$/', $keyLang)) {
+                    throw new RuntimeException('Key lang nên có dạng vi, en, en-US hoặc en_US.');
+                }
+
+                if (!admin_fetch_app_category($pdo, $categoryId)) {
+                    throw new RuntimeException('Category được chọn không tồn tại.');
+                }
+
+                if ($id > 0) {
+                    $stmt = $pdo->prepare('UPDATE app_category_content SET category_id = ?, title = ?, description = ?, key_lang = ? WHERE id = ?');
+                    $stmt->execute([$categoryId, $title, $description, $keyLang, $id]);
+                    $message = 'Đã cập nhật nội dung chuyên mục.';
+                } else {
+                    $stmt = $pdo->prepare('
+                        INSERT INTO app_category_content (category_id, title, description, key_lang)
+                        VALUES (?, ?, ?, ?)
+                        ON DUPLICATE KEY UPDATE title = VALUES(title), description = VALUES(description)
+                    ');
+                    $stmt->execute([$categoryId, $title, $description, $keyLang]);
+                    $message = 'Đã lưu nội dung chuyên mục.';
                 }
             }
 
@@ -1841,7 +1955,7 @@ $trafficRows = [
     ['label' => 'CarrotHome', 'url' => 'https://home.carrot28.com/', 'metrics' => $trafficMetrics['home']],
     ['label' => 'Tổng cộng', 'url' => '', 'metrics' => $trafficMetrics['total']],
 ];
-$useSelect2 = $section === 'pages' || ($section === 'country' && $countryTab === 'labels');
+$useSelect2 = $section === 'apps' || $section === 'pages' || ($section === 'country' && $countryTab === 'labels');
 ?>
 <!doctype html>
 <html lang="vi">
@@ -2404,6 +2518,12 @@ if (window.jQuery && jQuery.fn.select2) {
                 newTag: true,
             };
         },
+    });
+
+    jQuery('.js-app-category-select').select2({
+        theme: 'bootstrap-5',
+        width: '100%',
+        placeholder: 'Chọn category',
     });
 }
 

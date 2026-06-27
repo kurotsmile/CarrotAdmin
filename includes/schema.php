@@ -71,6 +71,78 @@ function admin_ensure_app_table(PDO $pdo): void
           PRIMARY KEY (id)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     ");
+
+    $columns = $pdo->query('SHOW COLUMNS FROM app')->fetchAll(PDO::FETCH_COLUMN);
+    if (!in_array('category', $columns, true)) {
+        $pdo->exec('ALTER TABLE app ADD category LONGTEXT DEFAULT NULL AFTER price');
+    }
+}
+
+function admin_ensure_app_category_tables(PDO $pdo): void
+{
+    $pdo->exec("
+        CREATE TABLE IF NOT EXISTS app_category (
+          category_id VARCHAR(120) NOT NULL,
+          icon LONGTEXT DEFAULT NULL,
+          created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+          PRIMARY KEY (category_id)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    ");
+
+    $pdo->exec("
+        CREATE TABLE IF NOT EXISTS app_category_content (
+          id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+          category_id VARCHAR(120) NOT NULL,
+          title VARCHAR(255) NOT NULL,
+          description LONGTEXT DEFAULT NULL,
+          key_lang VARCHAR(24) NOT NULL DEFAULT 'en',
+          created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+          PRIMARY KEY (id),
+          UNIQUE KEY uq_app_category_content_lang (category_id, key_lang),
+          KEY idx_app_category_content_lang (key_lang),
+          CONSTRAINT fk_app_category_content_category
+            FOREIGN KEY (category_id) REFERENCES app_category (category_id)
+            ON DELETE CASCADE ON UPDATE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    ");
+
+    $pdo->exec("
+        CREATE TABLE IF NOT EXISTS category_app (
+          app_id VARCHAR(255) NOT NULL,
+          category_id VARCHAR(120) NOT NULL,
+          created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          PRIMARY KEY (app_id, category_id),
+          KEY idx_category_app_category (category_id),
+          CONSTRAINT fk_category_app_app
+            FOREIGN KEY (app_id) REFERENCES app (id)
+            ON DELETE CASCADE ON UPDATE CASCADE,
+          CONSTRAINT fk_category_app_category
+            FOREIGN KEY (category_id) REFERENCES app_category (category_id)
+            ON DELETE CASCADE ON UPDATE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    ");
+
+    $legacyRows = $pdo->query('SELECT id, category FROM app WHERE TRIM(COALESCE(category, "")) <> ""')->fetchAll(PDO::FETCH_ASSOC);
+    if ($legacyRows) {
+        $categoryInsert = $pdo->prepare('INSERT IGNORE INTO app_category (category_id) VALUES (?)');
+        $mappingInsert = $pdo->prepare('INSERT IGNORE INTO category_app (app_id, category_id) VALUES (?, ?)');
+        foreach ($legacyRows as $row) {
+            $categoryIds = preg_split('/\s*,\s*/', (string) ($row['category'] ?? ''), -1, PREG_SPLIT_NO_EMPTY);
+            foreach ($categoryIds as $categoryId) {
+                $categoryId = trim((string) $categoryId);
+                if ($categoryId === '') {
+                    continue;
+                }
+                if (strlen($categoryId) > 120) {
+                    $categoryId = substr($categoryId, 0, 120);
+                }
+                $categoryInsert->execute([$categoryId]);
+                $mappingInsert->execute([(string) $row['id'], $categoryId]);
+            }
+        }
+    }
 }
 
 function admin_ensure_app_photo_table(PDO $pdo): void
