@@ -707,7 +707,17 @@
                                 </select>
                             </div>
                             <div class="mb-3">
-                                <label class="form-label" for="category_content_title">Title</label>
+                                <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2">
+                                    <label class="form-label mb-0" for="category_content_title">Title</label>
+                                    <div class="d-flex flex-wrap gap-2">
+                                        <button class="btn btn-sm btn-primary js-ai-category-request" type="button">
+                                            <span class="d-inline-flex align-items-center gap-2"><i data-lucide="wand-sparkles" style="width:16px;height:16px"></i>Yêu cầu AI</span>
+                                        </button>
+                                        <button class="btn btn-sm btn-secondary d-none js-ai-category-generate" type="button">
+                                            <span class="d-inline-flex align-items-center gap-2"><i data-lucide="sparkles" style="width:16px;height:16px"></i>Tạo bằng AI</span>
+                                        </button>
+                                    </div>
+                                </div>
                                 <input class="form-control" id="category_content_title" name="title" value="<?= htmlspecialchars($editingAppCategoryContent['title'] ?? '') ?>" required>
                             </div>
                             <div class="mb-3">

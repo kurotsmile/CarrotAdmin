@@ -617,6 +617,60 @@ PROMPT;
     return $result;
 }
 
+function admin_gemini_generate_category_content(PDO $pdo, string $idea, string $categoryId, string $lang, string $currentTitle = '', string $currentDescription = ''): array
+{
+    $prompt = <<<PROMPT
+You are a senior app store taxonomy editor.
+Write or improve category copy from the admin's request and return only valid JSON.
+
+Target language: {$lang}
+Category ID: {$categoryId}
+Current title: {$currentTitle}
+Current description:
+{$currentDescription}
+
+Admin request:
+{$idea}
+
+Return exactly this JSON shape:
+{
+  "title": "short natural category title",
+  "description": "clear category description, 1-3 concise sentences"
+}
+
+Rules:
+- Keep title suitable for a navigation/category card.
+- Description should be useful for an app/game category page.
+- Do not include markdown, HTML, code fences, or explanations outside the JSON.
+PROMPT;
+
+    $text = admin_gemini_complete($pdo, $prompt, 0.7);
+    $text = trim(preg_replace('/^```(?:json)?\s*|\s*```$/i', '', $text) ?? $text);
+    $data = json_decode($text, true);
+    if (!is_array($data)) {
+        $start = strpos($text, '{');
+        $end = strrpos($text, '}');
+        if ($start !== false && $end !== false && $end > $start) {
+            $data = json_decode(substr($text, $start, $end - $start + 1), true);
+        }
+    }
+
+    if (!is_array($data)) {
+        throw new RuntimeException('AI không trả về JSON hợp lệ.');
+    }
+
+    $result = [
+        'title' => admin_substr(trim((string) ($data['title'] ?? '')), 255),
+        'description' => trim((string) ($data['description'] ?? '')),
+    ];
+
+    if ($result['title'] === '' || $result['description'] === '') {
+        throw new RuntimeException('AI chưa tạo đủ title và description.');
+    }
+
+    return $result;
+}
+
 function admin_fetch_language_options(?PDO $pdo): array
 {
     if (!$pdo instanceof PDO) {
@@ -1077,7 +1131,7 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages'], true)) {
             admin_ensure_paypal_config_table($pdo);
         }
 
-        if ($section === 'ai_support' || in_array($_POST['action'] ?? '', ['save_ai_support_config', 'ajax_ai_translate_page', 'ajax_ai_translate_label', 'ajax_find_text_label_source', 'ajax_find_app_content_source', 'ajax_ai_translate_app_content'], true)) {
+        if ($section === 'ai_support' || in_array($_POST['action'] ?? '', ['save_ai_support_config', 'ajax_ai_translate_page', 'ajax_ai_translate_label', 'ajax_find_text_label_source', 'ajax_find_app_content_source', 'ajax_ai_translate_app_content', 'ajax_find_app_category_content_source', 'ajax_ai_translate_app_category_content', 'ajax_ai_request_app_category_content'], true)) {
             admin_ensure_ai_support_table($pdo);
         }
 
@@ -1249,6 +1303,78 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages'], true)) {
                     ');
                     $stmt->execute([$categoryId, $title, $description, $keyLang]);
                     $message = 'Đã lưu nội dung chuyên mục.';
+                }
+            }
+
+            if ($section === 'apps' && $action === 'ajax_find_app_category_content_source') {
+                $categoryId = trim($_POST['category_id'] ?? '');
+                $keyLang = trim($_POST['key_lang'] ?? '');
+                if ($categoryId === '' || $keyLang === '' || $keyLang === 'en') {
+                    admin_json_success(['source_en' => null]);
+                }
+
+                $stmt = $pdo->prepare('
+                    SELECT id, category_id, key_lang, title
+                    FROM app_category_content
+                    WHERE category_id = ? AND key_lang = "en" AND TRIM(title) <> ""
+                    LIMIT 1
+                ');
+                $stmt->execute([$categoryId]);
+                admin_json_success(['source_en' => $stmt->fetch() ?: null]);
+            }
+
+            if ($section === 'apps' && $action === 'ajax_ai_translate_app_category_content') {
+                try {
+                    $categoryId = trim($_POST['category_id'] ?? '');
+                    $keyLang = trim($_POST['key_lang'] ?? '');
+                    if ($categoryId === '' || $keyLang === '' || $keyLang === 'en') {
+                        throw new RuntimeException('Vui lòng chọn category và key_lang khác en.');
+                    }
+
+                    $stmt = $pdo->prepare('
+                        SELECT title, description
+                        FROM app_category_content
+                        WHERE category_id = ? AND key_lang = "en" AND TRIM(title) <> ""
+                        LIMIT 1
+                    ');
+                    $stmt->execute([$categoryId]);
+                    $source = $stmt->fetch();
+                    if (!$source) {
+                        throw new RuntimeException('Chưa có nội dung chuyên mục tiếng Anh để dịch.');
+                    }
+
+                    $translated = [
+                        'title' => admin_gemini_translate($pdo, (string) ($source['title'] ?? ''), $keyLang, 'app category title'),
+                        'description' => '',
+                    ];
+                    $sourceDescription = trim((string) ($source['description'] ?? ''));
+                    if ($sourceDescription !== '') {
+                        $translated['description'] = admin_gemini_translate($pdo, $sourceDescription, $keyLang, 'app category description');
+                    }
+
+                    admin_json_success($translated);
+                } catch (Throwable $e) {
+                    admin_json_error($e->getMessage());
+                }
+            }
+
+            if ($section === 'apps' && $action === 'ajax_ai_request_app_category_content') {
+                try {
+                    $idea = trim($_POST['idea'] ?? '');
+                    $categoryId = trim($_POST['category_id'] ?? '');
+                    $keyLang = trim($_POST['key_lang'] ?? 'vi');
+                    $currentTitle = trim($_POST['title'] ?? '');
+                    $currentDescription = trim($_POST['description'] ?? '');
+                    if ($idea === '') {
+                        throw new RuntimeException('Vui lòng nhập yêu cầu cho AI.');
+                    }
+                    if ($categoryId === '' || $keyLang === '') {
+                        throw new RuntimeException('Vui lòng chọn category và key_lang trước khi yêu cầu AI.');
+                    }
+
+                    admin_json_success(admin_gemini_generate_category_content($pdo, $idea, $categoryId, $keyLang, $currentTitle, $currentDescription));
+                } catch (Throwable $e) {
+                    admin_json_error($e->getMessage());
                 }
             }
 
@@ -2682,6 +2808,179 @@ if (appContentAppInput && appContentLangInput && aiAppContentButton) {
     });
 
     checkEnglishAppContentSource();
+}
+
+const categoryContentCategoryInput = document.getElementById('category_content_category_id');
+const categoryContentLangInput = document.getElementById('category_content_key_lang');
+const categoryContentTitleInput = document.getElementById('category_content_title');
+const categoryContentDescriptionInput = document.getElementById('category_content_description');
+const aiCategoryRequestButton = document.querySelector('.js-ai-category-request');
+const aiCategoryGenerateButton = document.querySelector('.js-ai-category-generate');
+if (categoryContentCategoryInput && categoryContentLangInput) {
+    categoryContentCategoryInput.addEventListener('change', () => {
+        const categoryId = categoryContentCategoryInput.value.trim();
+        if (!categoryId) {
+            return;
+        }
+        window.location.href = `index.php?section=apps&tab=categories&category_id=${encodeURIComponent(categoryId)}`;
+    });
+}
+if (categoryContentCategoryInput && categoryContentLangInput && aiCategoryGenerateButton) {
+    let categoryContentLookupTimer = null;
+    let hasEnglishCategorySource = false;
+
+    const fillCategoryAiFields = (payload) => {
+        if (categoryContentTitleInput && typeof payload.title === 'string' && payload.title !== '') {
+            categoryContentTitleInput.value = payload.title;
+        }
+        if (categoryContentDescriptionInput && typeof payload.description === 'string') {
+            categoryContentDescriptionInput.value = payload.description;
+        }
+    };
+
+    const checkEnglishCategorySource = () => {
+        window.clearTimeout(categoryContentLookupTimer);
+        categoryContentLookupTimer = window.setTimeout(async () => {
+            const categoryId = categoryContentCategoryInput.value.trim();
+            const keyLang = categoryContentLangInput.value.trim();
+            hasEnglishCategorySource = false;
+            aiCategoryGenerateButton.classList.add('d-none');
+            if (!categoryId || !keyLang || keyLang === 'en') {
+                return;
+            }
+
+            const formData = new FormData();
+            formData.append('action', 'ajax_find_app_category_content_source');
+            formData.append('category_id', categoryId);
+            formData.append('key_lang', keyLang);
+
+            try {
+                const response = await fetch('index.php?section=apps&tab=categories', {
+                    method: 'POST',
+                    body: formData,
+                });
+                const payload = await response.json();
+                hasEnglishCategorySource = Boolean(payload.source_en);
+                if (response.ok && payload.status === 'success' && hasEnglishCategorySource) {
+                    aiCategoryGenerateButton.classList.remove('d-none');
+                }
+            } catch (error) {
+            }
+        }, 250);
+    };
+
+    categoryContentCategoryInput.addEventListener('change', checkEnglishCategorySource);
+    categoryContentLangInput.addEventListener('change', checkEnglishCategorySource);
+
+    if (aiCategoryRequestButton) {
+        aiCategoryRequestButton.addEventListener('click', async () => {
+            const categoryId = categoryContentCategoryInput.value.trim();
+            const keyLang = categoryContentLangInput.value.trim();
+            if (!categoryId || !keyLang) {
+                await Swal.fire({icon: 'warning', title: 'Thiếu thông tin', text: 'Vui lòng chọn category và key_lang trước khi yêu cầu AI.'});
+                return;
+            }
+
+            const requestResult = await Swal.fire({
+                title: 'Yêu cầu AI',
+                input: 'textarea',
+                inputLabel: 'Bạn muốn AI viết hoặc chỉnh chuyên mục này như thế nào?',
+                inputPlaceholder: 'Ví dụ: Viết title ngắn gọn và description thân thiện cho chuyên mục app học tập...',
+                inputAttributes: {
+                    'aria-label': 'Yêu cầu nội dung category cho AI',
+                },
+                inputAutoTrim: true,
+                showCancelButton: true,
+                confirmButtonText: 'Tạo nội dung',
+                cancelButtonText: 'Hủy',
+                preConfirm: (value) => {
+                    if (!value || !value.trim()) {
+                        Swal.showValidationMessage('Vui lòng nhập yêu cầu cho AI.');
+                        return false;
+                    }
+                    return value.trim();
+                },
+            });
+
+            if (!requestResult.isConfirmed) {
+                return;
+            }
+
+            aiCategoryRequestButton.disabled = true;
+            const originalHtml = aiCategoryRequestButton.innerHTML;
+            aiCategoryRequestButton.innerHTML = '<span class="d-inline-flex align-items-center gap-2"><span class="spinner-border spinner-border-sm" aria-hidden="true"></span>Đang viết</span>';
+
+            const formData = new FormData();
+            formData.append('action', 'ajax_ai_request_app_category_content');
+            formData.append('idea', requestResult.value);
+            formData.append('category_id', categoryId);
+            formData.append('key_lang', keyLang);
+            formData.append('title', categoryContentTitleInput?.value.trim() || '');
+            formData.append('description', categoryContentDescriptionInput?.value.trim() || '');
+
+            try {
+                const response = await fetch('index.php?section=apps&tab=categories', {
+                    method: 'POST',
+                    body: formData,
+                });
+                const payload = await response.json();
+                if (!response.ok || payload.status !== 'success') {
+                    throw new Error(payload.message || 'Không tạo được nội dung category theo yêu cầu AI.');
+                }
+
+                fillCategoryAiFields(payload);
+                await Swal.fire({icon: 'success', title: 'Đã tạo nội dung', text: 'AI đã chèn Title và Description vào form.'});
+            } catch (error) {
+                await Swal.fire({icon: 'warning', title: 'AI lỗi', text: error.message});
+            } finally {
+                aiCategoryRequestButton.disabled = false;
+                aiCategoryRequestButton.innerHTML = originalHtml;
+                if (window.lucide) {
+                    lucide.createIcons();
+                }
+            }
+        });
+    }
+
+    aiCategoryGenerateButton.addEventListener('click', async () => {
+        const categoryId = categoryContentCategoryInput.value.trim();
+        const keyLang = categoryContentLangInput.value.trim();
+        if (!categoryId || !keyLang || keyLang === 'en' || !hasEnglishCategorySource) {
+            return;
+        }
+
+        aiCategoryGenerateButton.disabled = true;
+        const originalHtml = aiCategoryGenerateButton.innerHTML;
+        aiCategoryGenerateButton.innerHTML = '<span class="d-inline-flex align-items-center gap-2"><span class="spinner-border spinner-border-sm" aria-hidden="true"></span>Đang tạo</span>';
+
+        const formData = new FormData();
+        formData.append('action', 'ajax_ai_translate_app_category_content');
+        formData.append('category_id', categoryId);
+        formData.append('key_lang', keyLang);
+
+        try {
+            const response = await fetch('index.php?section=apps&tab=categories', {
+                method: 'POST',
+                body: formData,
+            });
+            const payload = await response.json();
+            if (!response.ok || payload.status !== 'success') {
+                throw new Error(payload.message || 'Không tạo được nội dung category bằng AI.');
+            }
+
+            fillCategoryAiFields(payload);
+        } catch (error) {
+            await Swal.fire({icon: 'warning', title: 'AI lỗi', text: error.message});
+        } finally {
+            aiCategoryGenerateButton.disabled = false;
+            aiCategoryGenerateButton.innerHTML = originalHtml;
+            if (window.lucide) {
+                lucide.createIcons();
+            }
+        }
+    });
+
+    checkEnglishCategorySource();
 }
 
 const pageSlugInput = document.getElementById('page_slug');
