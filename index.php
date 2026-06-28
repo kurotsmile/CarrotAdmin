@@ -1262,17 +1262,24 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages'], true)) {
 
             if ($section === 'apps' && $action === 'save_app_store') {
                 $id = (int) ($_POST['id'] ?? 0);
-                $slug = trim($_POST['slug'] ?? '');
                 $title = trim($_POST['title'] ?? '');
                 $description = trim($_POST['description'] ?? '');
                 $icon = trim($_POST['icon'] ?? '');
                 $link = trim($_POST['link'] ?? '');
-                $platform = trim($_POST['platform'] ?? '');
-                $status = trim($_POST['status'] ?? 'active');
-                $sortOrder = (int) ($_POST['sort_order'] ?? 0);
+                $slug = trim($_POST['slug'] ?? '');
+                if ($slug === '') {
+                    $slug = strtolower(preg_replace('/[^a-z0-9]+/i', '-', $title) ?: 'store');
+                    $slug = trim((string) $slug, '-');
+                    if ($slug === '') {
+                        $slug = 'store-' . ($id > 0 ? $id : time());
+                    }
+                }
+                $platform = '';
+                $status = 'active';
+                $sortOrder = 0;
 
-                if ($slug === '' || $title === '' || $link === '') {
-                    throw new RuntimeException('Vui lòng nhập slug, title và link cho cổng phân phối.');
+                if ($title === '' || $link === '') {
+                    throw new RuntimeException('Vui lòng nhập tên store và link cho cổng phân phối.');
                 }
 
                 if ($id > 0) {

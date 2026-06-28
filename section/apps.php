@@ -177,7 +177,7 @@
                     <a class="nav-link <?= $appTab === 'categories' ? 'active' : '' ?>" href="index.php?section=apps&tab=categories">Chuyên mục</a>
                 </li>
                 <li class="nav-item">
-                    <a class="nav-link <?= $appTab === 'stores' ? 'active' : '' ?>" href="index.php?section=apps&tab=stores">App Store Other</a>
+                    <a class="nav-link <?= $appTab === 'stores' ? 'active' : '' ?>" href="index.php?section=apps&tab=stores">Store Khác</a>
                 </li>
             </ul>
 
@@ -387,12 +387,7 @@
                         <h2 class="h5 mb-3"><?= $editingAppStore ? 'Cập nhật cổng phân phối' : 'Thêm cổng phân phối' ?></h2>
 
                         <div class="mb-3">
-                            <label class="form-label" for="app_store_slug">Slug</label>
-                            <input class="form-control" id="app_store_slug" name="slug" value="<?= htmlspecialchars($editingAppStore['slug'] ?? '') ?>" required>
-                        </div>
-
-                        <div class="mb-3">
-                            <label class="form-label" for="app_store_title">Tiêu đề</label>
+                            <label class="form-label" for="app_store_title">Tên store</label>
                             <input class="form-control" id="app_store_title" name="title" value="<?= htmlspecialchars($editingAppStore['title'] ?? '') ?>" required>
                         </div>
 
@@ -414,21 +409,6 @@
                             <input class="form-control" id="app_store_link" name="link" value="<?= htmlspecialchars($editingAppStore['link'] ?? '') ?>" required>
                         </div>
 
-                        <div class="row g-3">
-                            <div class="col-md-6">
-                                <label class="form-label" for="app_store_platform">Platform</label>
-                                <input class="form-control" id="app_store_platform" name="platform" value="<?= htmlspecialchars($editingAppStore['platform'] ?? '') ?>" placeholder="Google Play, Amazon App, Microsoft Store">
-                            </div>
-                            <div class="col-md-3">
-                                <label class="form-label" for="app_store_sort_order">Thứ tự</label>
-                                <input class="form-control" id="app_store_sort_order" name="sort_order" type="number" value="<?= htmlspecialchars((string) ($editingAppStore['sort_order'] ?? 0)) ?>">
-                            </div>
-                            <div class="col-md-3">
-                                <label class="form-label" for="app_store_status">Status</label>
-                                <input class="form-control" id="app_store_status" name="status" value="<?= htmlspecialchars($editingAppStore['status'] ?? 'active') ?>">
-                            </div>
-                        </div>
-
                         <button class="btn <?= $editingAppStore ? 'btn-warning' : 'btn-success' ?> fw-bold w-100 mt-3" type="submit"><?= $editingAppStore ? 'Lưu cập nhật' : 'Thêm cổng' ?></button>
                         <?php if ($editingAppStore): ?>
                             <a class="btn btn-light fw-bold w-100 mt-2" href="index.php?section=apps&tab=stores">Hủy sửa</a>
@@ -439,7 +419,7 @@
                 <div class="col-xl-7">
                     <div class="glass-panel p-4">
                         <div class="d-flex justify-content-between align-items-center mb-3">
-                            <h2 class="h5 mb-0">Danh sách App Store Other</h2>
+                            <h2 class="h5 mb-0">Danh sách Store Khác</h2>
                             <div class="muted-text small"><?= number_format(count($appStoreRows)) ?> mục</div>
                         </div>
                         <div class="table-responsive-sm">
