@@ -2241,6 +2241,9 @@ $useSelect2 = $section === 'apps' || $section === 'pages' || ($section === 'coun
                         <h1 class="h3 mb-0"><?= $sectionTitles[$section] ?? 'Acc Clash of Clans' ?></h1>
                     </div>
                     <div class="dashboard-actions d-flex flex-wrap gap-2">
+                        <?php if ($section === 'apps'): ?>
+                            <a class="btn btn-secondary fw-bold" href="https://home.carrot28.com/" target="_blank" rel="noopener noreferrer">Carrot Store</a>
+                        <?php endif; ?>
                         <?php if ($section === 'coc'): ?>
                             <a class="btn btn-secondary fw-bold" href="https://coc.carrot28.com/" target="_blank" rel="noopener noreferrer">Xem shop</a>
                         <?php endif; ?>
