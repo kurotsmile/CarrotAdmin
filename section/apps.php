@@ -17,6 +17,8 @@
             $selectedCategoryId = trim($_GET['category_id'] ?? '');
             $editingAppPhoto = null;
             $editingAppContent = null;
+            $editingAppStore = null;
+            $appStoreRows = [];
             $selectedAppId = trim($_GET['app_id'] ?? '');
             $photoEditId = (int) ($_GET['photo_edit'] ?? 0);
             $contentEditId = (int) ($_GET['content_edit'] ?? 0);
@@ -120,6 +122,16 @@
                     ')->fetchAll();
                 }
 
+                if ($appTab === 'stores') {
+                    $storeEditId = (int) ($_GET['store_edit'] ?? 0);
+                    if ($storeEditId > 0) {
+                        $editingStoreStmt = $pdo->prepare('SELECT * FROM app_store WHERE id = ?');
+                        $editingStoreStmt->execute([$storeEditId]);
+                        $editingAppStore = $editingStoreStmt->fetch() ?: null;
+                    }
+                    $appStoreRows = $pdo->query('SELECT * FROM app_store ORDER BY sort_order ASC, title ASC, id DESC')->fetchAll();
+                }
+
                 if ($appTab === 'categories') {
                     if ($categoryEditId !== '') {
                         $editingCategoryStmt = $pdo->prepare('SELECT * FROM app_category WHERE category_id = ?');
@@ -163,6 +175,9 @@
                 </li>
                 <li class="nav-item">
                     <a class="nav-link <?= $appTab === 'categories' ? 'active' : '' ?>" href="index.php?section=apps&tab=categories">Chuyên mục</a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link <?= $appTab === 'stores' ? 'active' : '' ?>" href="index.php?section=apps&tab=stores">App Store Other</a>
                 </li>
             </ul>
 
@@ -358,6 +373,122 @@
                             </table>
                         </div>
                         <?= admin_pagination($appPageParams, 'app_page', $appPage, $appTotalPages, 'Phân trang app') ?>
+                    </div>
+                </div>
+            </div>
+            <?php endif; ?>
+
+            <?php if ($appTab === 'stores'): ?>
+            <div class="row g-4">
+                <div class="col-xl-5">
+                    <form class="glass-panel p-4" method="post">
+                        <input type="hidden" name="action" value="save_app_store">
+                        <input type="hidden" name="id" value="<?= (int) ($editingAppStore['id'] ?? 0) ?>">
+                        <h2 class="h5 mb-3"><?= $editingAppStore ? 'Cập nhật cổng phân phối' : 'Thêm cổng phân phối' ?></h2>
+
+                        <div class="mb-3">
+                            <label class="form-label" for="app_store_slug">Slug</label>
+                            <input class="form-control" id="app_store_slug" name="slug" value="<?= htmlspecialchars($editingAppStore['slug'] ?? '') ?>" required>
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label" for="app_store_title">Tiêu đề</label>
+                            <input class="form-control" id="app_store_title" name="title" value="<?= htmlspecialchars($editingAppStore['title'] ?? '') ?>" required>
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label" for="app_store_description">Mô tả</label>
+                            <textarea class="form-control" id="app_store_description" name="description" rows="3"><?= htmlspecialchars($editingAppStore['description'] ?? '') ?></textarea>
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label" for="app_store_icon">Icon</label>
+                            <div class="input-group">
+                                <input class="form-control" id="app_store_icon" name="icon" value="<?= htmlspecialchars($editingAppStore['icon'] ?? '') ?>">
+                                <button class="btn btn-secondary js-upload" type="button" data-target="app_store_icon" data-type-media="carrot_app" data-mode="replace" data-accept="image/*">Upload</button>
+                            </div>
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label" for="app_store_link">Link</label>
+                            <input class="form-control" id="app_store_link" name="link" value="<?= htmlspecialchars($editingAppStore['link'] ?? '') ?>" required>
+                        </div>
+
+                        <div class="row g-3">
+                            <div class="col-md-6">
+                                <label class="form-label" for="app_store_platform">Platform</label>
+                                <input class="form-control" id="app_store_platform" name="platform" value="<?= htmlspecialchars($editingAppStore['platform'] ?? '') ?>" placeholder="Google Play, Amazon App, Microsoft Store">
+                            </div>
+                            <div class="col-md-3">
+                                <label class="form-label" for="app_store_sort_order">Thứ tự</label>
+                                <input class="form-control" id="app_store_sort_order" name="sort_order" type="number" value="<?= htmlspecialchars((string) ($editingAppStore['sort_order'] ?? 0)) ?>">
+                            </div>
+                            <div class="col-md-3">
+                                <label class="form-label" for="app_store_status">Status</label>
+                                <input class="form-control" id="app_store_status" name="status" value="<?= htmlspecialchars($editingAppStore['status'] ?? 'active') ?>">
+                            </div>
+                        </div>
+
+                        <button class="btn <?= $editingAppStore ? 'btn-warning' : 'btn-success' ?> fw-bold w-100 mt-3" type="submit"><?= $editingAppStore ? 'Lưu cập nhật' : 'Thêm cổng' ?></button>
+                        <?php if ($editingAppStore): ?>
+                            <a class="btn btn-light fw-bold w-100 mt-2" href="index.php?section=apps&tab=stores">Hủy sửa</a>
+                        <?php endif; ?>
+                    </form>
+                </div>
+
+                <div class="col-xl-7">
+                    <div class="glass-panel p-4">
+                        <div class="d-flex justify-content-between align-items-center mb-3">
+                            <h2 class="h5 mb-0">Danh sách App Store Other</h2>
+                            <div class="muted-text small"><?= number_format(count($appStoreRows)) ?> mục</div>
+                        </div>
+                        <div class="table-responsive-sm">
+                            <table class="table table-striped table-hover table-sm align-middle">
+                                <thead>
+                                <tr>
+                                    <th>Icon</th>
+                                    <th>Store</th>
+                                    <th>Platform</th>
+                                    <th>Status</th>
+                                    <th></th>
+                                </tr>
+                                </thead>
+                                <tbody>
+                                <?php foreach ($appStoreRows as $store): ?>
+                                    <tr>
+                                        <td>
+                                            <?php if (!empty($store['icon'])): ?>
+                                                <img src="<?= htmlspecialchars($store['icon']) ?>" alt="" width="40" height="40" class="rounded-2 object-fit-cover">
+                                            <?php endif; ?>
+                                        </td>
+                                        <td>
+                                            <div class="fw-bold"><?= htmlspecialchars($store['title']) ?></div>
+                                            <div class="small muted-text"><?= htmlspecialchars($store['slug']) ?></div>
+                                        </td>
+                                        <td><?= htmlspecialchars($store['platform'] ?: '—') ?></td>
+                                        <td><?= htmlspecialchars($store['status'] ?: 'active') ?></td>
+                                        <td class="text-end">
+                                            <div class="d-inline-flex gap-2">
+                                                <a class="btn btn-sm btn-warning" href="index.php?section=apps&tab=stores&store_edit=<?= (int) $store['id'] ?>" title="Sửa" aria-label="Sửa">
+                                                    <i data-lucide="pencil" style="width:16px;height:16px"></i>
+                                                </a>
+                                                <form class="js-delete" method="post" data-confirm="Xóa cổng phân phối này?">
+                                                    <input type="hidden" name="action" value="delete_app_store">
+                                                    <input type="hidden" name="id" value="<?= (int) $store['id'] ?>">
+                                                    <button class="btn btn-sm btn-danger" type="submit" title="Xóa" aria-label="Xóa">
+                                                        <i data-lucide="trash-2" style="width:16px;height:16px"></i>
+                                                    </button>
+                                                </form>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                <?php endforeach; ?>
+                                <?php if (!$appStoreRows): ?>
+                                    <tr><td colspan="5" class="text-center muted-text py-4">Chưa có cổng phân phối nào.</td></tr>
+                                <?php endif; ?>
+                                </tbody>
+                            </table>
+                        </div>
                     </div>
                 </div>
             </div>

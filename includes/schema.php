@@ -78,6 +78,39 @@ function admin_ensure_app_table(PDO $pdo): void
     }
 }
 
+function admin_ensure_app_store_table(PDO $pdo): void
+{
+    $pdo->exec("
+        CREATE TABLE IF NOT EXISTS app_store (
+          id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+          slug VARCHAR(120) NOT NULL,
+          title VARCHAR(255) NOT NULL,
+          description LONGTEXT DEFAULT NULL,
+          icon LONGTEXT DEFAULT NULL,
+          link LONGTEXT DEFAULT NULL,
+          platform VARCHAR(120) DEFAULT NULL,
+          sort_order INT NOT NULL DEFAULT 0,
+          status VARCHAR(24) NOT NULL DEFAULT 'active',
+          created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+          PRIMARY KEY (id),
+          UNIQUE KEY uq_app_store_slug (slug),
+          KEY idx_app_store_status_sort (status, sort_order, id)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    ");
+
+    $columns = $pdo->query('SHOW COLUMNS FROM app_store')->fetchAll(PDO::FETCH_COLUMN);
+    if (!in_array('platform', $columns, true)) {
+        $pdo->exec("ALTER TABLE app_store ADD platform VARCHAR(120) DEFAULT NULL AFTER link");
+    }
+    if (!in_array('sort_order', $columns, true)) {
+        $pdo->exec("ALTER TABLE app_store ADD sort_order INT NOT NULL DEFAULT 0 AFTER platform");
+    }
+    if (!in_array('status', $columns, true)) {
+        $pdo->exec("ALTER TABLE app_store ADD status VARCHAR(24) NOT NULL DEFAULT 'active' AFTER sort_order");
+    }
+}
+
 function admin_ensure_app_category_tables(PDO $pdo): void
 {
     $pdo->exec("

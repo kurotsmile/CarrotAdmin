@@ -81,7 +81,7 @@ $section = in_array($_GET['section'] ?? 'overview', $allowedSections, true) ? ($
 $editKey = trim($_GET['edit'] ?? '');
 $editId = isset($_GET['edit']) ? (int) $_GET['edit'] : 0;
 $cocTab = ($_GET['tab'] ?? 'accounts') === 'orders' ? 'orders' : 'accounts';
-$appTab = in_array($_GET['tab'] ?? 'main', ['main', 'photos', 'content', 'categories'], true) ? ($_GET['tab'] ?? 'main') : 'main';
+$appTab = in_array($_GET['tab'] ?? 'main', ['main', 'photos', 'content', 'categories', 'stores'], true) ? ($_GET['tab'] ?? 'main') : 'main';
 $countryTab = ($_GET['tab'] ?? 'countries') === 'labels' ? 'labels' : 'countries';
 $paypalTab = ($_GET['tab'] ?? 'home') === 'coc' ? 'coc' : 'home';
 $editing = null;
@@ -1124,6 +1124,8 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages'], true)) {
         }
 
         if ($section === 'apps') {
+            admin_ensure_app_table($pdo);
+            admin_ensure_app_store_table($pdo);
             admin_ensure_app_category_tables($pdo);
         }
 
@@ -1192,6 +1194,12 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages'], true)) {
                 $message = 'Đã xóa ảnh mô tả.';
             }
 
+            if ($section === 'apps' && $action === 'delete_app_store') {
+                $stmt = $pdo->prepare('DELETE FROM app_store WHERE id = ?');
+                $stmt->execute([(int) ($_POST['id'] ?? 0)]);
+                $message = 'Đã xóa cổng phân phối.';
+            }
+
             if ($section === 'apps' && $action === 'delete_app_content') {
                 $stmt = $pdo->prepare('DELETE FROM app_content WHERE id = ?');
                 $stmt->execute([(int) ($_POST['id'] ?? 0)]);
@@ -1249,6 +1257,32 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages'], true)) {
                     $stmt->execute([$id, $decription, $values['github'], $values['microsoft_store'], $values['icon'], $values['itch'], $values['exe_file'], $values['ipa_file'], $values['deb_file'], $values['amazon_app_store'], $values['huawei_store'], $values['youtube_link'], $values['google_play'], $values['dmg_file'], $values['uptodown'], $values['simmer'], $type, $values['apk_file'], $status, $priority, $price, $values['category']]);
                     admin_sync_app_categories($pdo, $id, $categoryIds);
                     $message = 'Đã thêm app mới.';
+                }
+            }
+
+            if ($section === 'apps' && $action === 'save_app_store') {
+                $id = (int) ($_POST['id'] ?? 0);
+                $slug = trim($_POST['slug'] ?? '');
+                $title = trim($_POST['title'] ?? '');
+                $description = trim($_POST['description'] ?? '');
+                $icon = trim($_POST['icon'] ?? '');
+                $link = trim($_POST['link'] ?? '');
+                $platform = trim($_POST['platform'] ?? '');
+                $status = trim($_POST['status'] ?? 'active');
+                $sortOrder = (int) ($_POST['sort_order'] ?? 0);
+
+                if ($slug === '' || $title === '' || $link === '') {
+                    throw new RuntimeException('Vui lòng nhập slug, title và link cho cổng phân phối.');
+                }
+
+                if ($id > 0) {
+                    $stmt = $pdo->prepare('UPDATE app_store SET slug = ?, title = ?, description = ?, icon = ?, link = ?, platform = ?, sort_order = ?, status = ? WHERE id = ?');
+                    $stmt->execute([$slug, $title, $description, $icon, $link, $platform, $sortOrder, $status, $id]);
+                    $message = 'Đã cập nhật cổng phân phối.';
+                } else {
+                    $stmt = $pdo->prepare('INSERT INTO app_store (slug, title, description, icon, link, platform, sort_order, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
+                    $stmt->execute([$slug, $title, $description, $icon, $link, $platform, $sortOrder, $status]);
+                    $message = 'Đã thêm cổng phân phối.';
                 }
             }
 
