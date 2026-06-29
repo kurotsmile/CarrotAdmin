@@ -40,6 +40,37 @@ function admin_ensure_page_table(PDO $pdo): void
     }
 }
 
+function admin_ensure_user_table(PDO $pdo): void
+{
+    $pdo->exec("
+        CREATE TABLE IF NOT EXISTS users (
+          id INTEGER PRIMARY KEY AUTO_INCREMENT,
+          address TEXT DEFAULT NULL,
+          avatar TEXT DEFAULT NULL,
+          created_at TEXT DEFAULT NULL,
+          email TEXT DEFAULT NULL,
+          lang TEXT DEFAULT NULL,
+          name TEXT DEFAULT NULL,
+          password TEXT DEFAULT NULL,
+          phone TEXT DEFAULT NULL,
+          role TEXT DEFAULT NULL,
+          sex TEXT DEFAULT NULL,
+          status_share TEXT DEFAULT NULL,
+          type TEXT DEFAULT NULL,
+          birthday TEXT DEFAULT NULL,
+          KEY idx_users_email (email(191)),
+          KEY idx_users_role (role(64))
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    ");
+
+    $columns = $pdo->query('SHOW COLUMNS FROM users')->fetchAll(PDO::FETCH_COLUMN);
+    foreach (['address', 'avatar', 'created_at', 'email', 'lang', 'name', 'password', 'phone', 'role', 'sex', 'status_share', 'type', 'birthday'] as $column) {
+        if (!in_array($column, $columns, true)) {
+            $pdo->exec('ALTER TABLE users ADD `' . $column . '` TEXT DEFAULT NULL');
+        }
+    }
+}
+
 function admin_ensure_app_table(PDO $pdo): void
 {
     $pdo->exec("

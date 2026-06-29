@@ -147,6 +147,10 @@ $results[] = install_run_step('CarrotHome page table', static function (): void 
     admin_ensure_page_table(install_carrot_home_pdo());
 });
 
+$results[] = install_run_step('CarrotHome users table', static function (): void {
+    admin_ensure_user_table(install_carrot_home_pdo());
+});
+
 $results[] = install_run_step('CarrotHome PayPal config table', static function (): void {
     admin_ensure_paypal_config_table(install_carrot_home_pdo());
 });

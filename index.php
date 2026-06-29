@@ -76,7 +76,7 @@ require __DIR__ . '/includes/schema.php';
 
 $message = '';
 $error = '';
-$allowedSections = ['overview', 'apps', 'pages', 'bank', 'coc', 'country', 'paypal', 'ai_support'];
+$allowedSections = ['overview', 'apps', 'pages', 'users', 'bank', 'coc', 'country', 'paypal', 'ai_support'];
 $section = in_array($_GET['section'] ?? 'overview', $allowedSections, true) ? ($_GET['section'] ?? 'overview') : 'overview';
 $editKey = trim($_GET['edit'] ?? '');
 $editId = isset($_GET['edit']) ? (int) $_GET['edit'] : 0;
@@ -89,6 +89,7 @@ $editingLabel = null;
 $accounts = [];
 $apps = [];
 $pages = [];
+$users = [];
 $banks = [];
 $countries = [];
 $languageOptions = [];
@@ -100,6 +101,7 @@ $orders = [];
 $dashboardMetrics = [
     'apps' => 0,
     'pages' => 0,
+    'users' => 0,
     'coc' => 0,
     'bank' => 0,
     'country' => 0,
@@ -126,6 +128,8 @@ $appSort = 'priority';
 $appDir = 'DESC';
 $pageSort = 'updated_at';
 $pageDir = 'DESC';
+$userSort = 'created_at';
+$userDir = 'DESC';
 $bankSort = 'id';
 $bankDir = 'DESC';
 $countrySort = 'id';
@@ -752,6 +756,14 @@ function admin_fetch_page(PDO $pdo, int $id): ?array
     return $row ?: null;
 }
 
+function admin_fetch_user(PDO $pdo, int $id): ?array
+{
+    $stmt = $pdo->prepare('SELECT * FROM users WHERE id = ?');
+    $stmt->execute([$id]);
+    $row = $stmt->fetch();
+    return $row ?: null;
+}
+
 function admin_fetch_page_by_slug_lang(PDO $pdo, string $slug, string $lang): ?array
 {
     $stmt = $pdo->prepare('
@@ -1077,12 +1089,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'ajax_
     admin_ajax_upload();
 }
 
-if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages'], true)) {
+if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages', 'users'], true)) {
     $error = 'Không thể kết nối database: ' . ($db_error ?? 'unknown error');
 } else {
     try {
         $homePdo = null;
-        if ($section === 'pages') {
+        if (in_array($section, ['pages', 'users'], true)) {
             $homePdo = admin_home_pdo();
         }
 
@@ -1096,8 +1108,10 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages'], true)) {
             try {
                 $overviewHomePdo = admin_home_pdo();
                 $dashboardMetrics['pages'] = admin_safe_count_table($overviewHomePdo, 'page');
+                $dashboardMetrics['users'] = admin_safe_count_table($overviewHomePdo, 'users');
             } catch (Throwable $e) {
                 $dashboardMetrics['pages'] = 0;
+                $dashboardMetrics['users'] = 0;
             }
             $trafficMetrics['coc'] = admin_visit_metrics($pdo, 'coc');
             $trafficMetrics['home'] = admin_visit_metrics($overviewHomePdo, 'home');
@@ -1127,6 +1141,10 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages'], true)) {
             admin_ensure_app_table($pdo);
             admin_ensure_app_store_table($pdo);
             admin_ensure_app_category_tables($pdo);
+        }
+
+        if ($section === 'users') {
+            admin_ensure_user_table($homePdo);
         }
 
         if ($section === 'paypal') {
@@ -1741,6 +1759,69 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages'], true)) {
                 }
             }
 
+            if ($section === 'users' && $action === 'delete_user') {
+                $stmt = $homePdo->prepare('DELETE FROM users WHERE id = ?');
+                $stmt->execute([(int) ($_POST['id'] ?? 0)]);
+                $message = 'Đã xóa user.';
+            }
+
+            if ($section === 'users' && $action === 'save_user') {
+                $id = (int) ($_POST['id'] ?? 0);
+                $name = trim($_POST['name'] ?? '');
+                $email = trim($_POST['email'] ?? '');
+                $phone = trim($_POST['phone'] ?? '');
+                $password = trim($_POST['password'] ?? '');
+                $avatar = trim($_POST['avatar'] ?? '');
+                $address = trim($_POST['address'] ?? '');
+                $lang = trim($_POST['lang'] ?? 'vi');
+                $role = trim($_POST['role'] ?? 'user');
+                $sex = trim($_POST['sex'] ?? '');
+                $statusShare = trim($_POST['status_share'] ?? 'private');
+                $type = trim($_POST['type'] ?? 'normal');
+                $birthday = trim($_POST['birthday'] ?? '');
+                $createdAt = trim($_POST['created_at'] ?? '');
+
+                if ($name === '' || $email === '') {
+                    throw new RuntimeException('Vui lòng nhập name và email.');
+                }
+
+                if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
+                    throw new RuntimeException('Email không hợp lệ.');
+                }
+
+                if ($createdAt === '') {
+                    $createdAt = date('Y-m-d H:i:s');
+                }
+
+                if ($password !== '' && password_get_info($password)['algo'] === 0) {
+                    $password = password_hash($password, PASSWORD_DEFAULT);
+                }
+
+                if ($id > 0) {
+                    $currentUser = admin_fetch_user($homePdo, $id);
+                    if (!$currentUser) {
+                        throw new RuntimeException('Không tìm thấy user cần cập nhật.');
+                    }
+                    if ($password === '') {
+                        $password = (string) ($currentUser['password'] ?? '');
+                    }
+                    $stmt = $homePdo->prepare('
+                        UPDATE users
+                        SET address = ?, avatar = ?, created_at = ?, email = ?, lang = ?, name = ?, password = ?, phone = ?, role = ?, sex = ?, status_share = ?, type = ?, birthday = ?
+                        WHERE id = ?
+                    ');
+                    $stmt->execute([$address, $avatar, $createdAt, $email, $lang, $name, $password, $phone, $role, $sex, $statusShare, $type, $birthday, $id]);
+                    $message = 'Đã cập nhật user.';
+                } else {
+                    $stmt = $homePdo->prepare('
+                        INSERT INTO users (address, avatar, created_at, email, lang, name, password, phone, role, sex, status_share, type, birthday)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ');
+                    $stmt->execute([$address, $avatar, $createdAt, $email, $lang, $name, $password, $phone, $role, $sex, $statusShare, $type, $birthday]);
+                    $message = 'Đã thêm user mới.';
+                }
+            }
+
             if ($section === 'bank' && $action === 'delete_bank') {
                 $stmt = $pdo->prepare('DELETE FROM bank WHERE id = ?');
                 $stmt->execute([(int) ($_POST['id'] ?? 0)]);
@@ -1959,6 +2040,10 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages'], true)) {
             $editing = admin_fetch_page($homePdo, $editId);
         }
 
+        if ($section === 'users' && $editId > 0) {
+            $editing = admin_fetch_user($homePdo, $editId);
+        }
+
         if ($section === 'bank' && $editId > 0) {
             $editing = admin_fetch_bank($pdo, $editId);
         }
@@ -2012,6 +2097,16 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages'], true)) {
         ];
         [$pageSort, $pageDir] = admin_sort_state($pageSortColumns, 'updated_at', 'DESC');
 
+        $userSortColumns = [
+            'id' => 'id',
+            'name' => 'name',
+            'email' => 'email',
+            'role' => 'role',
+            'type' => 'type',
+            'created_at' => 'created_at',
+        ];
+        [$userSort, $userDir] = admin_sort_state($userSortColumns, 'created_at', 'DESC');
+
         $bankSortColumns = [
             'id' => 'id',
             'name' => 'name',
@@ -2053,6 +2148,9 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages'], true)) {
             : [];
         $pages = $section === 'pages'
             ? $homePdo->query('SELECT * FROM page ORDER BY ' . admin_order_by($pageSortColumns, $pageSort, $pageDir) . ', id DESC')->fetchAll()
+            : [];
+        $users = $section === 'users'
+            ? $homePdo->query('SELECT * FROM users ORDER BY ' . admin_order_by($userSortColumns, $userSort, $userDir) . ', id DESC')->fetchAll()
             : [];
         if ($section === 'pages') {
             $pageSlugOptions = array_values(array_unique(array_filter(array_map(static fn(array $page): string => (string) ($page['slug'] ?? ''), $pages))));
@@ -2140,6 +2238,7 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages'], true)) {
         $accounts = [];
         $apps = [];
         $pages = [];
+        $users = [];
         $banks = [];
         $countries = [];
         $languageOptions = [];
@@ -2155,12 +2254,13 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages'], true)) {
 }
 
 $photoText = ($section === 'coc' && $editing) ? implode("\n", coc_decode_photos($editing['photos'])) : '';
-$pageTitle = ['overview' => 'Tổng quan', 'apps' => 'App', 'pages' => 'Page', 'bank' => 'Bank', 'coc' => 'Coc', 'country' => 'Country', 'paypal' => 'Paypal', 'ai_support' => 'AI Support'][$section] ?? 'Tổng quan';
-$sectionLabels = ['overview' => 'tổng quan', 'apps' => 'ứng dụng', 'pages' => 'Page/SEO', 'bank' => 'ngân hàng', 'coc' => 'shop', 'country' => 'quốc gia hỗ trợ', 'paypal' => 'PayPal', 'ai_support' => 'AI Support'];
-$sectionTitles = ['overview' => 'Tổng quan', 'apps' => 'App Carrot Home', 'pages' => 'Page Carrot Home', 'bank' => 'Bank', 'coc' => 'Acc Clash of Clans', 'country' => 'Country', 'paypal' => 'Paypal Config', 'ai_support' => 'AI - Support'];
+$pageTitle = ['overview' => 'Tổng quan', 'apps' => 'App', 'pages' => 'Page', 'users' => 'Users', 'bank' => 'Bank', 'coc' => 'Coc', 'country' => 'Country', 'paypal' => 'Paypal', 'ai_support' => 'AI Support'][$section] ?? 'Tổng quan';
+$sectionLabels = ['overview' => 'tổng quan', 'apps' => 'ứng dụng', 'pages' => 'Page/SEO', 'users' => 'người dùng', 'bank' => 'ngân hàng', 'coc' => 'shop', 'country' => 'quốc gia hỗ trợ', 'paypal' => 'PayPal', 'ai_support' => 'AI Support'];
+$sectionTitles = ['overview' => 'Tổng quan', 'apps' => 'App Carrot Home', 'pages' => 'Page Carrot Home', 'users' => 'User Carrot Home', 'bank' => 'Bank', 'coc' => 'Acc Clash of Clans', 'country' => 'Country', 'paypal' => 'Paypal Config', 'ai_support' => 'AI - Support'];
 $dashboardCards = [
     ['label' => 'App', 'value' => $dashboardMetrics['apps'], 'icon' => 'boxes'],
     ['label' => 'Page', 'value' => $dashboardMetrics['pages'], 'icon' => 'file-text'],
+    ['label' => 'Users', 'value' => $dashboardMetrics['users'], 'icon' => 'users'],
     ['label' => 'Coc', 'value' => $dashboardMetrics['coc'], 'icon' => 'shield'],
     ['label' => 'Bank', 'value' => $dashboardMetrics['bank'], 'icon' => 'landmark'],
     ['label' => 'Country', 'value' => $dashboardMetrics['country'], 'icon' => 'globe-2'],
@@ -2266,6 +2366,7 @@ $useSelect2 = $section === 'apps' || $section === 'pages' || ($section === 'coun
                 <a class="list-group-item list-group-item-action <?= $section === 'overview' ? 'active' : '' ?>" href="index.php"><i data-lucide="layout-dashboard"></i><span>Tổng quan</span></a>
                 <a class="list-group-item list-group-item-action <?= $section === 'apps' ? 'active' : '' ?>" href="index.php?section=apps"><i data-lucide="boxes"></i><span>App</span></a>
                 <a class="list-group-item list-group-item-action <?= $section === 'pages' ? 'active' : '' ?>" href="index.php?section=pages"><i data-lucide="file-text"></i><span>Page</span></a>
+                <a class="list-group-item list-group-item-action <?= $section === 'users' ? 'active' : '' ?>" href="index.php?section=users"><i data-lucide="users"></i><span>User</span></a>
                 <a class="list-group-item list-group-item-action <?= $section === 'coc' ? 'active' : '' ?>" href="index.php?section=coc"><i data-lucide="shield"></i><span>Coc</span></a>
                 <a class="list-group-item list-group-item-action <?= $section === 'paypal' ? 'active' : '' ?>" href="index.php?section=paypal"><i data-lucide="credit-card"></i><span>Paypal</span></a>
                 <a class="list-group-item list-group-item-action <?= $section === 'ai_support' ? 'active' : '' ?>" href="index.php?section=ai_support"><i data-lucide="sparkles"></i><span>AI - Support</span></a>
@@ -2289,7 +2390,7 @@ $useSelect2 = $section === 'apps' || $section === 'pages' || ($section === 'coun
                             <a class="btn btn-secondary fw-bold" href="https://coc.carrot28.com/" target="_blank" rel="noopener noreferrer">Xem shop</a>
                         <?php endif; ?>
                         <?php if ($editing): ?>
-                            <a class="btn btn-success fw-bold" href="index.php<?= $section === 'apps' ? '?section=apps' : ($section === 'pages' ? '?section=pages' : ($section === 'bank' ? '?section=bank' : ($section === 'country' ? '?section=country' : '?section=coc'))) ?>">Thêm mới</a>
+                            <a class="btn btn-success fw-bold" href="index.php<?= $section === 'apps' ? '?section=apps' : ($section === 'pages' ? '?section=pages' : ($section === 'users' ? '?section=users' : ($section === 'bank' ? '?section=bank' : ($section === 'country' ? '?section=country' : '?section=coc')))) ?>">Thêm mới</a>
                         <?php endif; ?>
                         <a class="btn btn-danger fw-bold" href="index.php?logout=1" title="Đăng xuất">
                             <span class="d-inline-flex align-items-center gap-2"><i data-lucide="log-out" style="width:16px;height:16px"></i><?= htmlspecialchars($_SESSION['admin_user']) ?></span>
