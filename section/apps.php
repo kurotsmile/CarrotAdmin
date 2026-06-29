@@ -428,8 +428,6 @@
                                 <tr>
                                     <th>Icon</th>
                                     <th>Store</th>
-                                    <th>Platform</th>
-                                    <th>Status</th>
                                     <th></th>
                                 </tr>
                                 </thead>
@@ -445,8 +443,6 @@
                                             <div class="fw-bold"><?= htmlspecialchars($store['title']) ?></div>
                                             <div class="small muted-text"><?= htmlspecialchars($store['slug']) ?></div>
                                         </td>
-                                        <td><?= htmlspecialchars($store['platform'] ?: '—') ?></td>
-                                        <td><?= htmlspecialchars($store['status'] ?: 'active') ?></td>
                                         <td class="text-end">
                                             <div class="d-inline-flex gap-2">
                                                 <a class="btn btn-sm btn-warning" href="index.php?section=apps&tab=stores&store_edit=<?= (int) $store['id'] ?>" title="Sửa" aria-label="Sửa">
@@ -464,7 +460,7 @@
                                     </tr>
                                 <?php endforeach; ?>
                                 <?php if (!$appStoreRows): ?>
-                                    <tr><td colspan="5" class="text-center muted-text py-4">Chưa có cổng phân phối nào.</td></tr>
+                                    <tr><td colspan="3" class="text-center muted-text py-4">Chưa có cổng phân phối nào.</td></tr>
                                 <?php endif; ?>
                                 </tbody>
                             </table>
