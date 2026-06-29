@@ -76,7 +76,7 @@ require __DIR__ . '/includes/schema.php';
 
 $message = '';
 $error = '';
-$allowedSections = ['overview', 'apps', 'pages', 'users', 'bank', 'coc', 'country', 'paypal', 'ai_support'];
+$allowedSections = ['overview', 'apps', 'pages', 'users', 'api', 'bank', 'coc', 'country', 'paypal', 'ai_support'];
 $section = in_array($_GET['section'] ?? 'overview', $allowedSections, true) ? ($_GET['section'] ?? 'overview') : 'overview';
 $editKey = trim($_GET['edit'] ?? '');
 $editId = isset($_GET['edit']) ? (int) $_GET['edit'] : 0;
@@ -90,6 +90,7 @@ $accounts = [];
 $apps = [];
 $pages = [];
 $users = [];
+$apiConfigs = [];
 $banks = [];
 $countries = [];
 $languageOptions = [];
@@ -130,6 +131,8 @@ $pageSort = 'updated_at';
 $pageDir = 'DESC';
 $userSort = 'created_at';
 $userDir = 'DESC';
+$apiSort = 'updated_at';
+$apiDir = 'DESC';
 $bankSort = 'id';
 $bankDir = 'DESC';
 $countrySort = 'id';
@@ -764,6 +767,14 @@ function admin_fetch_user(PDO $pdo, int $id): ?array
     return $row ?: null;
 }
 
+function admin_fetch_api_config(PDO $pdo, int $id): ?array
+{
+    $stmt = $pdo->prepare('SELECT * FROM api_config WHERE id = ?');
+    $stmt->execute([$id]);
+    $row = $stmt->fetch();
+    return $row ?: null;
+}
+
 function admin_fetch_page_by_slug_lang(PDO $pdo, string $slug, string $lang): ?array
 {
     $stmt = $pdo->prepare('
@@ -1089,12 +1100,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'ajax_
     admin_ajax_upload();
 }
 
-if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages', 'users'], true)) {
+if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages', 'users', 'api'], true)) {
     $error = 'Không thể kết nối database: ' . ($db_error ?? 'unknown error');
 } else {
     try {
         $homePdo = null;
-        if (in_array($section, ['pages', 'users'], true)) {
+        if (in_array($section, ['pages', 'users', 'api'], true)) {
             $homePdo = admin_home_pdo();
         }
 
@@ -1145,6 +1156,10 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages', 'users'], 
 
         if ($section === 'users') {
             admin_ensure_user_table($homePdo);
+        }
+
+        if ($section === 'api') {
+            admin_ensure_api_table($homePdo);
         }
 
         if ($section === 'paypal') {
@@ -1822,6 +1837,56 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages', 'users'], 
                 }
             }
 
+            if ($section === 'api' && $action === 'delete_api_config') {
+                $stmt = $homePdo->prepare('DELETE FROM api_config WHERE id = ?');
+                $stmt->execute([(int) ($_POST['id'] ?? 0)]);
+                $message = 'Đã xóa API config.';
+            }
+
+            if ($section === 'api' && $action === 'save_api_config') {
+                $id = (int) ($_POST['id'] ?? 0);
+                $provider = trim($_POST['provider'] ?? 'custom');
+                $name = trim($_POST['name'] ?? '');
+                $enabled = isset($_POST['enabled']) ? 1 : 0;
+                $clientId = trim($_POST['client_id'] ?? '');
+                $clientSecret = trim($_POST['client_secret'] ?? '');
+                $apiKey = trim($_POST['api_key'] ?? '');
+                $projectUrl = trim($_POST['project_url'] ?? '');
+                $redirectUri = trim($_POST['redirect_uri'] ?? '');
+                $scopes = trim($_POST['scopes'] ?? '');
+                $configJson = trim($_POST['config_json'] ?? '');
+                $note = trim($_POST['note'] ?? '');
+
+                if ($provider === '' || $name === '') {
+                    throw new RuntimeException('Vui lòng nhập provider và name.');
+                }
+
+                if (!preg_match('/^[a-z0-9_-]+$/i', $provider)) {
+                    throw new RuntimeException('Provider chỉ dùng chữ, số, gạch ngang hoặc gạch dưới.');
+                }
+
+                if ($configJson !== '' && json_decode($configJson, true) === null && json_last_error() !== JSON_ERROR_NONE) {
+                    throw new RuntimeException('Config JSON không hợp lệ.');
+                }
+
+                if ($id > 0) {
+                    $stmt = $homePdo->prepare('
+                        UPDATE api_config
+                        SET provider = ?, name = ?, enabled = ?, client_id = ?, client_secret = ?, api_key = ?, project_url = ?, redirect_uri = ?, scopes = ?, config_json = ?, note = ?
+                        WHERE id = ?
+                    ');
+                    $stmt->execute([$provider, $name, $enabled, $clientId, $clientSecret, $apiKey, $projectUrl, $redirectUri, $scopes, $configJson, $note, $id]);
+                    $message = 'Đã cập nhật API config.';
+                } else {
+                    $stmt = $homePdo->prepare('
+                        INSERT INTO api_config (provider, name, enabled, client_id, client_secret, api_key, project_url, redirect_uri, scopes, config_json, note)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ');
+                    $stmt->execute([$provider, $name, $enabled, $clientId, $clientSecret, $apiKey, $projectUrl, $redirectUri, $scopes, $configJson, $note]);
+                    $message = 'Đã thêm API config.';
+                }
+            }
+
             if ($section === 'bank' && $action === 'delete_bank') {
                 $stmt = $pdo->prepare('DELETE FROM bank WHERE id = ?');
                 $stmt->execute([(int) ($_POST['id'] ?? 0)]);
@@ -2044,6 +2109,10 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages', 'users'], 
             $editing = admin_fetch_user($homePdo, $editId);
         }
 
+        if ($section === 'api' && $editId > 0) {
+            $editing = admin_fetch_api_config($homePdo, $editId);
+        }
+
         if ($section === 'bank' && $editId > 0) {
             $editing = admin_fetch_bank($pdo, $editId);
         }
@@ -2107,6 +2176,15 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages', 'users'], 
         ];
         [$userSort, $userDir] = admin_sort_state($userSortColumns, 'created_at', 'DESC');
 
+        $apiSortColumns = [
+            'id' => 'id',
+            'provider' => 'provider',
+            'name' => 'name',
+            'enabled' => 'enabled',
+            'updated_at' => 'updated_at',
+        ];
+        [$apiSort, $apiDir] = admin_sort_state($apiSortColumns, 'updated_at', 'DESC');
+
         $bankSortColumns = [
             'id' => 'id',
             'name' => 'name',
@@ -2151,6 +2229,9 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages', 'users'], 
             : [];
         $users = $section === 'users'
             ? $homePdo->query('SELECT * FROM users ORDER BY ' . admin_order_by($userSortColumns, $userSort, $userDir) . ', id DESC')->fetchAll()
+            : [];
+        $apiConfigs = $section === 'api'
+            ? $homePdo->query('SELECT * FROM api_config ORDER BY ' . admin_order_by($apiSortColumns, $apiSort, $apiDir) . ', id DESC')->fetchAll()
             : [];
         if ($section === 'pages') {
             $pageSlugOptions = array_values(array_unique(array_filter(array_map(static fn(array $page): string => (string) ($page['slug'] ?? ''), $pages))));
@@ -2239,6 +2320,7 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages', 'users'], 
         $apps = [];
         $pages = [];
         $users = [];
+        $apiConfigs = [];
         $banks = [];
         $countries = [];
         $languageOptions = [];
@@ -2254,9 +2336,9 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages', 'users'], 
 }
 
 $photoText = ($section === 'coc' && $editing) ? implode("\n", coc_decode_photos($editing['photos'])) : '';
-$pageTitle = ['overview' => 'Tổng quan', 'apps' => 'App', 'pages' => 'Page', 'users' => 'Users', 'bank' => 'Bank', 'coc' => 'Coc', 'country' => 'Country', 'paypal' => 'Paypal', 'ai_support' => 'AI Support'][$section] ?? 'Tổng quan';
-$sectionLabels = ['overview' => 'tổng quan', 'apps' => 'ứng dụng', 'pages' => 'Page/SEO', 'users' => 'người dùng', 'bank' => 'ngân hàng', 'coc' => 'shop', 'country' => 'quốc gia hỗ trợ', 'paypal' => 'PayPal', 'ai_support' => 'AI Support'];
-$sectionTitles = ['overview' => 'Tổng quan', 'apps' => 'App Carrot Home', 'pages' => 'Page Carrot Home', 'users' => 'User Carrot Home', 'bank' => 'Bank', 'coc' => 'Acc Clash of Clans', 'country' => 'Country', 'paypal' => 'Paypal Config', 'ai_support' => 'AI - Support'];
+$pageTitle = ['overview' => 'Tổng quan', 'apps' => 'App', 'pages' => 'Page', 'users' => 'Users', 'api' => 'API', 'bank' => 'Bank', 'coc' => 'Coc', 'country' => 'Country', 'paypal' => 'Paypal', 'ai_support' => 'AI Support'][$section] ?? 'Tổng quan';
+$sectionLabels = ['overview' => 'tổng quan', 'apps' => 'ứng dụng', 'pages' => 'Page/SEO', 'users' => 'người dùng', 'api' => 'API key', 'bank' => 'ngân hàng', 'coc' => 'shop', 'country' => 'quốc gia hỗ trợ', 'paypal' => 'PayPal', 'ai_support' => 'AI Support'];
+$sectionTitles = ['overview' => 'Tổng quan', 'apps' => 'App Carrot Home', 'pages' => 'Page Carrot Home', 'users' => 'User Carrot Home', 'api' => 'API Config', 'bank' => 'Bank', 'coc' => 'Acc Clash of Clans', 'country' => 'Country', 'paypal' => 'Paypal Config', 'ai_support' => 'AI - Support'];
 $dashboardCards = [
     ['label' => 'App', 'value' => $dashboardMetrics['apps'], 'icon' => 'boxes'],
     ['label' => 'Page', 'value' => $dashboardMetrics['pages'], 'icon' => 'file-text'],
@@ -2367,6 +2449,7 @@ $useSelect2 = $section === 'apps' || $section === 'pages' || ($section === 'coun
                 <a class="list-group-item list-group-item-action <?= $section === 'apps' ? 'active' : '' ?>" href="index.php?section=apps"><i data-lucide="boxes"></i><span>App</span></a>
                 <a class="list-group-item list-group-item-action <?= $section === 'pages' ? 'active' : '' ?>" href="index.php?section=pages"><i data-lucide="file-text"></i><span>Page</span></a>
                 <a class="list-group-item list-group-item-action <?= $section === 'users' ? 'active' : '' ?>" href="index.php?section=users"><i data-lucide="users"></i><span>User</span></a>
+                <a class="list-group-item list-group-item-action <?= $section === 'api' ? 'active' : '' ?>" href="index.php?section=api"><i data-lucide="key-round"></i><span>API</span></a>
                 <a class="list-group-item list-group-item-action <?= $section === 'coc' ? 'active' : '' ?>" href="index.php?section=coc"><i data-lucide="shield"></i><span>Coc</span></a>
                 <a class="list-group-item list-group-item-action <?= $section === 'paypal' ? 'active' : '' ?>" href="index.php?section=paypal"><i data-lucide="credit-card"></i><span>Paypal</span></a>
                 <a class="list-group-item list-group-item-action <?= $section === 'ai_support' ? 'active' : '' ?>" href="index.php?section=ai_support"><i data-lucide="sparkles"></i><span>AI - Support</span></a>
@@ -2390,7 +2473,7 @@ $useSelect2 = $section === 'apps' || $section === 'pages' || ($section === 'coun
                             <a class="btn btn-secondary fw-bold" href="https://coc.carrot28.com/" target="_blank" rel="noopener noreferrer">Xem shop</a>
                         <?php endif; ?>
                         <?php if ($editing): ?>
-                            <a class="btn btn-success fw-bold" href="index.php<?= $section === 'apps' ? '?section=apps' : ($section === 'pages' ? '?section=pages' : ($section === 'users' ? '?section=users' : ($section === 'bank' ? '?section=bank' : ($section === 'country' ? '?section=country' : '?section=coc')))) ?>">Thêm mới</a>
+                            <a class="btn btn-success fw-bold" href="index.php<?= $section === 'apps' ? '?section=apps' : ($section === 'pages' ? '?section=pages' : ($section === 'users' ? '?section=users' : ($section === 'api' ? '?section=api' : ($section === 'bank' ? '?section=bank' : ($section === 'country' ? '?section=country' : '?section=coc'))))) ?>">Thêm mới</a>
                         <?php endif; ?>
                         <a class="btn btn-danger fw-bold" href="index.php?logout=1" title="Đăng xuất">
                             <span class="d-inline-flex align-items-center gap-2"><i data-lucide="log-out" style="width:16px;height:16px"></i><?= htmlspecialchars($_SESSION['admin_user']) ?></span>

@@ -71,6 +71,53 @@ function admin_ensure_user_table(PDO $pdo): void
     }
 }
 
+function admin_ensure_api_table(PDO $pdo): void
+{
+    $pdo->exec("
+        CREATE TABLE IF NOT EXISTS api_config (
+          id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+          provider VARCHAR(64) NOT NULL,
+          name VARCHAR(160) NOT NULL,
+          enabled TINYINT(1) NOT NULL DEFAULT 0,
+          client_id TEXT DEFAULT NULL,
+          client_secret TEXT DEFAULT NULL,
+          api_key TEXT DEFAULT NULL,
+          project_url TEXT DEFAULT NULL,
+          redirect_uri TEXT DEFAULT NULL,
+          scopes TEXT DEFAULT NULL,
+          config_json LONGTEXT DEFAULT NULL,
+          note TEXT DEFAULT NULL,
+          created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+          PRIMARY KEY (id),
+          KEY idx_api_provider_enabled (provider, enabled)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    ");
+
+    $columns = $pdo->query('SHOW COLUMNS FROM api_config')->fetchAll(PDO::FETCH_COLUMN);
+    $columnSql = [
+        'provider' => 'VARCHAR(64) NOT NULL DEFAULT "custom"',
+        'name' => 'VARCHAR(160) NOT NULL DEFAULT "API"',
+        'enabled' => 'TINYINT(1) NOT NULL DEFAULT 0',
+        'client_id' => 'TEXT DEFAULT NULL',
+        'client_secret' => 'TEXT DEFAULT NULL',
+        'api_key' => 'TEXT DEFAULT NULL',
+        'project_url' => 'TEXT DEFAULT NULL',
+        'redirect_uri' => 'TEXT DEFAULT NULL',
+        'scopes' => 'TEXT DEFAULT NULL',
+        'config_json' => 'LONGTEXT DEFAULT NULL',
+        'note' => 'TEXT DEFAULT NULL',
+        'created_at' => 'TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP',
+        'updated_at' => 'TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP',
+    ];
+
+    foreach ($columnSql as $column => $sql) {
+        if (!in_array($column, $columns, true)) {
+            $pdo->exec('ALTER TABLE api_config ADD `' . $column . '` ' . $sql);
+        }
+    }
+}
+
 function admin_ensure_app_table(PDO $pdo): void
 {
     $pdo->exec("
