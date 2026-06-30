@@ -407,7 +407,7 @@
                             <?php
                                 $orderAppId = (string) ($order['app_id'] ?? '');
                                 $paypalOrderId = (string) ($order['paypal_order_id'] ?? '');
-                                $paypalReturnUrl = '../CarrotHome/paypal-return.php?' . http_build_query([
+                                $paypalReturnUrl = 'https://home.carrot28.com/paypal-return.php?' . http_build_query([
                                     'slug' => $orderAppId,
                                     'token' => $paypalOrderId,
                                 ]);
