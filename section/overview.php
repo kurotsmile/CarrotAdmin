@@ -24,9 +24,23 @@
             <div class="glass-panel p-4 mb-4">
                 <div class="d-flex flex-wrap align-items-center justify-content-between gap-3 mb-3">
                     <h2 class="h5 mb-0 overview-panel-title"><i data-lucide="chart-no-axes-combined"></i><span>Lưu lượng truy cập</span></h2>
-                    <div class="traffic-toggle btn-group" role="group" aria-label="Chuyển chế độ thống kê">
-                        <button class="btn btn-sm btn-dark active js-traffic-toggle" type="button" data-traffic-view="site">Theo site</button>
-                        <button class="btn btn-sm btn-light js-traffic-toggle" type="button" data-traffic-view="ip">Theo IP</button>
+                    <div class="traffic-tools">
+                        <form class="traffic-date-form" method="get">
+                            <input type="hidden" name="section" value="overview">
+                            <label class="traffic-date-field">
+                                <span>Từ</span>
+                                <input class="form-control form-control-sm" type="date" name="traffic_from" value="<?= htmlspecialchars($trafficDateRange['from']) ?>">
+                            </label>
+                            <label class="traffic-date-field">
+                                <span>Đến</span>
+                                <input class="form-control form-control-sm" type="date" name="traffic_to" value="<?= htmlspecialchars($trafficDateRange['to']) ?>">
+                            </label>
+                            <button class="btn btn-sm btn-dark fw-bold" type="submit"><i data-lucide="calendar-search"></i><span>Xem</span></button>
+                        </form>
+                        <div class="traffic-toggle btn-group" role="group" aria-label="Chuyển chế độ thống kê">
+                            <button class="btn btn-sm btn-dark active js-traffic-toggle" type="button" data-traffic-view="site">Theo site</button>
+                            <button class="btn btn-sm btn-light js-traffic-toggle" type="button" data-traffic-view="ip">Theo IP</button>
+                        </div>
                     </div>
                 </div>
                 <div class="traffic-chart-wrap mb-4">
@@ -44,7 +58,7 @@
                     <script type="application/json" id="traffic_compare_data"><?= json_encode($trafficChartData, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?></script>
                 </div>
                 <div class="traffic-view active" data-traffic-panel="site">
-                    <div class="dashboard-eyebrow fw-bold mb-2">IP không lặp trong ngày</div>
+                    <div class="dashboard-eyebrow fw-bold mb-2">IP không lặp trong ngày - khoảng <?= htmlspecialchars($trafficDateRange['label']) ?></div>
                     <div class="table-responsive-sm">
                     <table class="table table-striped table-hover table-sm align-middle mb-0">
                         <thead>
@@ -54,6 +68,8 @@
                             <th class="text-end">Hits hôm nay</th>
                             <th class="text-end">IP 7 ngày</th>
                             <th class="text-end">Hits 7 ngày</th>
+                            <th class="text-end">IP khoảng</th>
+                            <th class="text-end">Hits khoảng</th>
                             <th class="text-end">Tổng IP/ngày</th>
                             <th class="text-end">Tổng hits</th>
                         </tr>
@@ -73,6 +89,8 @@
                                 <td class="text-end"><?= number_format((int) $metrics['today_hits']) ?></td>
                                 <td class="text-end"><?= number_format((int) $metrics['week_unique']) ?></td>
                                 <td class="text-end"><?= number_format((int) $metrics['week_hits']) ?></td>
+                                <td class="text-end"><?= number_format((int) $metrics['range_unique']) ?></td>
+                                <td class="text-end"><?= number_format((int) $metrics['range_hits']) ?></td>
                                 <td class="text-end"><?= number_format((int) $metrics['total_unique']) ?></td>
                                 <td class="text-end"><?= number_format((int) $metrics['total_hits']) ?></td>
                             </tr>
@@ -82,13 +100,14 @@
                     </div>
                 </div>
                 <div class="traffic-view" data-traffic-panel="ip">
-                    <div class="dashboard-eyebrow fw-bold mb-2">Tối đa 100 IP mỗi site, sắp xếp theo tổng hits</div>
+                    <div class="dashboard-eyebrow fw-bold mb-2">Tối đa 100 IP mỗi site, sắp xếp theo hits khoảng - <?= htmlspecialchars($trafficDateRange['label']) ?></div>
                     <div class="table-responsive-sm">
                     <table class="table table-striped table-hover table-sm align-middle mb-0">
                         <thead>
                         <tr>
                             <th>IP</th>
                             <th>Site</th>
+                            <th class="text-end">Hits khoảng</th>
                             <th class="text-end">Hits hôm nay</th>
                             <th class="text-end">Hits 7 ngày</th>
                             <th class="text-end">Tổng hits</th>
@@ -102,6 +121,7 @@
                             <tr>
                                 <td class="font-monospace small"><?= htmlspecialchars($ipRow['ip_text'] ?? '') ?></td>
                                 <td><?= htmlspecialchars($ipRow['site_label'] ?? '') ?></td>
+                                <td class="text-end"><?= number_format((int) ($ipRow['range_hits'] ?? 0)) ?></td>
                                 <td class="text-end"><?= number_format((int) ($ipRow['today_hits'] ?? 0)) ?></td>
                                 <td class="text-end"><?= number_format((int) ($ipRow['week_hits'] ?? 0)) ?></td>
                                 <td class="text-end"><?= number_format((int) ($ipRow['total_hits'] ?? 0)) ?></td>
@@ -111,7 +131,7 @@
                             </tr>
                         <?php endforeach; ?>
                         <?php if (!$trafficIpRows): ?>
-                            <tr><td colspan="8" class="text-center muted-text py-4">Chưa có dữ liệu IP.</td></tr>
+                            <tr><td colspan="9" class="text-center muted-text py-4">Chưa có dữ liệu IP.</td></tr>
                         <?php endif; ?>
                         </tbody>
                     </table>

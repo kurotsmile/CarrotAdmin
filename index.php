@@ -115,12 +115,19 @@ $trafficMetrics = [
         'today_hits' => 0,
         'week_unique' => 0,
         'week_hits' => 0,
+        'range_unique' => 0,
+        'range_hits' => 0,
         'total_unique' => 0,
         'total_hits' => 0,
     ],
 ];
 $trafficIpRows = [];
 $trafficChartData = admin_empty_visit_hourly();
+$trafficDateRange = [
+    'from' => date('Y-m-d', strtotime('-6 days')),
+    'to' => date('Y-m-d'),
+    'label' => '',
+];
 $accountSort = 'id';
 $accountDir = 'DESC';
 $orderSort = 'created_at';
@@ -948,12 +955,42 @@ function admin_empty_visit_metrics(): array
         'today_hits' => 0,
         'week_unique' => 0,
         'week_hits' => 0,
+        'range_unique' => 0,
+        'range_hits' => 0,
         'total_unique' => 0,
         'total_hits' => 0,
     ];
 }
 
-function admin_visit_metrics(?PDO $pdo, string $site): array
+function admin_parse_traffic_date_range(): array
+{
+    $today = date('Y-m-d');
+    $defaultFrom = date('Y-m-d', strtotime('-6 days'));
+    $from = trim($_GET['traffic_from'] ?? $defaultFrom);
+    $to = trim($_GET['traffic_to'] ?? $today);
+
+    $fromDate = DateTime::createFromFormat('!Y-m-d', $from);
+    $toDate = DateTime::createFromFormat('!Y-m-d', $to);
+    if (!$fromDate || $fromDate->format('Y-m-d') !== $from) {
+        $from = $defaultFrom;
+        $fromDate = DateTime::createFromFormat('!Y-m-d', $from);
+    }
+    if (!$toDate || $toDate->format('Y-m-d') !== $to) {
+        $to = $today;
+        $toDate = DateTime::createFromFormat('!Y-m-d', $to);
+    }
+    if ($fromDate > $toDate) {
+        [$from, $to] = [$to, $from];
+    }
+
+    return [
+        'from' => $from,
+        'to' => $to,
+        'label' => $from === $to ? $from : $from . ' - ' . $to,
+    ];
+}
+
+function admin_visit_metrics(?PDO $pdo, string $site, array $dateRange): array
 {
     if (!$pdo instanceof PDO) {
         return admin_empty_visit_metrics();
@@ -966,12 +1003,20 @@ function admin_visit_metrics(?PDO $pdo, string $site): array
               SUM(CASE WHEN visit_date = CURRENT_DATE THEN hits ELSE 0 END) AS today_hits,
               SUM(CASE WHEN visit_date >= DATE_SUB(CURRENT_DATE, INTERVAL 6 DAY) THEN 1 ELSE 0 END) AS week_unique,
               SUM(CASE WHEN visit_date >= DATE_SUB(CURRENT_DATE, INTERVAL 6 DAY) THEN hits ELSE 0 END) AS week_hits,
+              SUM(CASE WHEN visit_date BETWEEN :range_from_unique AND :range_to_unique THEN 1 ELSE 0 END) AS range_unique,
+              SUM(CASE WHEN visit_date BETWEEN :range_from_hits AND :range_to_hits THEN hits ELSE 0 END) AS range_hits,
               COUNT(*) AS total_unique,
               COALESCE(SUM(hits), 0) AS total_hits
             FROM visit_daily_ip
             WHERE site = :site
         ");
-        $stmt->execute([':site' => $site]);
+        $stmt->execute([
+            ':site' => $site,
+            ':range_from_unique' => $dateRange['from'],
+            ':range_to_unique' => $dateRange['to'],
+            ':range_from_hits' => $dateRange['from'],
+            ':range_to_hits' => $dateRange['to'],
+        ]);
         $row = $stmt->fetch() ?: [];
     } catch (Throwable $e) {
         return admin_empty_visit_metrics();
@@ -982,6 +1027,8 @@ function admin_visit_metrics(?PDO $pdo, string $site): array
         'today_hits' => (int) ($row['today_hits'] ?? 0),
         'week_unique' => (int) ($row['week_unique'] ?? 0),
         'week_hits' => (int) ($row['week_hits'] ?? 0),
+        'range_unique' => (int) ($row['range_unique'] ?? 0),
+        'range_hits' => (int) ($row['range_hits'] ?? 0),
         'total_unique' => (int) ($row['total_unique'] ?? 0),
         'total_hits' => (int) ($row['total_hits'] ?? 0),
     ];
@@ -1059,7 +1106,7 @@ function admin_sum_visit_metrics(array $items): array
     return $total;
 }
 
-function admin_visit_ip_rows(?PDO $pdo, string $site, string $label): array
+function admin_visit_ip_rows(?PDO $pdo, string $site, string $label, array $dateRange): array
 {
     if (!$pdo instanceof PDO) {
         return [];
@@ -1071,6 +1118,7 @@ function admin_visit_ip_rows(?PDO $pdo, string $site, string $label): array
               ip_text,
               SUM(CASE WHEN visit_date = CURRENT_DATE THEN hits ELSE 0 END) AS today_hits,
               SUM(CASE WHEN visit_date >= DATE_SUB(CURRENT_DATE, INTERVAL 6 DAY) THEN hits ELSE 0 END) AS week_hits,
+              SUM(CASE WHEN visit_date BETWEEN :range_from AND :range_to THEN hits ELSE 0 END) AS range_hits,
               COALESCE(SUM(hits), 0) AS total_hits,
               COUNT(*) AS visit_days,
               MAX(last_seen_at) AS last_seen_at,
@@ -1079,10 +1127,14 @@ function admin_visit_ip_rows(?PDO $pdo, string $site, string $label): array
             FROM visit_daily_ip
             WHERE site = :site
             GROUP BY ip_text
-            ORDER BY total_hits DESC, last_seen_at DESC
+            ORDER BY range_hits DESC, total_hits DESC, last_seen_at DESC
             LIMIT 100
         ");
-        $stmt->execute([':site' => $site]);
+        $stmt->execute([
+            ':site' => $site,
+            ':range_from' => $dateRange['from'],
+            ':range_to' => $dateRange['to'],
+        ]);
         $rows = $stmt->fetchAll();
     } catch (Throwable $e) {
         return [];
@@ -1110,6 +1162,7 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages', 'users', '
         }
 
         if ($section === 'overview') {
+            $trafficDateRange = admin_parse_traffic_date_range();
             $serverRuntime = admin_server_runtime();
             $dashboardMetrics['apps'] = admin_safe_count_table($pdo, 'app');
             $dashboardMetrics['coc'] = admin_safe_count_table($pdo, 'coc');
@@ -1124,18 +1177,22 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages', 'users', '
                 $dashboardMetrics['pages'] = 0;
                 $dashboardMetrics['users'] = 0;
             }
-            $trafficMetrics['coc'] = admin_visit_metrics($pdo, 'coc');
-            $trafficMetrics['home'] = admin_visit_metrics($overviewHomePdo, 'home');
+            $trafficMetrics['coc'] = admin_visit_metrics($pdo, 'coc', $trafficDateRange);
+            $trafficMetrics['home'] = admin_visit_metrics($overviewHomePdo, 'home', $trafficDateRange);
             $trafficMetrics['total'] = admin_sum_visit_metrics([$trafficMetrics['coc'], $trafficMetrics['home']]);
             $trafficChartData = admin_sum_visit_hourly([
                 admin_visit_hourly($pdo, 'coc'),
                 admin_visit_hourly($overviewHomePdo, 'home'),
             ]);
             $trafficIpRows = array_merge(
-                admin_visit_ip_rows($pdo, 'coc', 'COC Shop'),
-                admin_visit_ip_rows($overviewHomePdo, 'home', 'CarrotHome')
+                admin_visit_ip_rows($pdo, 'coc', 'COC Shop', $trafficDateRange),
+                admin_visit_ip_rows($overviewHomePdo, 'home', 'CarrotHome', $trafficDateRange)
             );
             usort($trafficIpRows, static function (array $a, array $b): int {
+                $rangeCompare = (int) ($b['range_hits'] ?? 0) <=> (int) ($a['range_hits'] ?? 0);
+                if ($rangeCompare !== 0) {
+                    return $rangeCompare;
+                }
                 $hitsCompare = (int) ($b['total_hits'] ?? 0) <=> (int) ($a['total_hits'] ?? 0);
                 if ($hitsCompare !== 0) {
                     return $hitsCompare;
@@ -2411,6 +2468,12 @@ $useSelect2 = $section === 'apps' || $section === 'pages' || ($section === 'coun
         .traffic-site-link:hover{text-decoration:underline}
         .traffic-view{display:none}
         .traffic-view.active{display:block}
+        .traffic-tools{display:flex;flex-wrap:wrap;align-items:center;justify-content:flex-end;gap:.65rem}
+        .traffic-date-form{display:flex;flex-wrap:wrap;align-items:end;gap:.5rem}
+        .traffic-date-field{display:flex;align-items:center;gap:.35rem;margin:0;color:#64748b;font-size:.78rem;font-weight:800;text-transform:uppercase}
+        .traffic-date-field .form-control{min-width:132px;border-radius:8px;font-weight:700}
+        .traffic-date-form .btn{display:inline-flex;align-items:center;gap:.35rem;border-radius:8px}
+        .traffic-date-form .btn i{width:15px;height:15px}
         .traffic-toggle{border:1px solid rgba(15,23,42,.12);border-radius:8px;padding:.25rem;background:#f8fafc}
         .traffic-toggle .btn{border-radius:6px;font-weight:800}
         .traffic-chart-wrap{border:1px solid rgba(15,23,42,.08);border-radius:8px;background:#f8fafc;padding:1rem}
@@ -2426,7 +2489,7 @@ $useSelect2 = $section === 'apps' || $section === 'pages' || ($section === 'coun
         .table thead th{color:#64748b;font-size:.78rem;text-transform:uppercase}
         @media (max-width:1199px){.dashboard-grid{grid-template-columns:repeat(3,minmax(0,1fr))}}
         @media (max-width:991px){.dashboard-sidebar{position:static;min-height:auto}.dashboard-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
-        @media (max-width:575px){.dashboard-grid{grid-template-columns:1fr}.dashboard-card-value{font-size:1.12rem}.traffic-chart-legend{width:100%;justify-content:space-between}#traffic_compare_chart{height:220px}}
+        @media (max-width:575px){.dashboard-grid{grid-template-columns:1fr}.dashboard-card-value{font-size:1.12rem}.traffic-tools{width:100%;justify-content:stretch}.traffic-date-form{width:100%;display:grid;grid-template-columns:1fr 1fr auto}.traffic-date-field{display:block}.traffic-date-field span{display:block;margin-bottom:.2rem}.traffic-date-field .form-control{min-width:0}.traffic-chart-legend{width:100%;justify-content:space-between}#traffic_compare_chart{height:220px}}
     </style>
     <?php if ($section === 'pages'): ?>
     <style>
