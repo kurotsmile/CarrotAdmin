@@ -1313,6 +1313,12 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages', 'users', '
                 $message = 'Đã xóa app.';
             }
 
+            if ($section === 'apps' && $action === 'delete_app_order') {
+                $stmt = $pdo->prepare('DELETE FROM app_orders WHERE id = ?');
+                $stmt->execute([(int) ($_POST['id'] ?? 0)]);
+                $message = 'Đã xóa đơn đặt hàng app.';
+            }
+
             if ($section === 'apps' && $action === 'delete_app_photo') {
                 $stmt = $pdo->prepare('DELETE FROM app_photo WHERE id = ?');
                 $stmt->execute([(int) ($_POST['id'] ?? 0)]);

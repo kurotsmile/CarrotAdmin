@@ -399,10 +399,19 @@
                             <th>Amount</th>
                             <th>Created</th>
                             <th>Paid</th>
+                            <th class="text-end">Action</th>
                         </tr>
                         </thead>
                         <tbody>
                         <?php foreach ($appOrders as $order): ?>
+                            <?php
+                                $orderAppId = (string) ($order['app_id'] ?? '');
+                                $paypalOrderId = (string) ($order['paypal_order_id'] ?? '');
+                                $paypalReturnUrl = '../CarrotHome/paypal-return.php?' . http_build_query([
+                                    'slug' => $orderAppId,
+                                    'token' => $paypalOrderId,
+                                ]);
+                            ?>
                             <tr>
                                 <td><?= (int) $order['id'] ?></td>
                                 <td>
@@ -420,7 +429,13 @@
                                     <strong><?= htmlspecialchars($order['user_name'] ?? '') ?></strong>
                                     <div class="muted-text small"><?= htmlspecialchars($order['user_email'] ?: $order['payer_email'] ?: '') ?></div>
                                 </td>
-                                <td class="font-monospace small"><?= htmlspecialchars($order['paypal_order_id'] ?? '') ?></td>
+                                <td class="font-monospace small">
+                                    <?php if ($paypalOrderId !== ''): ?>
+                                        <a href="<?= htmlspecialchars($paypalReturnUrl) ?>" target="_blank" rel="noopener noreferrer" title="Xem chi tiết đơn trên CarrotHome">
+                                            <?= htmlspecialchars($paypalOrderId) ?>
+                                        </a>
+                                    <?php endif; ?>
+                                </td>
                                 <td>
                                     <span class="badge <?= ($order['status'] ?? '') === 'COMPLETED' ? 'text-bg-success' : 'text-bg-secondary' ?>">
                                         <?= htmlspecialchars($order['status'] ?? '') ?>
@@ -429,10 +444,19 @@
                                 <td><?= htmlspecialchars(number_format((float) ($order['amount'] ?? 0), 2)) ?> <?= htmlspecialchars($order['currency'] ?? 'USD') ?></td>
                                 <td class="small"><?= htmlspecialchars($order['created_at'] ?? '') ?></td>
                                 <td class="small"><?= htmlspecialchars($order['paid_at'] ?? '') ?></td>
+                                <td class="text-end">
+                                    <form class="js-delete d-inline-flex" method="post" data-confirm="Xóa đơn đặt hàng app này?">
+                                        <input type="hidden" name="action" value="delete_app_order">
+                                        <input type="hidden" name="id" value="<?= (int) $order['id'] ?>">
+                                        <button class="btn btn-sm btn-outline-danger" type="submit" title="Xóa đơn" aria-label="Xóa đơn">
+                                            <i data-lucide="trash-2" style="width:16px;height:16px"></i>
+                                        </button>
+                                    </form>
+                                </td>
                             </tr>
                         <?php endforeach; ?>
                         <?php if (!$appOrders): ?>
-                            <tr><td colspan="8" class="text-center muted-text py-4">Chưa có đơn đặt hàng.</td></tr>
+                            <tr><td colspan="9" class="text-center muted-text py-4">Chưa có đơn đặt hàng.</td></tr>
                         <?php endif; ?>
                         </tbody>
                     </table>
