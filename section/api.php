@@ -97,8 +97,6 @@
                                     <th><?= admin_sort_link('provider', 'Provider', $apiSort, $apiDir) ?></th>
                                     <th><?= admin_sort_link('name', 'Name', $apiSort, $apiDir) ?></th>
                                     <th><?= admin_sort_link('enabled', 'Status', $apiSort, $apiDir) ?></th>
-                                    <th>Key</th>
-                                    <th><?= admin_sort_link('updated_at', 'Updated', $apiSort, $apiDir) ?></th>
                                     <th></th>
                                 </tr>
                                 </thead>
@@ -107,9 +105,21 @@
                                     <tr>
                                         <td><span class="badge text-bg-light"><?= htmlspecialchars($apiConfig['provider'] ?? '') ?></span></td>
                                         <td>
-                                            <strong><?= htmlspecialchars($apiConfig['name'] ?? '') ?></strong>
+                                            <?php $keyPreview = trim((string) ($apiConfig['client_id'] ?: $apiConfig['api_key'] ?: $apiConfig['project_url'] ?: '')); ?>
+                                            <div class="api-config-name">
+                                                <strong><?= htmlspecialchars($apiConfig['name'] ?? '') ?></strong>
+                                            </div>
                                             <?php if (!empty($apiConfig['redirect_uri'])): ?>
-                                                <div class="muted-text small"><?= htmlspecialchars(admin_excerpt($apiConfig['redirect_uri'], 52)) ?></div>
+                                                <div class="api-config-meta small">
+                                                    <span>Redirect URI</span>
+                                                    <code><?= htmlspecialchars($apiConfig['redirect_uri']) ?></code>
+                                                </div>
+                                            <?php endif; ?>
+                                            <?php if ($keyPreview !== ''): ?>
+                                                <div class="api-config-meta small">
+                                                    <span>Key</span>
+                                                    <code><?= htmlspecialchars($keyPreview) ?></code>
+                                                </div>
                                             <?php endif; ?>
                                         </td>
                                         <td>
@@ -117,13 +127,6 @@
                                                 <?= !empty($apiConfig['enabled']) ? 'Enabled' : 'Disabled' ?>
                                             </span>
                                         </td>
-                                        <td class="font-monospace small">
-                                            <?php
-                                            $keyPreview = trim((string) ($apiConfig['client_id'] ?: $apiConfig['api_key'] ?: $apiConfig['project_url'] ?: ''));
-                                            echo htmlspecialchars($keyPreview !== '' ? admin_excerpt($keyPreview, 36) : '-');
-                                            ?>
-                                        </td>
-                                        <td class="small"><?= htmlspecialchars($apiConfig['updated_at'] ?? '') ?></td>
                                         <td class="text-end">
                                             <div class="d-inline-flex align-items-center justify-content-end gap-2 flex-nowrap">
                                                 <a class="btn btn-sm btn-warning" href="index.php?section=api&edit=<?= (int) $apiConfig['id'] ?>" title="Cập nhật" aria-label="Cập nhật">
@@ -141,7 +144,7 @@
                                     </tr>
                                 <?php endforeach; ?>
                                 <?php if (!$apiConfigs): ?>
-                                    <tr><td colspan="6" class="text-center muted-text py-4">Chưa có API config.</td></tr>
+                                    <tr><td colspan="4" class="text-center muted-text py-4">Chưa có API config.</td></tr>
                                 <?php endif; ?>
                                 </tbody>
                             </table>

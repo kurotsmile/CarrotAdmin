@@ -2532,6 +2532,10 @@ $useSelect2 = $section === 'apps' || $section === 'pages' || ($section === 'coun
         .glass-panel,.admin-shell{border:1px solid rgba(15,23,42,.08)!important;border-radius:8px!important;background:rgba(255,255,255,.96)!important;box-shadow:0 14px 36px rgba(15,23,42,.06)!important}
         .table{--bs-table-bg:transparent}
         .table thead th{color:#64748b;font-size:.78rem;text-transform:uppercase}
+        .api-config-name{display:flex;flex-wrap:wrap;align-items:baseline;gap:.45rem}
+        .api-config-meta{display:grid;grid-template-columns:86px minmax(0,1fr);gap:.45rem;margin-top:.25rem;color:#64748b}
+        .api-config-meta span{font-weight:800;text-transform:uppercase;font-size:.68rem}
+        .api-config-meta code{white-space:normal;overflow-wrap:anywhere;word-break:break-word;color:#334155;background:transparent;padding:0}
         @media (max-width:1199px){.dashboard-grid{grid-template-columns:repeat(3,minmax(0,1fr))}}
         @media (max-width:991px){.dashboard-sidebar{position:static;min-height:auto}.dashboard-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
         @media (max-width:575px){.dashboard-grid{grid-template-columns:1fr}.dashboard-card-value{font-size:1.12rem}.traffic-tools{width:100%;justify-content:stretch}.traffic-date-form{width:100%;display:grid;grid-template-columns:1fr 1fr auto}.traffic-date-field{display:block}.traffic-date-field span{display:block;margin-bottom:.2rem}.traffic-date-field .form-control{min-width:0}.traffic-chart-legend{width:100%;justify-content:space-between}#traffic_compare_chart{height:220px}}
