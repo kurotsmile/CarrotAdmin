@@ -81,7 +81,7 @@ $section = in_array($_GET['section'] ?? 'overview', $allowedSections, true) ? ($
 $editKey = trim($_GET['edit'] ?? '');
 $editId = isset($_GET['edit']) ? (int) $_GET['edit'] : 0;
 $cocTab = ($_GET['tab'] ?? 'accounts') === 'orders' ? 'orders' : 'accounts';
-$appTab = in_array($_GET['tab'] ?? 'main', ['main', 'photos', 'content', 'categories', 'stores'], true) ? ($_GET['tab'] ?? 'main') : 'main';
+$appTab = in_array($_GET['tab'] ?? 'main', ['main', 'photos', 'content', 'categories', 'stores', 'orders'], true) ? ($_GET['tab'] ?? 'main') : 'main';
 $countryTab = ($_GET['tab'] ?? 'countries') === 'labels' ? 'labels' : 'countries';
 $paypalTab = ($_GET['tab'] ?? 'home') === 'coc' ? 'coc' : 'home';
 $editing = null;
@@ -99,6 +99,7 @@ $labelKeyOptions = [];
 $pageSlugOptions = [];
 $textLabels = [];
 $orders = [];
+$appOrders = [];
 $dashboardMetrics = [
     'apps' => 0,
     'pages' => 0,
@@ -1242,6 +1243,7 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages', 'users', '
             admin_ensure_app_table($pdo);
             admin_ensure_app_store_table($pdo);
             admin_ensure_app_category_tables($pdo);
+            admin_ensure_app_order_table($pdo);
         }
 
         if ($section === 'users') {
@@ -2311,6 +2313,15 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages', 'users', '
                 ORDER BY ' . admin_order_by($orderSortColumns, $orderSort, $orderDir) . ', coc_orders.id DESC
             ')->fetchAll()
             : [];
+        $appOrders = ($section === 'apps' && $appTab === 'orders')
+            ? $pdo->query('
+                SELECT app_orders.*, app.icon AS app_icon, app.decription AS app_description, users.name AS user_name, users.email AS user_email
+                FROM app_orders
+                LEFT JOIN app ON app.id = app_orders.app_id
+                LEFT JOIN users ON users.id = app_orders.user_id
+                ORDER BY app_orders.created_at DESC, app_orders.id DESC
+            ')->fetchAll()
+            : [];
         $apps = $section === 'apps'
             ? $pdo->query('SELECT * FROM app ORDER BY ' . admin_order_by($appSortColumns, $appSort, $appDir) . ', id ASC')->fetchAll()
             : [];
@@ -2421,6 +2432,7 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages', 'users', '
         $textLabelTotal = 0;
         $textLabelTotalPages = 1;
         $orders = [];
+        $appOrders = [];
         $trafficIpRows = [];
     }
 }

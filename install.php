@@ -95,6 +95,14 @@ $results[] = install_run_step('CarrotCoc app category tables', static function (
     admin_ensure_app_category_tables($cocPdo);
 });
 
+$results[] = install_run_step('CarrotHome app orders table', static function () use ($cocPdo, $cocError): void {
+    if (!$cocPdo instanceof PDO) {
+        throw new RuntimeException($cocError ?? 'Không thể kết nối CarrotHome database.');
+    }
+
+    admin_ensure_app_order_table($cocPdo);
+});
+
 $results[] = install_run_step('PayPal config table', static function () use ($cocPdo, $cocError): void {
     if (!$cocPdo instanceof PDO) {
         throw new RuntimeException($cocError ?? 'Không thể kết nối database.');

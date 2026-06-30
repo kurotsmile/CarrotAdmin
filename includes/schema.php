@@ -307,6 +307,47 @@ function admin_ensure_app_content_table(PDO $pdo): void
     }
 }
 
+function admin_ensure_app_order_table(PDO $pdo): void
+{
+    $pdo->exec("
+        CREATE TABLE IF NOT EXISTS app_orders (
+          id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+          app_id VARCHAR(255) NOT NULL,
+          user_id BIGINT UNSIGNED DEFAULT NULL,
+          paypal_order_id VARCHAR(128) NOT NULL,
+          status VARCHAR(40) NOT NULL DEFAULT 'CREATED',
+          amount DECIMAL(12,2) NOT NULL DEFAULT 0.00,
+          currency VARCHAR(8) NOT NULL DEFAULT 'USD',
+          payer_email VARCHAR(255) DEFAULT NULL,
+          paypal_payload JSON DEFAULT NULL,
+          created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          paid_at TIMESTAMP NULL DEFAULT NULL,
+          PRIMARY KEY (id),
+          UNIQUE KEY uq_app_orders_paypal_order_id (paypal_order_id),
+          KEY idx_app_orders_app_id (app_id),
+          KEY idx_app_orders_user_id (user_id),
+          KEY idx_app_orders_status_created (status, created_at),
+          CONSTRAINT fk_app_orders_app
+            FOREIGN KEY (app_id) REFERENCES app (id)
+            ON DELETE CASCADE ON UPDATE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    ");
+
+    $columns = $pdo->query('SHOW COLUMNS FROM app_orders')->fetchAll(PDO::FETCH_COLUMN);
+    $columnSql = [
+        'user_id' => 'BIGINT UNSIGNED DEFAULT NULL AFTER app_id',
+        'currency' => "VARCHAR(8) NOT NULL DEFAULT 'USD' AFTER amount",
+        'payer_email' => 'VARCHAR(255) DEFAULT NULL AFTER currency',
+        'paypal_payload' => 'JSON DEFAULT NULL AFTER payer_email',
+        'paid_at' => 'TIMESTAMP NULL DEFAULT NULL AFTER created_at',
+    ];
+    foreach ($columnSql as $column => $sql) {
+        if (!in_array($column, $columns, true)) {
+            $pdo->exec('ALTER TABLE app_orders ADD `' . $column . '` ' . $sql);
+        }
+    }
+}
+
 function admin_ensure_paypal_config_table(PDO $pdo): void
 {
     $pdo->exec("

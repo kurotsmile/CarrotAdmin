@@ -179,6 +179,9 @@
                 <li class="nav-item">
                     <a class="nav-link <?= $appTab === 'stores' ? 'active' : '' ?>" href="index.php?section=apps&tab=stores">Store Khác</a>
                 </li>
+                <li class="nav-item">
+                    <a class="nav-link <?= $appTab === 'orders' ? 'active' : '' ?>" href="index.php?section=apps&tab=orders">Đơn đặt hàng</a>
+                </li>
             </ul>
 
             <?php if ($appTab === 'main'): ?>
@@ -374,6 +377,65 @@
                         </div>
                         <?= admin_pagination($appPageParams, 'app_page', $appPage, $appTotalPages, 'Phân trang app') ?>
                     </div>
+                </div>
+            </div>
+            <?php endif; ?>
+
+            <?php if ($appTab === 'orders'): ?>
+            <div class="glass-panel p-4">
+                <div class="d-flex flex-wrap align-items-center justify-content-between gap-3 mb-3">
+                    <h2 class="h5 mb-0">Đơn đặt hàng App</h2>
+                    <span class="badge text-bg-secondary"><?= number_format(count($appOrders)) ?> đơn</span>
+                </div>
+                <div class="table-responsive-sm">
+                    <table class="table table-striped table-hover table-sm align-middle">
+                        <thead>
+                        <tr>
+                            <th>ID</th>
+                            <th>App</th>
+                            <th>User</th>
+                            <th>PayPal Order</th>
+                            <th>Status</th>
+                            <th>Amount</th>
+                            <th>Created</th>
+                            <th>Paid</th>
+                        </tr>
+                        </thead>
+                        <tbody>
+                        <?php foreach ($appOrders as $order): ?>
+                            <tr>
+                                <td><?= (int) $order['id'] ?></td>
+                                <td>
+                                    <div class="d-flex align-items-center gap-3">
+                                        <?php if (!empty($order['app_icon'])): ?>
+                                            <img src="<?= htmlspecialchars($order['app_icon']) ?>" alt="" width="42" height="42" class="rounded-2 object-fit-cover">
+                                        <?php endif; ?>
+                                        <div>
+                                            <strong><?= htmlspecialchars($order['app_id'] ?? '') ?></strong>
+                                            <div class="muted-text small"><?= htmlspecialchars(admin_excerpt($order['app_description'] ?? '', 42)) ?></div>
+                                        </div>
+                                    </div>
+                                </td>
+                                <td>
+                                    <strong><?= htmlspecialchars($order['user_name'] ?? '') ?></strong>
+                                    <div class="muted-text small"><?= htmlspecialchars($order['user_email'] ?: $order['payer_email'] ?: '') ?></div>
+                                </td>
+                                <td class="font-monospace small"><?= htmlspecialchars($order['paypal_order_id'] ?? '') ?></td>
+                                <td>
+                                    <span class="badge <?= ($order['status'] ?? '') === 'COMPLETED' ? 'text-bg-success' : 'text-bg-secondary' ?>">
+                                        <?= htmlspecialchars($order['status'] ?? '') ?>
+                                    </span>
+                                </td>
+                                <td><?= htmlspecialchars(number_format((float) ($order['amount'] ?? 0), 2)) ?> <?= htmlspecialchars($order['currency'] ?? 'USD') ?></td>
+                                <td class="small"><?= htmlspecialchars($order['created_at'] ?? '') ?></td>
+                                <td class="small"><?= htmlspecialchars($order['paid_at'] ?? '') ?></td>
+                            </tr>
+                        <?php endforeach; ?>
+                        <?php if (!$appOrders): ?>
+                            <tr><td colspan="8" class="text-center muted-text py-4">Chưa có đơn đặt hàng.</td></tr>
+                        <?php endif; ?>
+                        </tbody>
+                    </table>
                 </div>
             </div>
             <?php endif; ?>
