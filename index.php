@@ -1115,25 +1115,58 @@ function admin_visit_ip_rows(?PDO $pdo, string $site, string $label, array $date
     try {
         $stmt = $pdo->prepare("
             SELECT
-              ip_text,
-              SUM(CASE WHEN visit_date = CURRENT_DATE THEN hits ELSE 0 END) AS today_hits,
-              SUM(CASE WHEN visit_date >= DATE_SUB(CURRENT_DATE, INTERVAL 6 DAY) THEN hits ELSE 0 END) AS week_hits,
-              SUM(CASE WHEN visit_date BETWEEN :range_from AND :range_to THEN hits ELSE 0 END) AS range_hits,
-              COALESCE(SUM(hits), 0) AS total_hits,
-              COUNT(*) AS visit_days,
-              MAX(last_seen_at) AS last_seen_at,
-              SUBSTRING_INDEX(GROUP_CONCAT(request_path ORDER BY last_seen_at DESC SEPARATOR '\\n'), '\\n', 1) AS request_path,
-              SUBSTRING_INDEX(GROUP_CONCAT(user_agent ORDER BY last_seen_at DESC SEPARATOR '\\n'), '\\n', 1) AS user_agent
-            FROM visit_daily_ip
-            WHERE site = :site
-            GROUP BY ip_text
-            ORDER BY range_hits DESC, total_hits DESC, last_seen_at DESC
+              range_rows.ip_text,
+              COALESCE(today_rows.today_hits, 0) AS today_hits,
+              COALESCE(week_rows.week_hits, 0) AS week_hits,
+              range_rows.range_hits,
+              COALESCE(total_rows.total_hits, 0) AS total_hits,
+              range_rows.visit_days,
+              range_rows.last_seen_at,
+              range_rows.request_path,
+              range_rows.user_agent
+            FROM (
+              SELECT
+                ip_text,
+                COALESCE(SUM(hits), 0) AS range_hits,
+                COUNT(*) AS visit_days,
+                MAX(last_seen_at) AS last_seen_at,
+                SUBSTRING_INDEX(GROUP_CONCAT(request_path ORDER BY last_seen_at DESC SEPARATOR '\\n'), '\\n', 1) AS request_path,
+                SUBSTRING_INDEX(GROUP_CONCAT(user_agent ORDER BY last_seen_at DESC SEPARATOR '\\n'), '\\n', 1) AS user_agent
+              FROM visit_daily_ip
+              WHERE site = :range_site
+                AND visit_date BETWEEN :range_from AND :range_to
+              GROUP BY ip_text
+            ) AS range_rows
+            LEFT JOIN (
+              SELECT ip_text, COALESCE(SUM(hits), 0) AS today_hits
+              FROM visit_daily_ip
+              WHERE site = :today_site
+                AND visit_date = CURRENT_DATE
+              GROUP BY ip_text
+            ) AS today_rows ON today_rows.ip_text = range_rows.ip_text
+            LEFT JOIN (
+              SELECT ip_text, COALESCE(SUM(hits), 0) AS week_hits
+              FROM visit_daily_ip
+              WHERE site = :week_site
+                AND visit_date >= DATE_SUB(CURRENT_DATE, INTERVAL 6 DAY)
+              GROUP BY ip_text
+            ) AS week_rows ON week_rows.ip_text = range_rows.ip_text
+            LEFT JOIN (
+              SELECT ip_text, COALESCE(SUM(hits), 0) AS total_hits
+              FROM visit_daily_ip
+              WHERE site = :total_site
+              GROUP BY ip_text
+            ) AS total_rows ON total_rows.ip_text = range_rows.ip_text
+            ORDER BY range_rows.range_hits DESC, total_rows.total_hits DESC, range_rows.last_seen_at DESC
             LIMIT 100
         ");
         $stmt->execute([
-            ':site' => $site,
+            ':range_site' => $site,
             ':range_from' => $dateRange['from'],
             ':range_to' => $dateRange['to'],
+            ':today_site' => $site,
+            ':week_site' => $site,
+            ':total_site' => $site,
         ]);
         $rows = $stmt->fetchAll();
     } catch (Throwable $e) {
