@@ -157,7 +157,9 @@
                                         <td><?= (int) $account['id'] ?></td>
                                         <td>
                                             <div class="d-flex align-items-center gap-3">
-                                                <img src="<?= htmlspecialchars($account['avatar']) ?>" alt="" width="54" height="54" class="rounded-2 object-fit-cover">
+                                                <a href="https://coc.carrot28.com/account.php?id=<?php echo htmlspecialchars($account['id']); ?>" target="_blank" rel="noopener noreferrer">
+                                                    <img src="<?= htmlspecialchars($account['avatar']) ?>" alt="" width="54" height="54" class="rounded-2 object-fit-cover">
+                                                </a>
                                                 <div>
                                                     <strong><?= htmlspecialchars($account['name']) ?></strong>
                                                     <div class="muted-text small"><?= htmlspecialchars($account['username']) ?></div>

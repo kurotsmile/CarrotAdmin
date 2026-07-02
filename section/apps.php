@@ -417,7 +417,9 @@
                                 <td>
                                     <div class="d-flex align-items-center gap-3">
                                         <?php if (!empty($order['app_icon'])): ?>
-                                            <img src="<?= htmlspecialchars($order['app_icon']) ?>" alt="" width="42" height="42" class="rounded-2 object-fit-cover">
+                                            <a href="https://home.carrot28.com/app.php?slug=<?php echo htmlspecialchars($orderAppId) ?>" target="_blank" rel="noopener noreferrer">
+                                                <img src="<?= htmlspecialchars($order['app_icon']) ?>" alt="" width="42" height="42" class="rounded-2 object-fit-cover">
+                                            </a>
                                         <?php endif; ?>
                                         <div>
                                             <strong><?= htmlspecialchars($order['app_id'] ?? '') ?></strong>
