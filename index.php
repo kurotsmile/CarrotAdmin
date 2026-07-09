@@ -10,7 +10,7 @@ if (isset($_GET['logout'])) {
 }
 
 $loginError = '';
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'login') {
+if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST' && ($_POST['action'] ?? '') === 'login') {
     $username = trim($_POST['username'] ?? '');
     $password = (string) ($_POST['password'] ?? '');
 
@@ -41,7 +41,6 @@ if (empty($_SESSION['admin_user'])):
     <style>
         body{background:#eef2f7;color:#172033}
         .glass-panel{border:1px solid rgba(15,23,42,.08);border-radius:8px;background:rgba(255,255,255,.96);box-shadow:0 14px 36px rgba(15,23,42,.06)}
-        .brand-mark{width:100%;height:56px;object-fit:contain}
     </style>
 </head>
 <body>
@@ -76,22 +75,28 @@ require __DIR__ . '/includes/schema.php';
 
 $message = '';
 $error = '';
-$allowedSections = ['overview', 'apps', 'pages', 'users', 'api', 'bank', 'coc', 'country', 'paypal', 'ai_support'];
+$allowedSections = ['overview', 'apps', 'music', 'pages', 'users', 'api', 'bank', 'sites', 'coc', 'country', 'paypal', 'ai_support', 'backup'];
 $section = in_array($_GET['section'] ?? 'overview', $allowedSections, true) ? ($_GET['section'] ?? 'overview') : 'overview';
 $editKey = trim($_GET['edit'] ?? '');
 $editId = isset($_GET['edit']) ? (int) $_GET['edit'] : 0;
 $cocTab = ($_GET['tab'] ?? 'accounts') === 'orders' ? 'orders' : 'accounts';
 $appTab = in_array($_GET['tab'] ?? 'main', ['main', 'photos', 'content', 'categories', 'stores', 'orders'], true) ? ($_GET['tab'] ?? 'main') : 'main';
+$musicTab = in_array($_GET['tab'] ?? 'songs', ['songs', 'artists', 'genres', 'orders'], true) ? ($_GET['tab'] ?? 'songs') : 'songs';
 $countryTab = ($_GET['tab'] ?? 'countries') === 'labels' ? 'labels' : 'countries';
-$paypalTab = ($_GET['tab'] ?? 'home') === 'coc' ? 'coc' : 'home';
+$paypalTab = in_array($_GET['tab'] ?? 'home', ['home', 'coc', 'music'], true) ? ($_GET['tab'] ?? 'home') : 'home';
 $editing = null;
 $editingLabel = null;
 $accounts = [];
 $apps = [];
+$songs = [];
+$songArtists = [];
+$songGenres = [];
+$songOrders = [];
 $pages = [];
 $users = [];
 $apiConfigs = [];
 $banks = [];
+$sites = [];
 $countries = [];
 $languageOptions = [];
 $labelTranslationMap = [];
@@ -106,11 +111,13 @@ $dashboardMetrics = [
     'users' => 0,
     'coc' => 0,
     'bank' => 0,
+    'sites' => 0,
     'country' => 0,
 ];
 $trafficMetrics = [
     'coc' => [],
     'home' => [],
+    'music' => [],
     'total' => [
         'today_unique' => 0,
         'today_hits' => 0,
@@ -123,12 +130,18 @@ $trafficMetrics = [
     ],
 ];
 $trafficIpRows = [];
-$trafficChartData = admin_empty_visit_hourly();
-$trafficDateRange = [
-    'from' => date('Y-m-d', strtotime('-6 days')),
+$trafficChartData = admin_empty_visit_chart([
+    'from' => date('Y-m-d'),
     'to' => date('Y-m-d'),
-    'label' => '',
+    'label' => date('Y-m-d'),
+]);
+$trafficDateRange = [
+    'preset' => 'today',
+    'from' => date('Y-m-d'),
+    'to' => date('Y-m-d'),
+    'label' => date('Y-m-d'),
 ];
+$backupItems = [];
 $accountSort = 'id';
 $accountDir = 'DESC';
 $orderSort = 'created_at';
@@ -152,6 +165,10 @@ $textLabelPage = max(1, (int) ($_GET['label_page'] ?? 1));
 $textLabelPerPage = 25;
 $textLabelTotal = 0;
 $textLabelTotalPages = 1;
+$songPage = max(1, (int) ($_GET['song_page'] ?? 1));
+$songPerPage = 25;
+$songTotal = 0;
+$songTotalPages = 1;
 $serverRuntime = null;
 
 if (($_GET['duplicate'] ?? '') === 'page') {
@@ -222,11 +239,20 @@ function admin_ajax_upload(): void
 
     try {
         $typeMedia = trim($_POST['type_media'] ?? '');
-        if (!in_array($typeMedia, ['carrot_app', 'carrot_app_photo', 'coc_images', 'bank', 'country'], true)) {
+        if (!in_array($typeMedia, ['carrot_app', 'carrot_app_photo', 'coc_images', 'bank', 'sites', 'country', 'song_avatar', 'song_mp3', 'artist_avatar'], true)) {
             throw new RuntimeException('Type media không hợp lệ.');
         }
 
-        $url = admin_upload_image_to_nas($_FILES['file'] ?? [], $typeMedia);
+        $file = $_FILES['file'] ?? [];
+        $mimeType = is_file($file['tmp_name'] ?? '') ? (mime_content_type($file['tmp_name']) ?: '') : '';
+        if (in_array($typeMedia, ['song_avatar', 'artist_avatar'], true) && strpos($mimeType, 'image/') !== 0) {
+            throw new RuntimeException('Vui lòng chọn tệp ảnh.');
+        }
+        if ($typeMedia === 'song_mp3' && !in_array($mimeType, ['audio/mpeg', 'audio/mp3'], true) && !preg_match('/\.mp3$/i', (string) ($file['name'] ?? ''))) {
+            throw new RuntimeException('Vui lòng chọn tệp MP3.');
+        }
+
+        $url = admin_upload_image_to_nas($file, $typeMedia);
         if ($url === '') {
             throw new RuntimeException('Vui lòng chọn file để upload.');
         }
@@ -284,9 +310,58 @@ function admin_fetch_app_category(PDO $pdo, string $categoryId): ?array
     return $row ?: null;
 }
 
+function admin_fetch_song(PDO $pdo, string $id): ?array
+{
+    $stmt = $pdo->prepare('SELECT * FROM song WHERE id = ?');
+    $stmt->execute([$id]);
+    $row = $stmt->fetch();
+    return $row ?: null;
+}
+
+function admin_fetch_song_artist(PDO $pdo, int $id): ?array
+{
+    $stmt = $pdo->prepare('SELECT * FROM song_artist WHERE id = ?');
+    $stmt->execute([$id]);
+    $row = $stmt->fetch();
+    return $row ?: null;
+}
+
+function admin_fetch_song_artist_ids(PDO $pdo, string $songId): array
+{
+    try {
+        $stmt = $pdo->prepare('SELECT artist_id FROM song_artist_map WHERE song_id = ? ORDER BY artist_id ASC');
+        $stmt->execute([$songId]);
+        return array_map('intval', $stmt->fetchAll(PDO::FETCH_COLUMN));
+    } catch (Throwable $e) {
+        return [];
+    }
+}
+
+function admin_sync_song_artists(PDO $pdo, string $songId, array $artistIds): void
+{
+    $artistIds = array_values(array_unique(array_filter(array_map('intval', $artistIds))));
+    $pdo->prepare('DELETE FROM song_artist_map WHERE song_id = ?')->execute([$songId]);
+    if (!$artistIds) {
+        return;
+    }
+
+    $insert = $pdo->prepare('INSERT IGNORE INTO song_artist_map (song_id, artist_id) VALUES (?, ?)');
+    foreach ($artistIds as $artistId) {
+        $insert->execute([$songId, $artistId]);
+    }
+}
+
 function admin_fetch_bank(PDO $pdo, int $id): ?array
 {
     $stmt = $pdo->prepare('SELECT * FROM bank WHERE id = ?');
+    $stmt->execute([$id]);
+    $row = $stmt->fetch();
+    return $row ?: null;
+}
+
+function admin_fetch_sites(PDO $pdo, int $id): ?array
+{
+    $stmt = $pdo->prepare('SELECT * FROM sites WHERE id = ?');
     $stmt->execute([$id]);
     $row = $stmt->fetch();
     return $row ?: null;
@@ -966,14 +1041,31 @@ function admin_empty_visit_metrics(): array
 function admin_parse_traffic_date_range(): array
 {
     $today = date('Y-m-d');
-    $defaultFrom = date('Y-m-d', strtotime('-6 days'));
-    $from = trim($_GET['traffic_from'] ?? $defaultFrom);
-    $to = trim($_GET['traffic_to'] ?? $today);
+    $preset = trim($_GET['traffic_range'] ?? 'today');
+    $allowedPresets = ['today', 'yesterday', '7days', '1month', '1year', 'custom'];
+    if (!in_array($preset, $allowedPresets, true)) {
+        $preset = 'today';
+    }
+
+    $from = $today;
+    $to = $today;
+    if ($preset === 'yesterday') {
+        $from = $to = date('Y-m-d', strtotime('-1 day'));
+    } elseif ($preset === '7days') {
+        $from = date('Y-m-d', strtotime('-6 days'));
+    } elseif ($preset === '1month') {
+        $from = date('Y-m-d', strtotime('-1 month +1 day'));
+    } elseif ($preset === '1year') {
+        $from = date('Y-m-d', strtotime('-1 year +1 day'));
+    } elseif ($preset === 'custom') {
+        $from = trim($_GET['traffic_from'] ?? $today);
+        $to = trim($_GET['traffic_to'] ?? $today);
+    }
 
     $fromDate = DateTime::createFromFormat('!Y-m-d', $from);
     $toDate = DateTime::createFromFormat('!Y-m-d', $to);
     if (!$fromDate || $fromDate->format('Y-m-d') !== $from) {
-        $from = $defaultFrom;
+        $from = $today;
         $fromDate = DateTime::createFromFormat('!Y-m-d', $from);
     }
     if (!$toDate || $toDate->format('Y-m-d') !== $to) {
@@ -985,6 +1077,7 @@ function admin_parse_traffic_date_range(): array
     }
 
     return [
+        'preset' => $preset,
         'from' => $from,
         'to' => $to,
         'label' => $from === $to ? $from : $from . ' - ' . $to,
@@ -1044,6 +1137,110 @@ function admin_empty_visit_hourly(): array
     ];
 }
 
+function admin_visit_chart_mode(array $dateRange): string
+{
+    return ($dateRange['from'] ?? '') === ($dateRange['to'] ?? '') ? 'hourly' : 'daily';
+}
+
+function admin_empty_visit_chart(array $dateRange): array
+{
+    $mode = admin_visit_chart_mode($dateRange);
+    if ($mode === 'hourly') {
+        return [
+            'mode' => 'hourly',
+            'label' => $dateRange['label'] ?? '',
+            'labels' => array_map(static fn(int $hour): string => str_pad((string) $hour, 2, '0', STR_PAD_LEFT) . ':00', range(0, 23)),
+            'hits' => array_fill(0, 24, 0),
+            'unique' => array_fill(0, 24, 0),
+        ];
+    }
+
+    $labels = [];
+    $fromDate = DateTime::createFromFormat('!Y-m-d', (string) ($dateRange['from'] ?? date('Y-m-d')));
+    $toDate = DateTime::createFromFormat('!Y-m-d', (string) ($dateRange['to'] ?? date('Y-m-d')));
+    if (!$fromDate || !$toDate) {
+        $fromDate = DateTime::createFromFormat('!Y-m-d', date('Y-m-d'));
+        $toDate = clone $fromDate;
+    }
+
+    while ($fromDate <= $toDate) {
+        $labels[] = $fromDate->format('Y-m-d');
+        $fromDate->modify('+1 day');
+    }
+
+    return [
+        'mode' => 'daily',
+        'label' => $dateRange['label'] ?? '',
+        'labels' => $labels,
+        'hits' => array_fill(0, count($labels), 0),
+        'unique' => array_fill(0, count($labels), 0),
+    ];
+}
+
+function admin_visit_chart(?PDO $pdo, string $site, array $dateRange): array
+{
+    $series = admin_empty_visit_chart($dateRange);
+    if (!$pdo instanceof PDO) {
+        return $series;
+    }
+
+    try {
+        if (($series['mode'] ?? '') === 'hourly') {
+            $stmt = $pdo->prepare("
+                SELECT
+                  HOUR(last_seen_at) AS chart_key,
+                  COALESCE(SUM(hits), 0) AS hits,
+                  COUNT(*) AS unique_count
+                FROM visit_daily_ip
+                WHERE site = :site
+                  AND visit_date = :range_from
+                GROUP BY chart_key
+                ORDER BY chart_key
+            ");
+            $stmt->execute([
+                ':site' => $site,
+                ':range_from' => $dateRange['from'],
+            ]);
+        } else {
+            $stmt = $pdo->prepare("
+                SELECT
+                  visit_date AS chart_key,
+                  COALESCE(SUM(hits), 0) AS hits,
+                  COUNT(*) AS unique_count
+                FROM visit_daily_ip
+                WHERE site = :site
+                  AND visit_date BETWEEN :range_from AND :range_to
+                GROUP BY visit_date
+                ORDER BY visit_date
+            ");
+            $stmt->execute([
+                ':site' => $site,
+                ':range_from' => $dateRange['from'],
+                ':range_to' => $dateRange['to'],
+            ]);
+        }
+        $rows = $stmt->fetchAll();
+    } catch (Throwable $e) {
+        return $series;
+    }
+
+    $labelIndex = array_flip($series['labels']);
+    foreach ($rows as $row) {
+        $key = (string) ($row['chart_key'] ?? '');
+        if (($series['mode'] ?? '') === 'hourly') {
+            $key = str_pad((string) max(0, min(23, (int) $key)), 2, '0', STR_PAD_LEFT) . ':00';
+        }
+        if (!array_key_exists($key, $labelIndex)) {
+            continue;
+        }
+        $index = (int) $labelIndex[$key];
+        $series['hits'][$index] += (int) ($row['hits'] ?? 0);
+        $series['unique'][$index] += (int) ($row['unique_count'] ?? 0);
+    }
+
+    return $series;
+}
+
 function admin_visit_hourly(?PDO $pdo, string $site): array
 {
     $series = admin_empty_visit_hourly();
@@ -1091,6 +1288,18 @@ function admin_sum_visit_hourly(array $items): array
         for ($hour = 0; $hour < 24; $hour++) {
             $total['today'][$hour] += (int) ($item['today'][$hour] ?? 0);
             $total['yesterday'][$hour] += (int) ($item['yesterday'][$hour] ?? 0);
+        }
+    }
+    return $total;
+}
+
+function admin_sum_visit_chart(array $items, array $dateRange): array
+{
+    $total = admin_empty_visit_chart($dateRange);
+    foreach ($items as $item) {
+        foreach ($total['labels'] as $index => $label) {
+            $total['hits'][$index] += (int) ($item['hits'][$index] ?? 0);
+            $total['unique'][$index] += (int) ($item['unique'][$index] ?? 0);
         }
     }
     return $total;
@@ -1182,6 +1391,436 @@ function admin_visit_ip_rows(?PDO $pdo, string $site, string $label, array $date
     return $rows;
 }
 
+function admin_backup_dir(): string
+{
+    return __DIR__ . '/storage/backups';
+}
+
+function admin_ensure_backup_dir(): string
+{
+    $dir = admin_backup_dir();
+    if (!is_dir($dir)) {
+        @mkdir($dir, 0755, true);
+    }
+    if (!is_dir($dir) || !is_writable($dir)) {
+        throw new RuntimeException('Thư mục storage/backups không ghi được.');
+    }
+    return $dir;
+}
+
+function admin_backup_safe_file(string $file): string
+{
+    $base = basename($file);
+    if (!preg_match('/^carrot_home_[0-9]{8}_[0-9]{6}(?:_[a-f0-9]{6})?\.sql$/', $base)) {
+        throw new RuntimeException('File backup không hợp lệ.');
+    }
+    $path = admin_backup_dir() . '/' . $base;
+    if (!is_file($path)) {
+        throw new RuntimeException('Không tìm thấy file backup.');
+    }
+    return $path;
+}
+
+function admin_backup_state_file_path(array $state): string
+{
+    $file = (string) ($state['file'] ?? '');
+    if ($file === '' && !empty($state['file_path'])) {
+        $file = basename((string) $state['file_path']);
+    }
+    return admin_backup_safe_file($file);
+}
+
+function admin_backup_state_path(string $jobId): string
+{
+    if (!preg_match('/^[a-z0-9_]+$/', $jobId)) {
+        throw new RuntimeException('Job backup không hợp lệ.');
+    }
+    return admin_backup_dir() . '/' . $jobId . '.json';
+}
+
+function admin_sql_ident(string $name): string
+{
+    return '`' . str_replace('`', '``', $name) . '`';
+}
+
+function admin_sql_value($value): string
+{
+    if ($value === null) {
+        return 'NULL';
+    }
+    return "'" . strtr((string) $value, [
+        "\\" => "\\\\",
+        "\0" => "\\0",
+        "\n" => "\\n",
+        "\r" => "\\r",
+        "\t" => "\\t",
+        "\x1a" => "\\Z",
+        "'" => "\\'",
+    ]) . "'";
+}
+
+function admin_backup_write(string $path, string $content): void
+{
+    if (@file_put_contents($path, $content, FILE_APPEND | LOCK_EX) === false) {
+        throw new RuntimeException('Không ghi được file backup.');
+    }
+}
+
+function admin_backup_tables(PDO $pdo): array
+{
+    $tables = [];
+    $rows = $pdo->query('SHOW FULL TABLES WHERE Table_type = "BASE TABLE"')->fetchAll(PDO::FETCH_NUM);
+    foreach ($rows as $row) {
+        if (!empty($row[0])) {
+            $tables[] = (string) $row[0];
+        }
+    }
+    return $tables;
+}
+
+function admin_backup_list_items(): array
+{
+    $dir = admin_ensure_backup_dir();
+    $items = [];
+    foreach (glob($dir . '/carrot_home_*.sql') ?: [] as $path) {
+        $base = basename($path);
+        $metaPath = $path . '.meta.json';
+        $meta = is_file($metaPath) ? json_decode((string) file_get_contents($metaPath), true) : [];
+        $status = is_array($meta) ? ($meta['status'] ?? 'incomplete') : 'incomplete';
+        $items[] = [
+            'file' => $base,
+            'size' => filesize($path) ?: 0,
+            'size_label' => admin_format_bytes(filesize($path) ?: 0),
+            'created_at' => date('Y-m-d H:i:s', filemtime($path) ?: time()),
+            'status' => $status,
+            'complete' => $status === 'complete',
+            'tables' => is_array($meta) ? (int) ($meta['tables'] ?? 0) : 0,
+            'rows' => is_array($meta) ? (int) ($meta['rows'] ?? 0) : 0,
+        ];
+    }
+    usort($items, static fn(array $a, array $b): int => strcmp((string) $b['created_at'], (string) $a['created_at']));
+    return $items;
+}
+
+function admin_backup_cleanup_incomplete(int $olderThanSeconds = 60): int
+{
+    $dir = admin_ensure_backup_dir();
+    $now = time();
+    $deleted = 0;
+    foreach (glob($dir . '/carrot_home_*.sql') ?: [] as $path) {
+        $metaPath = $path . '.meta.json';
+        $meta = is_file($metaPath) ? json_decode((string) file_get_contents($metaPath), true) : [];
+        if (is_array($meta) && ($meta['status'] ?? '') === 'complete') {
+            continue;
+        }
+        if ($olderThanSeconds > 0 && ($now - (filemtime($path) ?: $now)) < $olderThanSeconds) {
+            continue;
+        }
+        $base = basename($path, '.sql');
+        @unlink($path);
+        @unlink($metaPath);
+        foreach (glob($dir . '/backup_' . substr($base, strlen('carrot_home_')) . '*.json') ?: [] as $statePath) {
+            @unlink($statePath);
+        }
+        $deleted++;
+    }
+    return $deleted;
+}
+
+function admin_backup_delete_file(string $file): void
+{
+    $path = admin_backup_safe_file($file);
+    $base = basename($path, '.sql');
+    @unlink($path);
+    @unlink($path . '.meta.json');
+    foreach (glob(admin_backup_dir() . '/backup_' . substr($base, strlen('carrot_home_')) . '*.json') ?: [] as $statePath) {
+        @unlink($statePath);
+    }
+}
+
+function admin_format_bytes(int $bytes): string
+{
+    $units = ['B', 'KB', 'MB', 'GB'];
+    $value = max(0, $bytes);
+    $unitIndex = 0;
+    while ($value >= 1024 && $unitIndex < count($units) - 1) {
+        $value /= 1024;
+        $unitIndex++;
+    }
+    return ($unitIndex === 0 ? (string) $value : number_format($value, 2)) . ' ' . $units[$unitIndex];
+}
+
+function admin_backup_progress(array $state): array
+{
+    $totalRows = max(1, (int) ($state['total_rows'] ?? 0));
+    $doneRows = max(0, (int) ($state['done_rows'] ?? 0));
+    return [
+        'job_id' => $state['job_id'] ?? '',
+        'file' => (string) ($state['file'] ?? basename((string) ($state['file_path'] ?? ''))),
+        'job_status' => $state['status'] ?? 'running',
+        'table' => $state['current_table'] ?? '',
+        'done_rows' => $doneRows,
+        'total_rows' => (int) ($state['total_rows'] ?? 0),
+        'percent' => min(100, (int) floor(($doneRows / $totalRows) * 100)),
+    ];
+}
+
+function admin_backup_start(PDO $pdo, string $dbName): array
+{
+    $dir = admin_ensure_backup_dir();
+    admin_backup_cleanup_incomplete(60);
+    $stamp = date('Ymd_His');
+    $jobId = 'backup_' . $stamp . '_' . substr(bin2hex(random_bytes(3)), 0, 6);
+    $suffix = substr((string) strrchr($jobId, '_'), 1);
+    $filePath = $dir . '/carrot_home_' . $stamp . '_' . $suffix . '.sql';
+    $tables = admin_backup_tables($pdo);
+    if (!$tables) {
+        throw new RuntimeException('Database không có bảng để sao lưu.');
+    }
+
+    $tableRows = [];
+    $totalRows = 0;
+    foreach ($tables as $table) {
+        $count = (int) $pdo->query('SELECT COUNT(*) FROM ' . admin_sql_ident($table))->fetchColumn();
+        $tableRows[$table] = $count;
+        $totalRows += $count;
+    }
+
+    admin_backup_write($filePath, "-- Carrot Admin backup\n-- Database: {$dbName}\n-- Created: " . date('Y-m-d H:i:s') . "\n\nSET FOREIGN_KEY_CHECKS=0;\nSET NAMES utf8mb4;\n\n");
+    $state = [
+        'job_id' => $jobId,
+        'status' => 'running',
+        'file' => basename($filePath),
+        'tables' => $tables,
+        'table_rows' => $tableRows,
+        'table_index' => 0,
+        'offset' => 0,
+        'done_rows' => 0,
+        'total_rows' => $totalRows,
+        'schema_written' => [],
+        'current_table' => $tables[0],
+        'started_at' => date('Y-m-d H:i:s'),
+    ];
+    file_put_contents(admin_backup_state_path($jobId), json_encode($state, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES), LOCK_EX);
+    return admin_backup_progress($state);
+}
+
+function admin_backup_process(PDO $pdo, string $jobId, int $chunkSize = 700): array
+{
+    $statePath = admin_backup_state_path($jobId);
+    $state = is_file($statePath) ? json_decode((string) file_get_contents($statePath), true) : null;
+    if (!is_array($state)) {
+        throw new RuntimeException('Không tìm thấy trạng thái backup.');
+    }
+    if (($state['status'] ?? '') === 'complete') {
+        return admin_backup_progress($state);
+    }
+
+    $tables = $state['tables'] ?? [];
+    $tableIndex = (int) ($state['table_index'] ?? 0);
+    if (!isset($tables[$tableIndex])) {
+        $filePath = admin_backup_state_file_path($state);
+        admin_backup_write($filePath, "\nSET FOREIGN_KEY_CHECKS=1;\n");
+        $state['status'] = 'complete';
+        $state['finished_at'] = date('Y-m-d H:i:s');
+        file_put_contents($filePath . '.meta.json', json_encode([
+            'status' => 'complete',
+            'tables' => count($tables),
+            'rows' => (int) ($state['done_rows'] ?? 0),
+            'started_at' => $state['started_at'] ?? '',
+            'finished_at' => $state['finished_at'],
+        ], JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES), LOCK_EX);
+        file_put_contents($statePath, json_encode($state, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES), LOCK_EX);
+        return admin_backup_progress($state);
+    }
+
+    $table = (string) $tables[$tableIndex];
+    $filePath = admin_backup_state_file_path($state);
+    $state['current_table'] = $table;
+    if (empty($state['schema_written'][$table])) {
+        $createStmt = $pdo->query('SHOW CREATE TABLE ' . admin_sql_ident($table))->fetch(PDO::FETCH_NUM);
+        $createSql = (string) ($createStmt[1] ?? '');
+        admin_backup_write($filePath, "\nDROP TABLE IF EXISTS " . admin_sql_ident($table) . ";\n" . $createSql . ";\n\n");
+        $state['schema_written'][$table] = true;
+    }
+
+    $offset = (int) ($state['offset'] ?? 0);
+    $stmt = $pdo->prepare('SELECT * FROM ' . admin_sql_ident($table) . ' LIMIT :limit OFFSET :offset');
+    $stmt->bindValue(':limit', $chunkSize, PDO::PARAM_INT);
+    $stmt->bindValue(':offset', $offset, PDO::PARAM_INT);
+    $stmt->execute();
+    $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+    if (!$rows) {
+        $state['table_index'] = $tableIndex + 1;
+        $state['offset'] = 0;
+        $state['current_table'] = $tables[$tableIndex + 1] ?? '';
+    } else {
+        $columns = array_keys($rows[0]);
+        $columnSql = implode(', ', array_map('admin_sql_ident', $columns));
+        $lines = [];
+        foreach ($rows as $row) {
+            $values = [];
+            foreach ($columns as $column) {
+                $values[] = admin_sql_value($row[$column] ?? null);
+            }
+            $lines[] = '(' . implode(', ', $values) . ')';
+        }
+        admin_backup_write($filePath, 'INSERT INTO ' . admin_sql_ident($table) . ' (' . $columnSql . ") VALUES\n" . implode(",\n", $lines) . ";\n");
+        $state['offset'] = $offset + count($rows);
+        $state['done_rows'] = (int) ($state['done_rows'] ?? 0) + count($rows);
+    }
+
+    file_put_contents($statePath, json_encode($state, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES), LOCK_EX);
+    return admin_backup_progress($state);
+}
+
+function admin_restore_start(string $file): array
+{
+    admin_ensure_backup_dir();
+    $filePath = admin_backup_safe_file($file);
+    $metaPath = $filePath . '.meta.json';
+    $meta = is_file($metaPath) ? json_decode((string) file_get_contents($metaPath), true) : [];
+    if (!is_array($meta) || ($meta['status'] ?? '') !== 'complete') {
+        throw new RuntimeException('Chỉ có thể khôi phục file backup đã hoàn tất.');
+    }
+    $jobId = 'restore_' . date('Ymd_His') . '_' . substr(bin2hex(random_bytes(3)), 0, 6);
+    $state = [
+        'job_id' => $jobId,
+        'status' => 'running',
+        'file' => basename($filePath),
+        'offset' => 0,
+        'pending' => '',
+        'done_statements' => 0,
+        'total_bytes' => filesize($filePath) ?: 1,
+        'started_at' => date('Y-m-d H:i:s'),
+    ];
+    file_put_contents(admin_backup_state_path($jobId), json_encode($state, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES), LOCK_EX);
+    return admin_restore_progress($state);
+}
+
+function admin_restore_progress(array $state): array
+{
+    $totalBytes = max(1, (int) ($state['total_bytes'] ?? 1));
+    $offset = max(0, (int) ($state['offset'] ?? 0));
+    return [
+        'job_id' => $state['job_id'] ?? '',
+        'file' => (string) ($state['file'] ?? basename((string) ($state['file_path'] ?? ''))),
+        'job_status' => $state['status'] ?? 'running',
+        'done_statements' => (int) ($state['done_statements'] ?? 0),
+        'percent' => min(100, (int) floor(($offset / $totalBytes) * 100)),
+    ];
+}
+
+function admin_restore_process(PDO $pdo, string $jobId): array
+{
+    $statePath = admin_backup_state_path($jobId);
+    $state = is_file($statePath) ? json_decode((string) file_get_contents($statePath), true) : null;
+    if (!is_array($state)) {
+        throw new RuntimeException('Không tìm thấy trạng thái khôi phục.');
+    }
+    if (($state['status'] ?? '') === 'complete') {
+        return admin_restore_progress($state);
+    }
+
+    $filePath = admin_backup_state_file_path($state);
+    $handle = fopen($filePath, 'rb');
+    if (!$handle) {
+        throw new RuntimeException('Không mở được file backup.');
+    }
+    fseek($handle, (int) ($state['offset'] ?? 0));
+    $pending = (string) ($state['pending'] ?? '');
+    $statements = 0;
+    $pdo->exec('SET FOREIGN_KEY_CHECKS=0');
+
+    while (!feof($handle) && $statements < 80) {
+        $line = fgets($handle);
+        if ($line === false) {
+            break;
+        }
+        $trimmed = trim($line);
+        if ($pending === '' && ($trimmed === '' || substr($trimmed, 0, 2) === '--')) {
+            continue;
+        }
+        $pending .= $line;
+        if (preg_match('/;\s*$/', $trimmed)) {
+            $sql = trim(preg_replace('/;\s*$/', '', $pending) ?? $pending);
+            $pending = '';
+            if ($sql !== '') {
+                $pdo->exec($sql);
+                $state['done_statements'] = (int) ($state['done_statements'] ?? 0) + 1;
+                $statements++;
+            }
+        }
+    }
+
+    $state['offset'] = ftell($handle);
+    fclose($handle);
+    $state['pending'] = $pending;
+    if ((int) $state['offset'] >= (int) ($state['total_bytes'] ?? 0) && trim($pending) === '') {
+        $pdo->exec('SET FOREIGN_KEY_CHECKS=1');
+        $state['status'] = 'complete';
+        $state['finished_at'] = date('Y-m-d H:i:s');
+    }
+
+    file_put_contents($statePath, json_encode($state, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES), LOCK_EX);
+    return admin_restore_progress($state);
+}
+
+function admin_backup_ajax(PDO $pdo, string $dbName): void
+{
+    try {
+        $task = trim($_POST['backup_task'] ?? '');
+        if ($task === 'list') {
+            admin_backup_cleanup_incomplete(300);
+            admin_json_success(['items' => admin_backup_list_items()]);
+        }
+        if ($task === 'cleanup') {
+            admin_json_success(['deleted' => admin_backup_cleanup_incomplete(0), 'items' => admin_backup_list_items()]);
+        }
+        if ($task === 'delete') {
+            admin_backup_delete_file(trim($_POST['file'] ?? ''));
+            admin_json_success(['items' => admin_backup_list_items()]);
+        }
+        if ($task === 'start_backup') {
+            admin_json_success(admin_backup_start($pdo, $dbName));
+        }
+        if ($task === 'process_backup') {
+            admin_json_success(admin_backup_process($pdo, trim($_POST['job_id'] ?? '')));
+        }
+        if ($task === 'start_restore') {
+            admin_json_success(admin_restore_start(trim($_POST['file'] ?? '')));
+        }
+        if ($task === 'process_restore') {
+            admin_json_success(admin_restore_process($pdo, trim($_POST['job_id'] ?? '')));
+        }
+        throw new RuntimeException('Tác vụ backup không hợp lệ.');
+    } catch (Throwable $e) {
+        admin_json_error($e->getMessage());
+    }
+}
+
+if (($_POST['action'] ?? '') === 'backup_ajax') {
+    if (!$pdo instanceof PDO) {
+        admin_json_error('Không thể kết nối database: ' . ($db_error ?? 'unknown error'));
+    }
+    admin_backup_ajax($pdo, $db_name ?? 'carrot_home');
+}
+
+if (($_GET['action'] ?? '') === 'backup_download') {
+    try {
+        $path = admin_backup_safe_file(trim($_GET['file'] ?? ''));
+        header('Content-Type: application/sql; charset=utf-8');
+        header('Content-Disposition: attachment; filename="' . basename($path) . '"');
+        header('Content-Length: ' . filesize($path));
+        readfile($path);
+    } catch (Throwable $e) {
+        http_response_code(404);
+        echo htmlspecialchars($e->getMessage());
+    }
+    exit;
+}
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'ajax_upload') {
     admin_ajax_upload();
 }
@@ -1191,7 +1830,7 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages', 'users', '
 } else {
     try {
         $homePdo = null;
-        if (in_array($section, ['pages', 'users', 'api'], true)) {
+        if (in_array($section, ['pages', 'users', 'api', 'music'], true)) {
             $homePdo = admin_home_pdo();
         }
 
@@ -1201,6 +1840,7 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages', 'users', '
             $dashboardMetrics['apps'] = admin_safe_count_table($pdo, 'app');
             $dashboardMetrics['coc'] = admin_safe_count_table($pdo, 'coc');
             $dashboardMetrics['bank'] = admin_safe_count_table($pdo, 'bank');
+            $dashboardMetrics['sites'] = admin_safe_count_table($pdo, 'sites');
             $dashboardMetrics['country'] = admin_safe_count_table($pdo, 'country');
             $overviewHomePdo = null;
             try {
@@ -1213,14 +1853,17 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages', 'users', '
             }
             $trafficMetrics['coc'] = admin_visit_metrics($pdo, 'coc', $trafficDateRange);
             $trafficMetrics['home'] = admin_visit_metrics($overviewHomePdo, 'home', $trafficDateRange);
-            $trafficMetrics['total'] = admin_sum_visit_metrics([$trafficMetrics['coc'], $trafficMetrics['home']]);
-            $trafficChartData = admin_sum_visit_hourly([
-                admin_visit_hourly($pdo, 'coc'),
-                admin_visit_hourly($overviewHomePdo, 'home'),
-            ]);
+            $trafficMetrics['music'] = admin_visit_metrics($pdo, 'music', $trafficDateRange);
+            $trafficMetrics['total'] = admin_sum_visit_metrics([$trafficMetrics['coc'], $trafficMetrics['home'], $trafficMetrics['music']]);
+            $trafficChartData = admin_sum_visit_chart([
+                admin_visit_chart($pdo, 'coc', $trafficDateRange),
+                admin_visit_chart($overviewHomePdo, 'home', $trafficDateRange),
+                admin_visit_chart($pdo, 'music', $trafficDateRange),
+            ], $trafficDateRange);
             $trafficIpRows = array_merge(
                 admin_visit_ip_rows($pdo, 'coc', 'COC Shop', $trafficDateRange),
-                admin_visit_ip_rows($overviewHomePdo, 'home', 'CarrotHome', $trafficDateRange)
+                admin_visit_ip_rows($overviewHomePdo, 'home', 'CarrotHome', $trafficDateRange),
+                admin_visit_ip_rows($pdo, 'music', 'CarrotMusic', $trafficDateRange)
             );
             usort($trafficIpRows, static function (array $a, array $b): int {
                 $rangeCompare = (int) ($b['range_hits'] ?? 0) <=> (int) ($a['range_hits'] ?? 0);
@@ -1235,7 +1878,11 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages', 'users', '
             });
         }
 
-        if (in_array($section, ['apps', 'pages', 'country'], true)) {
+        if ($section === 'backup') {
+            $backupItems = admin_backup_list_items();
+        }
+
+        if (in_array($section, ['apps', 'music', 'pages', 'country'], true)) {
             $languageOptions = admin_fetch_language_options($pdo instanceof PDO ? $pdo : null);
         }
 
@@ -1244,6 +1891,10 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages', 'users', '
             admin_ensure_app_store_table($pdo);
             admin_ensure_app_category_tables($pdo);
             admin_ensure_app_order_table($pdo);
+        }
+
+        if ($section === 'music') {
+            admin_ensure_music_tables($pdo);
         }
 
         if ($section === 'users') {
@@ -1388,6 +2039,190 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages', 'users', '
                     $stmt->execute([$id, $decription, $values['github'], $values['microsoft_store'], $values['icon'], $values['itch'], $values['exe_file'], $values['ipa_file'], $values['deb_file'], $values['amazon_app_store'], $values['huawei_store'], $values['youtube_link'], $values['google_play'], $values['dmg_file'], $values['uptodown'], $values['simmer'], $type, $values['apk_file'], $status, $priority, $price, $values['category']]);
                     admin_sync_app_categories($pdo, $id, $categoryIds);
                     $message = 'Đã thêm app mới.';
+                }
+            }
+
+            if ($section === 'music' && $action === 'delete_song') {
+                $stmt = $pdo->prepare('DELETE FROM song WHERE id = ?');
+                $stmt->execute([trim($_POST['id'] ?? '')]);
+                $message = 'Đã xóa bài hát.';
+            }
+
+            if ($section === 'music' && $action === 'delete_song_artist') {
+                $stmt = $pdo->prepare('DELETE FROM song_artist WHERE id = ?');
+                $stmt->execute([(int) ($_POST['id'] ?? 0)]);
+                $message = 'Đã xóa nghệ sĩ.';
+            }
+
+            if ($section === 'music' && $action === 'delete_song_genre') {
+                $stmt = $pdo->prepare('DELETE FROM song_genre WHERE genre_id = ?');
+                $stmt->execute([trim($_POST['genre_id'] ?? '')]);
+                $message = 'Đã xóa thể loại.';
+            }
+
+            if ($section === 'music' && $action === 'delete_song_order') {
+                $stmt = $pdo->prepare('DELETE FROM song_orders WHERE id = ?');
+                $stmt->execute([(int) ($_POST['id'] ?? 0)]);
+                $message = 'Đã xóa đơn đặt hàng nhạc.';
+            }
+
+            if ($section === 'music' && $action === 'save_song') {
+                $originalId = trim($_POST['original_id'] ?? '');
+                $id = trim($_POST['id'] ?? '');
+                $name = trim($_POST['name'] ?? '');
+                $artist = trim($_POST['artist'] ?? '');
+                $album = trim($_POST['album'] ?? '');
+                $genre = trim($_POST['genre'] ?? '');
+                $lang = trim($_POST['lang'] ?? 'vi') ?: 'vi';
+                $year = trim($_POST['year'] ?? '');
+                $date = trim($_POST['date'] ?? '');
+                $publishedAt = trim($_POST['publishedAt'] ?? '');
+                $linkYtb = trim($_POST['link_ytb'] ?? '');
+                $mp3 = trim($_POST['mp3'] ?? '');
+                $avatar = trim($_POST['avatar'] ?? '');
+                $lyrics = trim($_POST['lyrics'] ?? '');
+                $artistIds = $_POST['artist_ids'] ?? [];
+                if (!is_array($artistIds)) {
+                    $artistIds = [$artistIds];
+                }
+
+                if ($id === '' || $name === '') {
+                    throw new RuntimeException('Vui lòng nhập ID và tên bài hát.');
+                }
+
+                if ($originalId !== '') {
+                    $stmt = $pdo->prepare('
+                        UPDATE song
+                        SET id = ?, name = ?, artist = ?, album = ?, genre = ?, lang = ?, year = ?, date = ?, publishedAt = ?, link_ytb = ?, mp3 = ?, avatar = ?, lyrics = ?
+                        WHERE id = ?
+                    ');
+                    $stmt->execute([$id, $name, $artist, $album, $genre, $lang, $year, $date, $publishedAt, $linkYtb, $mp3, $avatar, $lyrics, $originalId]);
+                    admin_sync_song_artists($pdo, $id, $artistIds);
+                    if ($genre !== '') {
+                        $pdo->prepare('INSERT IGNORE INTO song_genre (genre_id, title) VALUES (?, ?)')->execute([$genre, $genre]);
+                    }
+                    $message = 'Đã cập nhật bài hát.';
+                } else {
+                    $stmt = $pdo->prepare('
+                        INSERT INTO song (id, name, artist, album, genre, lang, year, date, publishedAt, link_ytb, mp3, avatar, lyrics)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ');
+                    $stmt->execute([$id, $name, $artist, $album, $genre, $lang, $year, $date, $publishedAt, $linkYtb, $mp3, $avatar, $lyrics]);
+                    admin_sync_song_artists($pdo, $id, $artistIds);
+                    if ($genre !== '') {
+                        $pdo->prepare('INSERT IGNORE INTO song_genre (genre_id, title) VALUES (?, ?)')->execute([$genre, $genre]);
+                    }
+                    $message = 'Đã thêm bài hát.';
+                }
+            }
+
+            if ($section === 'music' && $action === 'save_song_artist') {
+                $id = (int) ($_POST['id'] ?? 0);
+                $name = trim($_POST['name'] ?? '');
+                $avatar = trim($_POST['avatar'] ?? '');
+                $description = trim($_POST['description'] ?? '');
+                $langKey = trim($_POST['lang_key'] ?? 'vi') ?: 'vi';
+
+                if ($name === '') {
+                    throw new RuntimeException('Vui lòng nhập tên nghệ sĩ.');
+                }
+
+                if ($id > 0) {
+                    $stmt = $pdo->prepare('UPDATE song_artist SET name = ?, avatar = ?, description = ?, lang_key = ? WHERE id = ?');
+                    $stmt->execute([$name, $avatar, $description, $langKey, $id]);
+                    $message = 'Đã cập nhật nghệ sĩ.';
+                } else {
+                    $stmt = $pdo->prepare('
+                        INSERT INTO song_artist (name, avatar, description, lang_key)
+                        VALUES (?, ?, ?, ?)
+                        ON DUPLICATE KEY UPDATE avatar = VALUES(avatar), description = VALUES(description)
+                    ');
+                    $stmt->execute([$name, $avatar, $description, $langKey]);
+                    $message = 'Đã lưu nghệ sĩ.';
+                }
+            }
+
+            if ($section === 'music' && $action === 'save_song_genre') {
+                $originalId = trim($_POST['original_genre_id'] ?? '');
+                $genreId = trim($_POST['genre_id'] ?? '');
+                $title = trim($_POST['title'] ?? '');
+                $description = trim($_POST['description'] ?? '');
+
+                if ($genreId === '') {
+                    throw new RuntimeException('Vui lòng nhập genre_id.');
+                }
+                if ($title === '') {
+                    $title = $genreId;
+                }
+
+                if ($originalId !== '') {
+                    $stmt = $pdo->prepare('UPDATE song_genre SET genre_id = ?, title = ?, description = ? WHERE genre_id = ?');
+                    $stmt->execute([$genreId, $title, $description, $originalId]);
+                    $message = 'Đã cập nhật thể loại.';
+                } else {
+                    $stmt = $pdo->prepare('
+                        INSERT INTO song_genre (genre_id, title, description)
+                        VALUES (?, ?, ?)
+                        ON DUPLICATE KEY UPDATE title = VALUES(title), description = VALUES(description)
+                    ');
+                    $stmt->execute([$genreId, $title, $description]);
+                    $message = 'Đã lưu thể loại.';
+                }
+            }
+
+            if ($section === 'music' && $action === 'ajax_youtube_song') {
+                try {
+                    $url = trim($_POST['url'] ?? '');
+                    if ($url === '') {
+                        throw new RuntimeException('Vui lòng nhập link YouTube.');
+                    }
+                    preg_match('/(?:v=|youtu\.be\/|shorts\/)([A-Za-z0-9_-]{6,})/', $url, $matches);
+                    $videoId = $matches[1] ?? '';
+                    if ($videoId === '') {
+                        throw new RuntimeException('Không nhận diện được video ID.');
+                    }
+
+                    $apiPdo = $homePdo instanceof PDO ? $homePdo : admin_home_pdo();
+                    admin_ensure_api_table($apiPdo);
+                    $stmt = $apiPdo->prepare('SELECT api_key FROM api_config WHERE provider = "youtube" AND enabled = 1 AND TRIM(COALESCE(api_key, "")) <> "" ORDER BY id DESC LIMIT 1');
+                    $stmt->execute();
+                    $apiKey = trim((string) $stmt->fetchColumn());
+                    if ($apiKey === '') {
+                        throw new RuntimeException('Chưa cấu hình YouTube API key ở mục API.');
+                    }
+                    if (!function_exists('curl_init')) {
+                        throw new RuntimeException('Server cần bật PHP cURL.');
+                    }
+
+                    $endpoint = 'https://www.googleapis.com/youtube/v3/videos?' . http_build_query([
+                        'part' => 'snippet,contentDetails',
+                        'id' => $videoId,
+                        'key' => $apiKey,
+                    ]);
+                    $curl = curl_init($endpoint);
+                    curl_setopt_array($curl, [
+                        CURLOPT_RETURNTRANSFER => true,
+                        CURLOPT_TIMEOUT => 20,
+                    ]);
+                    $response = curl_exec($curl);
+                    $statusCode = (int) curl_getinfo($curl, CURLINFO_RESPONSE_CODE);
+                    curl_close($curl);
+                    $payload = json_decode((string) $response, true);
+                    if ($statusCode >= 300 || empty($payload['items'][0]['snippet'])) {
+                        throw new RuntimeException('Không lấy được dữ liệu YouTube.');
+                    }
+                    $snippet = $payload['items'][0]['snippet'];
+                    $thumbs = $snippet['thumbnails'] ?? [];
+                    $avatar = $thumbs['maxres']['url'] ?? $thumbs['high']['url'] ?? $thumbs['medium']['url'] ?? $thumbs['default']['url'] ?? '';
+                    admin_json_success([
+                        'name' => (string) ($snippet['title'] ?? ''),
+                        'artist' => (string) ($snippet['channelTitle'] ?? ''),
+                        'publishedAt' => (string) ($snippet['publishedAt'] ?? ''),
+                        'avatar' => (string) $avatar,
+                        'lyrics' => (string) ($snippet['description'] ?? ''),
+                    ]);
+                } catch (Throwable $e) {
+                    admin_json_error($e->getMessage());
                 }
             }
 
@@ -1665,7 +2500,7 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages', 'users', '
             }
 
             if ($section === 'paypal' && $action === 'save_paypal_config') {
-                $site = ($_POST['site'] ?? '') === 'coc' ? 'coc' : 'home';
+                $site = in_array($_POST['site'] ?? '', ['home', 'coc', 'music'], true) ? (string) $_POST['site'] : 'home';
                 $enabled = isset($_POST['enabled']) ? 1 : 0;
                 $activeMode = ($_POST['active_mode'] ?? 'sandbox') === 'live' ? 'live' : 'sandbox';
                 $currency = strtoupper(trim($_POST['currency'] ?? 'USD')) ?: 'USD';
@@ -2015,6 +2850,35 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages', 'users', '
                 }
             }
 
+            if ($section === 'sites' && $action === 'delete_sites') {
+                $stmt = $pdo->prepare('DELETE FROM sites WHERE id = ?');
+                $stmt->execute([(int) ($_POST['id'] ?? 0)]);
+                $message = 'Đã xóa site.';
+            }
+
+            if ($section === 'sites' && $action === 'save_sites') {
+                $originalId = (int) ($_POST['original_id'] ?? 0);
+                $name = trim($_POST['name'] ?? '');
+                $url = trim($_POST['url'] ?? '');
+                $logo = trim($_POST['logo'] ?? '');
+                $description = trim($_POST['description'] ?? '');
+                $sortOrder = (int) ($_POST['sort_order'] ?? 0);
+
+                if ($name === '' || $url === '') {
+                    throw new RuntimeException('Vui lòng nhập đủ thông tin site (Tên và URL).');
+                }
+
+                if ($originalId > 0) {
+                    $stmt = $pdo->prepare('UPDATE sites SET name = ?, url = ?, logo = ?, description = ?, sort_order = ? WHERE id = ?');
+                    $stmt->execute([$name, $url, $logo, $description, $sortOrder, $originalId]);
+                    $message = 'Đã cập nhật site.';
+                } else {
+                    $stmt = $pdo->prepare('INSERT INTO sites (name, url, logo, description, sort_order) VALUES (?, ?, ?, ?, ?)');
+                    $stmt->execute([$name, $url, $logo, $description, $sortOrder]);
+                    $message = 'Đã thêm site mới.';
+                }
+            }
+
             if ($section === 'country' && $action === 'delete_country') {
                 $stmt = $pdo->prepare('DELETE FROM country WHERE id = ?');
                 $stmt->execute([(int) ($_POST['id'] ?? 0)]);
@@ -2199,6 +3063,20 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages', 'users', '
             $editing = admin_fetch_app($pdo, $editKey);
         }
 
+        if ($section === 'music' && $musicTab === 'songs' && $editKey !== '') {
+            $editing = admin_fetch_song($pdo, $editKey);
+        }
+
+        if ($section === 'music' && $musicTab === 'artists' && $editId > 0) {
+            $editing = admin_fetch_song_artist($pdo, $editId);
+        }
+
+        if ($section === 'music' && $musicTab === 'genres' && $editKey !== '') {
+            $stmt = $pdo->prepare('SELECT * FROM song_genre WHERE genre_id = ?');
+            $stmt->execute([$editKey]);
+            $editing = $stmt->fetch() ?: null;
+        }
+
         if ($section === 'pages' && $editId > 0) {
             $editing = admin_fetch_page($homePdo, $editId);
         }
@@ -2213,6 +3091,10 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages', 'users', '
 
         if ($section === 'bank' && $editId > 0) {
             $editing = admin_fetch_bank($pdo, $editId);
+        }
+
+        if ($section === 'sites' && $editId > 0) {
+            $editing = admin_fetch_sites($pdo, $editId);
         }
 
         if ($section === 'country' && $countryTab === 'countries' && $editId > 0) {
@@ -2291,6 +3173,13 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages', 'users', '
         ];
         [$bankSort, $bankDir] = admin_sort_state($bankSortColumns, 'id', 'DESC');
 
+        $siteSortColumns = [
+            'id' => 'id',
+            'name' => 'name',
+            'sort_order' => 'sort_order',
+        ];
+        [$sitesSort, $sitesDir] = admin_sort_state($siteSortColumns, 'sort_order', 'ASC');
+
         $countrySortColumns = [
             'id' => 'id',
             'name' => 'name',
@@ -2328,6 +3217,48 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages', 'users', '
                 ORDER BY app_orders.created_at DESC, app_orders.id DESC
             ')->fetchAll()
             : [];
+        if ($section === 'music') {
+            $songTotal = (int) $pdo->query('SELECT COUNT(*) FROM song')->fetchColumn();
+            $songTotalPages = max(1, (int) ceil($songTotal / $songPerPage));
+            $songPage = min($songPage, $songTotalPages);
+            $songOffset = ($songPage - 1) * $songPerPage;
+            $songStmt = $pdo->prepare('
+                SELECT s.*, GROUP_CONCAT(sa.name ORDER BY sa.name SEPARATOR ", ") AS artist_names
+                FROM song s
+                LEFT JOIN song_artist_map sam ON sam.song_id = s.id
+                LEFT JOIN song_artist sa ON sa.id = sam.artist_id
+                GROUP BY s.id
+                ORDER BY s.created_at DESC, s.id ASC
+                LIMIT :limit OFFSET :offset
+            ');
+            $songStmt->bindValue(':limit', $songPerPage, PDO::PARAM_INT);
+            $songStmt->bindValue(':offset', $songOffset, PDO::PARAM_INT);
+            $songStmt->execute();
+            $songs = $songStmt->fetchAll();
+        } else {
+            $songs = [];
+        }
+        $songArtists = $section === 'music'
+            ? $pdo->query('SELECT * FROM song_artist ORDER BY name ASC, id DESC')->fetchAll()
+            : [];
+        $songGenres = $section === 'music'
+            ? $pdo->query('
+                SELECT g.*, COUNT(s.id) AS song_count
+                FROM song_genre g
+                LEFT JOIN song s ON s.genre = g.genre_id
+                GROUP BY g.genre_id
+                ORDER BY g.genre_id ASC
+            ')->fetchAll()
+            : [];
+        $songOrders = ($section === 'music' && $musicTab === 'orders')
+            ? $pdo->query('
+                SELECT song_orders.*, song.name AS song_name, song.avatar AS song_avatar, song.mp3 AS song_mp3, users.name AS user_name, users.email AS user_email
+                FROM song_orders
+                LEFT JOIN song ON song.id = song_orders.song_id
+                LEFT JOIN users ON users.id = song_orders.user_id
+                ORDER BY song_orders.created_at DESC, song_orders.id DESC
+            ')->fetchAll()
+            : [];
         $apps = $section === 'apps'
             ? $pdo->query('SELECT * FROM app ORDER BY ' . admin_order_by($appSortColumns, $appSort, $appDir) . ', id ASC')->fetchAll()
             : [];
@@ -2346,6 +3277,9 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages', 'users', '
         }
         $banks = $section === 'bank'
             ? $pdo->query('SELECT * FROM bank ORDER BY ' . admin_order_by($bankSortColumns, $bankSort, $bankDir))->fetchAll()
+            : [];
+        $sites = $section === 'sites'
+            ? $pdo->query('SELECT * FROM sites ORDER BY ' . admin_order_by($siteSortColumns, $sitesSort, $sitesDir))->fetchAll()
             : [];
         $countries = $section === 'country'
             ? $pdo->query('SELECT * FROM country ORDER BY ' . admin_order_by($countrySortColumns, $countrySort, $countryDir))->fetchAll()
@@ -2425,6 +3359,10 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages', 'users', '
         $error = $e->getMessage();
         $accounts = [];
         $apps = [];
+        $songs = [];
+        $songArtists = [];
+        $songGenres = [];
+        $songOrders = [];
         $pages = [];
         $users = [];
         $apiConfigs = [];
@@ -2440,28 +3378,31 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages', 'users', '
         $orders = [];
         $appOrders = [];
         $trafficIpRows = [];
+        $backupItems = [];
     }
 }
 
 $photoText = ($section === 'coc' && $editing) ? implode("\n", coc_decode_photos($editing['photos'])) : '';
-$pageTitle = ['overview' => 'Tổng quan', 'apps' => 'App', 'pages' => 'Page', 'users' => 'Users', 'api' => 'API', 'bank' => 'Bank', 'coc' => 'Coc', 'country' => 'Country', 'paypal' => 'Paypal', 'ai_support' => 'AI Support'][$section] ?? 'Tổng quan';
-$sectionLabels = ['overview' => 'tổng quan', 'apps' => 'ứng dụng', 'pages' => 'Page/SEO', 'users' => 'người dùng', 'api' => 'API key', 'bank' => 'ngân hàng', 'coc' => 'shop', 'country' => 'quốc gia hỗ trợ', 'paypal' => 'PayPal', 'ai_support' => 'AI Support'];
-$sectionTitles = ['overview' => 'Tổng quan', 'apps' => 'App Carrot Home', 'pages' => 'Page Carrot Home', 'users' => 'User Carrot Home', 'api' => 'API Config', 'bank' => 'Bank', 'coc' => 'Acc Clash of Clans', 'country' => 'Country', 'paypal' => 'Paypal Config', 'ai_support' => 'AI - Support'];
+$pageTitle = ['overview' => 'Tổng quan', 'apps' => 'App', 'music' => 'Âm nhạc', 'pages' => 'Page', 'users' => 'Users', 'api' => 'API', 'bank' => 'Bank', 'sites' => 'Sites', 'coc' => 'Coc', 'country' => 'Country', 'paypal' => 'Paypal', 'ai_support' => 'AI Support', 'backup' => 'Sao Lưu'][$section] ?? 'Tổng quan';
+$sectionLabels = ['overview' => 'tổng quan', 'apps' => 'ứng dụng', 'music' => 'âm nhạc', 'pages' => 'Page/SEO', 'users' => 'người dùng', 'api' => 'API key', 'bank' => 'ngân hàng', 'sites' => 'website', 'coc' => 'shop', 'country' => 'quốc gia hỗ trợ', 'paypal' => 'PayPal', 'ai_support' => 'AI Support', 'backup' => 'sao lưu dữ liệu'];
+$sectionTitles = ['overview' => 'Tổng quan', 'apps' => 'App Carrot Home', 'music' => 'CarrotMusic', 'pages' => 'Page Carrot Home', 'users' => 'User Carrot Home', 'api' => 'API Config', 'bank' => 'Bank', 'sites' => 'Sites', 'coc' => 'Acc Clash of Clans', 'country' => 'Country', 'paypal' => 'Paypal Config', 'ai_support' => 'AI - Support', 'backup' => 'Sao Lưu Database'];
 $dashboardCards = [
     ['label' => 'App', 'value' => $dashboardMetrics['apps'], 'icon' => 'boxes'],
     ['label' => 'Page', 'value' => $dashboardMetrics['pages'], 'icon' => 'file-text'],
     ['label' => 'Users', 'value' => $dashboardMetrics['users'], 'icon' => 'users'],
     ['label' => 'Coc', 'value' => $dashboardMetrics['coc'], 'icon' => 'shield'],
     ['label' => 'Bank', 'value' => $dashboardMetrics['bank'], 'icon' => 'landmark'],
+    ['label' => 'Sites', 'value' => $dashboardMetrics['sites'], 'icon' => 'globe'],
     ['label' => 'Country', 'value' => $dashboardMetrics['country'], 'icon' => 'globe-2'],
     ['label' => 'IP hôm nay', 'value' => $trafficMetrics['total']['today_unique'], 'icon' => 'activity'],
 ];
 $trafficRows = [
     ['label' => 'COC Shop', 'url' => 'https://coc.carrot28.com/', 'metrics' => $trafficMetrics['coc']],
     ['label' => 'CarrotHome', 'url' => 'https://home.carrot28.com/', 'metrics' => $trafficMetrics['home']],
+    ['label' => 'CarrotMusic', 'url' => 'https://music.carrot28.com/', 'metrics' => $trafficMetrics['music']],
     ['label' => 'Tổng cộng', 'url' => '', 'metrics' => $trafficMetrics['total']],
 ];
-$useSelect2 = $section === 'apps' || $section === 'pages' || ($section === 'country' && $countryTab === 'labels');
+$useSelect2 = $section === 'overview' || $section === 'apps' || $section === 'music' || $section === 'pages' || ($section === 'country' && $countryTab === 'labels');
 ?>
 <!doctype html>
 <html lang="vi">
@@ -2484,10 +3425,13 @@ $useSelect2 = $section === 'apps' || $section === 'pages' || ($section === 'coun
     <script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
     <?php endif; ?>
     <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+    <?php if ($section === 'overview'): ?>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.9/dist/chart.umd.min.js"></script>
+    <?php endif; ?>
     <script src="https://unpkg.com/lucide@latest"></script>
     <style>
         body{background:#eef2f7;color:#172033}
-        .brand-mark{width:100%;height:96px;object-fit:contain}
+        .brand-mark{width:100%;height:36px;object-fit:contain}
         .muted-text{color:#64748b}
         .dashboard-layout{min-height:100vh;background:linear-gradient(180deg,#f8fafc 0,#eef2f7 42%,#e9edf4 100%)}
         .dashboard-sidebar{position:sticky;top:16px;min-height:calc(100vh - 32px);border:1px solid rgba(15,23,42,.08);border-radius:8px;background:rgba(255,255,255,.92);box-shadow:0 18px 48px rgba(15,23,42,.08)}
@@ -2520,11 +3464,8 @@ $useSelect2 = $section === 'apps' || $section === 'pages' || ($section === 'coun
         .traffic-view{display:none}
         .traffic-view.active{display:block}
         .traffic-tools{display:flex;flex-wrap:wrap;align-items:center;justify-content:flex-end;gap:.65rem}
-        .traffic-date-form{display:flex;flex-wrap:wrap;align-items:end;gap:.5rem}
-        .traffic-date-field{display:flex;align-items:center;gap:.35rem;margin:0;color:#64748b;font-size:.78rem;font-weight:800;text-transform:uppercase}
-        .traffic-date-field .form-control{min-width:132px;border-radius:8px;font-weight:700}
-        .traffic-date-form .btn{display:inline-flex;align-items:center;gap:.35rem;border-radius:8px}
-        .traffic-date-form .btn i{width:15px;height:15px}
+        .traffic-date-form{min-width:220px}
+        .traffic-range-select{min-width:220px}
         .traffic-toggle{border:1px solid rgba(15,23,42,.12);border-radius:8px;padding:.25rem;background:#f8fafc}
         .traffic-toggle .btn{border-radius:6px;font-weight:800}
         .traffic-chart-wrap{border:1px solid rgba(15,23,42,.08);border-radius:8px;background:#f8fafc;padding:1rem}
@@ -2534,7 +3475,11 @@ $useSelect2 = $section === 'apps' || $section === 'pages' || ($section === 'coun
         .traffic-dot{display:inline-block;width:10px;height:10px;border-radius:999px}
         .traffic-dot-today{background:#0f766e}
         .traffic-dot-yesterday{background:#f59e0b}
-        #traffic_compare_chart{display:block;width:100%;height:260px}
+        #traffic_compare_chart{display:block;width:100%;height:350px!important;max-height:350px}
+        .backup-action-card{border:1px solid rgba(15,23,42,.08);border-radius:8px;background:#fff;padding:1rem;height:100%}
+        .backup-progress{height:10px;border-radius:999px;background:#e2e8f0;overflow:hidden}
+        .backup-progress-bar{height:100%;width:0;background:#198754;transition:width .25s ease}
+        .backup-file-name{font-weight:800;overflow-wrap:anywhere}
         .glass-panel,.admin-shell{border:1px solid rgba(15,23,42,.08)!important;border-radius:8px!important;background:rgba(255,255,255,.96)!important;box-shadow:0 14px 36px rgba(15,23,42,.06)!important}
         .table{--bs-table-bg:transparent}
         .table thead th{color:#64748b;font-size:.78rem;text-transform:uppercase}
@@ -2544,16 +3489,14 @@ $useSelect2 = $section === 'apps' || $section === 'pages' || ($section === 'coun
         .api-config-meta code{white-space:normal;overflow-wrap:anywhere;word-break:break-word;color:#334155;background:transparent;padding:0}
         @media (max-width:1199px){.dashboard-grid{grid-template-columns:repeat(3,minmax(0,1fr))}}
         @media (max-width:991px){.dashboard-sidebar{position:static;min-height:auto}.dashboard-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
-        @media (max-width:575px){.dashboard-grid{grid-template-columns:1fr}.dashboard-card-value{font-size:1.12rem}.traffic-tools{width:100%;justify-content:stretch}.traffic-date-form{width:100%;display:grid;grid-template-columns:1fr 1fr auto}.traffic-date-field{display:block}.traffic-date-field span{display:block;margin-bottom:.2rem}.traffic-date-field .form-control{min-width:0}.traffic-chart-legend{width:100%;justify-content:space-between}#traffic_compare_chart{height:220px}}
+        @media (max-width:575px){.dashboard-grid{grid-template-columns:1fr}.dashboard-card-value{font-size:1.12rem}.traffic-tools{width:100%;justify-content:stretch}.traffic-date-form{width:100%}.traffic-range-select{width:100%;min-width:0}.traffic-chart-legend{width:100%;justify-content:space-between}#traffic_compare_chart{height:260px!important;max-height:260px}}
     </style>
-    <?php if ($section === 'pages'): ?>
     <style>
         .simple-editor-toolbar{display:flex;flex-wrap:wrap;gap:.35rem;padding:.5rem;border:1px solid rgba(0,0,0,.15);border-bottom:0;border-radius:.375rem .375rem 0 0;background:rgba(255,255,255,.7)}
-        .simple-editor-toolbar button{min-width:36px}
+        .simple-editor-toolbar button{min-width:36px;border-radius:6px}
         .simple-editor-canvas{min-height:360px;padding:1rem;border:1px solid rgba(0,0,0,.15);border-radius:0 0 .375rem .375rem;background:#fff;color:#111;line-height:1.65;outline:0}
         .simple-editor-canvas:focus{box-shadow:0 0 0 .25rem rgba(25,135,84,.25)}
     </style>
-    <?php endif; ?>
 </head>
 <body>
 <div class="container-fluid dashboard-layout">
@@ -2565,6 +3508,7 @@ $useSelect2 = $section === 'apps' || $section === 'pages' || ($section === 'coun
             <div class="list-group dashboard-nav">
                 <a class="list-group-item list-group-item-action <?= $section === 'overview' ? 'active' : '' ?>" href="index.php"><i data-lucide="layout-dashboard"></i><span>Tổng quan</span></a>
                 <a class="list-group-item list-group-item-action <?= $section === 'apps' ? 'active' : '' ?>" href="index.php?section=apps"><i data-lucide="boxes"></i><span>App</span></a>
+                <a class="list-group-item list-group-item-action <?= $section === 'music' ? 'active' : '' ?>" href="index.php?section=music"><i data-lucide="music-2"></i><span>Âm nhạc</span></a>
                 <a class="list-group-item list-group-item-action <?= $section === 'pages' ? 'active' : '' ?>" href="index.php?section=pages"><i data-lucide="file-text"></i><span>Page</span></a>
                 <a class="list-group-item list-group-item-action <?= $section === 'users' ? 'active' : '' ?>" href="index.php?section=users"><i data-lucide="users"></i><span>User</span></a>
                 <a class="list-group-item list-group-item-action <?= $section === 'api' ? 'active' : '' ?>" href="index.php?section=api"><i data-lucide="key-round"></i><span>API</span></a>
@@ -2572,7 +3516,9 @@ $useSelect2 = $section === 'apps' || $section === 'pages' || ($section === 'coun
                 <a class="list-group-item list-group-item-action <?= $section === 'paypal' ? 'active' : '' ?>" href="index.php?section=paypal"><i data-lucide="credit-card"></i><span>Paypal</span></a>
                 <a class="list-group-item list-group-item-action <?= $section === 'ai_support' ? 'active' : '' ?>" href="index.php?section=ai_support"><i data-lucide="sparkles"></i><span>AI - Support</span></a>
                 <a class="list-group-item list-group-item-action <?= $section === 'bank' ? 'active' : '' ?>" href="index.php?section=bank"><i data-lucide="landmark"></i><span>Bank</span></a>
+                <a class="list-group-item list-group-item-action <?= $section === 'sites' ? 'active' : '' ?>" href="index.php?section=sites"><i data-lucide="globe"></i><span>Sites</span></a>
                 <a class="list-group-item list-group-item-action <?= $section === 'country' ? 'active' : '' ?>" href="index.php?section=country"><i data-lucide="globe-2"></i><span>Country</span></a>
+                <a class="list-group-item list-group-item-action <?= $section === 'backup' ? 'active' : '' ?>" href="index.php?section=backup"><i data-lucide="database-backup"></i><span>Sao Lưu</span></a>
             </div>
         </aside>
 
@@ -2585,13 +3531,16 @@ $useSelect2 = $section === 'apps' || $section === 'pages' || ($section === 'coun
                     </div>
                     <div class="dashboard-actions d-flex flex-wrap gap-2">
                         <?php if ($section === 'apps'): ?>
-                            <a class="btn btn-secondary fw-bold" href="https://home.carrot28.com/" target="_blank" rel="noopener noreferrer">Carrot Store</a>
+                            <a class="btn btn-success fw-bold" href="https://home.carrot28.com/" target="_blank" rel="noopener noreferrer"><i data-lucide="external-link" style="width:16px;height:16px"></i> Carrot Store</a>
+                        <?php endif; ?>
+                        <?php if ($section === 'music'): ?>
+                            <a class="btn btn-success fw-bold" href="https://music.carrot28.com/" target="_blank" rel="noopener noreferrer"><i data-lucide="external-link" style="width:16px;height:16px"></i> CarrotMusic</a>
                         <?php endif; ?>
                         <?php if ($section === 'coc'): ?>
                             <a class="btn btn-secondary fw-bold" href="https://coc.carrot28.com/" target="_blank" rel="noopener noreferrer">Xem shop</a>
                         <?php endif; ?>
                         <?php if ($editing): ?>
-                            <a class="btn btn-success fw-bold" href="index.php<?= $section === 'apps' ? '?section=apps' : ($section === 'pages' ? '?section=pages' : ($section === 'users' ? '?section=users' : ($section === 'api' ? '?section=api' : ($section === 'bank' ? '?section=bank' : ($section === 'country' ? '?section=country' : '?section=coc'))))) ?>">Thêm mới</a>
+                            <a class="btn btn-success fw-bold" href="index.php<?= $section === 'apps' ? '?section=apps' : ($section === 'music' ? '?section=music&tab=' . urlencode($musicTab) : ($section === 'pages' ? '?section=pages' : ($section === 'users' ? '?section=users' : ($section === 'api' ? '?section=api' : ($section === 'bank' ? '?section=bank' : ($section === 'country' ? '?section=country' : '?section=coc')))))) ?>">Thêm mới</a>
                         <?php endif; ?>
                         <a class="btn btn-danger fw-bold" href="index.php?logout=1" title="Đăng xuất">
                             <span class="d-inline-flex align-items-center gap-2"><i data-lucide="log-out" style="width:16px;height:16px"></i><?= htmlspecialchars($_SESSION['admin_user']) ?></span>
@@ -2711,94 +3660,285 @@ document.querySelectorAll('.js-traffic-toggle').forEach((button) => {
 
 const trafficChartCanvas = document.getElementById('traffic_compare_chart');
 const trafficChartDataEl = document.getElementById('traffic_compare_data');
-if (trafficChartCanvas && trafficChartDataEl) {
+if (trafficChartCanvas && trafficChartDataEl && window.Chart) {
     const trafficChartData = JSON.parse(trafficChartDataEl.textContent || '{}');
-    const drawTrafficChart = () => {
-        const canvas = trafficChartCanvas;
-        const context = canvas.getContext('2d');
-        const rect = canvas.getBoundingClientRect();
-        const ratio = window.devicePixelRatio || 1;
-        const width = Math.max(320, Math.floor(rect.width));
-        const height = Math.max(200, Math.floor(rect.height || 260));
-        canvas.width = width * ratio;
-        canvas.height = height * ratio;
-        context.setTransform(ratio, 0, 0, ratio, 0, 0);
-        context.clearRect(0, 0, width, height);
-
-        const labels = Array.isArray(trafficChartData.labels) ? trafficChartData.labels : [];
-        const today = Array.isArray(trafficChartData.today) ? trafficChartData.today.map(Number) : [];
-        const yesterday = Array.isArray(trafficChartData.yesterday) ? trafficChartData.yesterday.map(Number) : [];
-        const values = today.concat(yesterday);
-        const maxValue = Math.max(1, ...values);
-        const yMax = Math.ceil(maxValue / 5) * 5 || 5;
-        const padding = {top: 18, right: 18, bottom: 34, left: 46};
-        const chartWidth = width - padding.left - padding.right;
-        const chartHeight = height - padding.top - padding.bottom;
-        const pointX = (index) => padding.left + (chartWidth * index / Math.max(1, labels.length - 1));
-        const pointY = (value) => padding.top + chartHeight - (chartHeight * value / yMax);
-
-        context.font = '12px system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
-        context.lineWidth = 1;
-        context.strokeStyle = 'rgba(100, 116, 139, .18)';
-        context.fillStyle = '#64748b';
-        context.textAlign = 'right';
-        context.textBaseline = 'middle';
-        for (let step = 0; step <= 4; step++) {
-            const value = Math.round(yMax * step / 4);
-            const y = pointY(value);
-            context.beginPath();
-            context.moveTo(padding.left, y);
-            context.lineTo(width - padding.right, y);
-            context.stroke();
-            context.fillText(value.toLocaleString('vi-VN'), padding.left - 10, y);
-        }
-
-        context.textAlign = 'center';
-        context.textBaseline = 'top';
-        labels.forEach((label, index) => {
-            if (index % 3 !== 0 && index !== labels.length - 1) {
-                return;
-            }
-            context.fillText(String(label).slice(0, 2), pointX(index), height - padding.bottom + 12);
-        });
-
-        const drawLine = (data, color) => {
-            context.beginPath();
-            data.forEach((value, index) => {
-                const x = pointX(index);
-                const y = pointY(value);
-                if (index === 0) {
-                    context.moveTo(x, y);
-                } else {
-                    context.lineTo(x, y);
-                }
-            });
-            context.lineWidth = 3;
-            context.lineJoin = 'round';
-            context.lineCap = 'round';
-            context.strokeStyle = color;
-            context.stroke();
-
-            data.forEach((value, index) => {
-                const x = pointX(index);
-                const y = pointY(value);
-                context.beginPath();
-                context.arc(x, y, 3, 0, Math.PI * 2);
-                context.fillStyle = '#fff';
-                context.fill();
-                context.lineWidth = 2;
-                context.strokeStyle = color;
-                context.stroke();
-            });
-        };
-
-        drawLine(yesterday, '#f59e0b');
-        drawLine(today, '#0f766e');
-    };
-
-    drawTrafficChart();
-    window.addEventListener('resize', drawTrafficChart);
+    new Chart(trafficChartCanvas, {
+        type: 'line',
+        data: {
+            labels: Array.isArray(trafficChartData.labels) ? trafficChartData.labels : [],
+            datasets: [
+                {
+                    label: 'Hits',
+                    data: Array.isArray(trafficChartData.hits) ? trafficChartData.hits.map(Number) : [],
+                    borderColor: '#0f766e',
+                    backgroundColor: 'rgba(15, 118, 110, .12)',
+                    borderWidth: 3,
+                    pointRadius: 3,
+                    pointHoverRadius: 6,
+                    tension: .32,
+                    fill: true,
+                },
+                {
+                    label: 'IP',
+                    data: Array.isArray(trafficChartData.unique) ? trafficChartData.unique.map(Number) : [],
+                    borderColor: '#f59e0b',
+                    backgroundColor: 'rgba(245, 158, 11, .10)',
+                    borderWidth: 2,
+                    pointRadius: 2,
+                    pointHoverRadius: 5,
+                    tension: .32,
+                    fill: false,
+                },
+            ],
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            interaction: {
+                mode: 'index',
+                intersect: false,
+            },
+            plugins: {
+                legend: {
+                    display: false,
+                },
+                tooltip: {
+                    callbacks: {
+                        label: (context) => `${context.dataset.label}: ${Number(context.parsed.y || 0).toLocaleString('vi-VN')}`,
+                    },
+                },
+            },
+            scales: {
+                x: {
+                    grid: {
+                        display: false,
+                    },
+                    ticks: {
+                        maxTicksLimit: (trafficChartData.mode || 'daily') === 'hourly' ? 12 : 10,
+                    },
+                },
+                y: {
+                    beginAtZero: true,
+                    ticks: {
+                        precision: 0,
+                        callback: (value) => Number(value).toLocaleString('vi-VN'),
+                    },
+                },
+            },
+        },
+    });
 }
+
+const backupPost = async (data) => {
+    const formData = new FormData();
+    formData.append('action', 'backup_ajax');
+    Object.entries(data).forEach(([key, value]) => formData.append(key, value));
+    const response = await fetch('index.php?section=backup', {
+        method: 'POST',
+        body: formData,
+    });
+    const rawText = await response.text();
+    let payload = null;
+    try {
+        payload = JSON.parse(rawText);
+    } catch (error) {
+        const message = rawText.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+        throw new Error(message || 'Server không trả JSON. Có thể phiên đăng nhập đã hết hạn hoặc PHP đang báo lỗi.');
+    }
+    if (!response.ok || payload.status !== 'success') {
+        throw new Error(payload.message || 'Tác vụ backup thất bại.');
+    }
+    return payload;
+};
+
+const renderBackupRows = (items) => {
+    const list = document.querySelector('.js-backup-list');
+    if (!list) {
+        return;
+    }
+    if (!Array.isArray(items) || !items.length) {
+        list.innerHTML = '<tr><td colspan="6" class="text-center muted-text py-4">Chưa có bản sao lưu.</td></tr>';
+        return;
+    }
+    list.innerHTML = items.map((item) => `
+        <tr>
+            <td><div class="backup-file-name">${escapeHtml(item.file || '')}</div><div class="small muted-text">${escapeHtml(item.status || '')}</div></td>
+            <td>${escapeHtml(item.size_label || '')}</td>
+            <td>${escapeHtml(item.created_at || '')}</td>
+            <td class="text-end">${Number(item.tables || 0).toLocaleString('vi-VN')}</td>
+            <td class="text-end">${Number(item.rows || 0).toLocaleString('vi-VN')}</td>
+            <td class="text-end">
+                <div class="btn-group btn-group-sm">
+                    <a class="btn btn-outline-secondary fw-bold ${item.complete ? '' : 'disabled'}" href="${item.complete ? `index.php?action=backup_download&file=${encodeURIComponent(item.file || '')}` : '#'}">Tải</a>
+                    <button class="btn btn-outline-danger fw-bold js-backup-restore" type="button" data-file="${escapeHtml(item.file || '')}" ${item.complete ? '' : 'disabled'}>Khôi phục</button>
+                    <button class="btn btn-outline-danger fw-bold js-backup-delete" type="button" data-file="${escapeHtml(item.file || '')}" title="Xóa backup" aria-label="Xóa backup">
+                        <i data-lucide="trash-2" style="width:15px;height:15px"></i>
+                    </button>
+                </div>
+            </td>
+        </tr>
+    `).join('');
+    if (window.lucide) {
+        lucide.createIcons();
+    }
+};
+
+const refreshBackupList = async () => {
+    const payload = await backupPost({backup_task: 'list'});
+    renderBackupRows(payload.items || []);
+};
+
+const setBackupProgress = (progress) => {
+    const wrap = document.querySelector('.js-backup-progress-wrap');
+    const status = document.querySelector('.js-backup-status');
+    const percent = document.querySelector('.js-backup-percent');
+    const bar = document.querySelector('.js-backup-progress-bar');
+    if (!wrap || !status || !percent || !bar) {
+        return;
+    }
+    wrap.classList.remove('d-none');
+    const value = Number(progress.percent || 0);
+    status.textContent = progress.table ? `Đang xử lý: ${progress.table}` : (progress.file || 'Đang xử lý...');
+    percent.textContent = `${value}%`;
+    bar.style.width = `${value}%`;
+};
+
+document.querySelectorAll('.js-backup-refresh').forEach((button) => {
+    button.addEventListener('click', async () => {
+        button.disabled = true;
+        try {
+            await refreshBackupList();
+        } catch (error) {
+            Swal.fire({icon: 'error', title: 'Không làm mới được', text: error.message});
+        } finally {
+            button.disabled = false;
+        }
+    });
+});
+
+document.querySelectorAll('.js-backup-cleanup').forEach((button) => {
+    button.addEventListener('click', async () => {
+        button.disabled = true;
+        try {
+            const payload = await backupPost({backup_task: 'cleanup'});
+            renderBackupRows(payload.items || []);
+            Swal.fire({
+                icon: 'success',
+                title: 'Đã dọn file lỗi',
+                text: `Đã xóa ${Number(payload.deleted || 0).toLocaleString('vi-VN')} file incomplete.`,
+                timer: 1500,
+                showConfirmButton: false,
+            });
+        } catch (error) {
+            Swal.fire({icon: 'error', title: 'Không dọn được', text: error.message});
+        } finally {
+            button.disabled = false;
+        }
+    });
+});
+
+document.querySelectorAll('.js-backup-start').forEach((button) => {
+    button.addEventListener('click', async () => {
+        button.disabled = true;
+        try {
+            let progress = await backupPost({backup_task: 'start_backup'});
+            setBackupProgress(progress);
+            while (progress.job_status !== 'complete') {
+                progress = await backupPost({backup_task: 'process_backup', job_id: progress.job_id});
+                setBackupProgress(progress);
+                await new Promise((resolve) => setTimeout(resolve, 120));
+            }
+            await refreshBackupList();
+            Swal.fire({icon: 'success', title: 'Đã sao lưu', text: progress.file || '', timer: 1600, showConfirmButton: false});
+        } catch (error) {
+            Swal.fire({icon: 'error', title: 'Sao lưu thất bại', text: error.message});
+        } finally {
+            button.disabled = false;
+        }
+    });
+});
+
+document.addEventListener('click', async (event) => {
+    const button = event.target.closest('.js-backup-restore');
+    if (!button) {
+        return;
+    }
+    const file = button.dataset.file || '';
+    const result = await Swal.fire({
+        icon: 'warning',
+        title: 'Khôi phục backup?',
+        text: `Database hiện tại sẽ bị ghi đè bằng file ${file}.`,
+        showCancelButton: true,
+        confirmButtonText: 'Khôi phục',
+        cancelButtonText: 'Hủy',
+        confirmButtonColor: '#dc3545',
+    });
+    if (!result.isConfirmed) {
+        return;
+    }
+
+    button.disabled = true;
+    try {
+        let progress = await backupPost({backup_task: 'start_restore', file});
+        Swal.fire({
+            title: 'Đang khôi phục',
+            html: `<div class="backup-progress"><div class="backup-progress-bar" id="restore-progress-bar" style="width:${Number(progress.percent || 0)}%"></div></div><div class="small fw-bold mt-2" id="restore-progress-text">${Number(progress.percent || 0)}%</div>`,
+            allowOutsideClick: false,
+            showConfirmButton: false,
+        });
+        while (progress.job_status !== 'complete') {
+            progress = await backupPost({backup_task: 'process_restore', job_id: progress.job_id});
+            const percentValue = Number(progress.percent || 0);
+            const bar = document.getElementById('restore-progress-bar');
+            const text = document.getElementById('restore-progress-text');
+            if (bar) bar.style.width = `${percentValue}%`;
+            if (text) text.textContent = `${percentValue}% - ${Number(progress.done_statements || 0).toLocaleString('vi-VN')} statements`;
+            await new Promise((resolve) => setTimeout(resolve, 120));
+        }
+        await refreshBackupList();
+        Swal.fire({icon: 'success', title: 'Đã khôi phục', text: progress.file || ''});
+    } catch (error) {
+        Swal.fire({icon: 'error', title: 'Khôi phục thất bại', text: error.message});
+    } finally {
+        button.disabled = false;
+    }
+});
+
+document.addEventListener('click', async (event) => {
+    const button = event.target.closest('.js-backup-delete');
+    if (!button) {
+        return;
+    }
+    const file = button.dataset.file || '';
+    const result = await Swal.fire({
+        icon: 'warning',
+        title: 'Xóa backup?',
+        text: `File ${file} sẽ bị xóa khỏi storage/backups.`,
+        showCancelButton: true,
+        confirmButtonText: 'Xóa',
+        cancelButtonText: 'Hủy',
+        confirmButtonColor: '#dc3545',
+    });
+    if (!result.isConfirmed) {
+        return;
+    }
+
+    button.disabled = true;
+    try {
+        const payload = await backupPost({backup_task: 'delete', file});
+        renderBackupRows(payload.items || []);
+        Swal.fire({
+            icon: 'success',
+            title: 'Đã xóa backup',
+            timer: 1000,
+            showConfirmButton: false,
+        });
+    } catch (error) {
+        Swal.fire({icon: 'error', title: 'Không xóa được', text: error.message});
+    } finally {
+        button.disabled = false;
+    }
+});
 
 const labelLanguages = <?= json_encode($languageOptions, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?>;
 const labelTranslations = <?= json_encode($labelTranslationMap, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?>;
@@ -2964,6 +4104,56 @@ if (window.jQuery && jQuery.fn.select2) {
         .replace(/[^a-z0-9]+/g, '-')
         .replace(/^-+|-+$/g, '');
 
+    jQuery('.js-traffic-range-select').select2({
+        theme: 'bootstrap-5',
+        width: '100%',
+        minimumResultsForSearch: Infinity,
+    }).on('select2:select', async function () {
+        const select = this;
+        const form = select.closest('form');
+        if (!form) {
+            return;
+        }
+
+        if (select.value !== 'custom') {
+            form.submit();
+            return;
+        }
+
+        const fromInput = form.querySelector('input[name="traffic_from"]');
+        const toInput = form.querySelector('input[name="traffic_to"]');
+        const result = await Swal.fire({
+            title: 'Chọn khoảng thời gian',
+            html: `
+                <div class="text-start">
+                    <label class="form-label fw-bold" for="traffic-custom-from">Từ ngày</label>
+                    <input id="traffic-custom-from" class="form-control mb-3" type="date" value="${escapeHtml(select.dataset.currentFrom || '')}">
+                    <label class="form-label fw-bold" for="traffic-custom-to">Đến ngày</label>
+                    <input id="traffic-custom-to" class="form-control" type="date" value="${escapeHtml(select.dataset.currentTo || '')}">
+                </div>
+            `,
+            showCancelButton: true,
+            confirmButtonText: 'Xem',
+            cancelButtonText: 'Hủy',
+            focusConfirm: false,
+            preConfirm: () => {
+                const from = document.getElementById('traffic-custom-from')?.value || '';
+                const to = document.getElementById('traffic-custom-to')?.value || '';
+                if (!from || !to) {
+                    Swal.showValidationMessage('Vui lòng chọn đủ ngày bắt đầu và kết thúc.');
+                    return false;
+                }
+                return {from, to};
+            },
+        });
+
+        if (result.isConfirmed && result.value) {
+            fromInput.value = result.value.from;
+            toInput.value = result.value.to;
+            form.submit();
+        }
+    });
+
     jQuery('.js-page-slug-select').select2({
         theme: 'bootstrap-5',
         tags: true,
@@ -3046,6 +4236,25 @@ if (window.jQuery && jQuery.fn.select2) {
         width: '100%',
         placeholder: 'Chọn category',
     });
+
+    jQuery('.js-country-select').select2({
+        theme: 'bootstrap-5',
+        width: '100%',
+        placeholder: 'Chọn lang',
+    });
+
+    jQuery('.js-music-artist-select').select2({
+        theme: 'bootstrap-5',
+        width: '100%',
+        placeholder: 'Chọn nghệ sĩ',
+    });
+
+    jQuery('.js-music-genre-select').select2({
+        theme: 'bootstrap-5',
+        width: '100%',
+        tags: true,
+        placeholder: 'Chọn hoặc nhập thể loại',
+    });
 }
 
 const bindSimpleEditor = (editorId, sourceId, targetName = '') => {
@@ -3092,6 +4301,8 @@ const bindSimpleEditor = (editorId, sourceId, targetName = '') => {
 
 bindSimpleEditor('page_content_editor', 'page_content_html', 'page_content');
 bindSimpleEditor('app_content_editor', 'app_content_html', 'app_content');
+bindSimpleEditor('artist_description_editor', 'artist_description', 'music_artist_description');
+bindSimpleEditor('genre_description_editor', 'genre_description', 'music_genre_description');
 
 [
     ['app_photo_app_id', 'photos'],

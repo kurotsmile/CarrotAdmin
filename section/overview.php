@@ -27,15 +27,16 @@
                     <div class="traffic-tools">
                         <form class="traffic-date-form" method="get">
                             <input type="hidden" name="section" value="overview">
-                            <label class="traffic-date-field">
-                                <span>Từ</span>
-                                <input class="form-control form-control-sm" type="date" name="traffic_from" value="<?= htmlspecialchars($trafficDateRange['from']) ?>">
-                            </label>
-                            <label class="traffic-date-field">
-                                <span>Đến</span>
-                                <input class="form-control form-control-sm" type="date" name="traffic_to" value="<?= htmlspecialchars($trafficDateRange['to']) ?>">
-                            </label>
-                            <button class="btn btn-sm btn-dark fw-bold" type="submit"><i data-lucide="calendar-search"></i><span>Xem</span></button>
+                            <input type="hidden" name="traffic_from" value="<?= htmlspecialchars($trafficDateRange['from']) ?>">
+                            <input type="hidden" name="traffic_to" value="<?= htmlspecialchars($trafficDateRange['to']) ?>">
+                            <select class="form-select form-select-sm traffic-range-select js-traffic-range-select" name="traffic_range" data-current-from="<?= htmlspecialchars($trafficDateRange['from']) ?>" data-current-to="<?= htmlspecialchars($trafficDateRange['to']) ?>">
+                                <option value="today" <?= ($trafficDateRange['preset'] ?? '') === 'today' ? 'selected' : '' ?>>Ngày hôm nay</option>
+                                <option value="yesterday" <?= ($trafficDateRange['preset'] ?? '') === 'yesterday' ? 'selected' : '' ?>>Hôm qua</option>
+                                <option value="7days" <?= ($trafficDateRange['preset'] ?? '') === '7days' ? 'selected' : '' ?>>7 ngày</option>
+                                <option value="1month" <?= ($trafficDateRange['preset'] ?? '') === '1month' ? 'selected' : '' ?>>1 tháng</option>
+                                <option value="1year" <?= ($trafficDateRange['preset'] ?? '') === '1year' ? 'selected' : '' ?>>1 năm</option>
+                                <option value="custom" <?= ($trafficDateRange['preset'] ?? '') === 'custom' ? 'selected' : '' ?>>Tùy chọn từ - đến</option>
+                            </select>
                         </form>
                         <div class="traffic-toggle btn-group" role="group" aria-label="Chuyển chế độ thống kê">
                             <button class="btn btn-sm btn-dark active js-traffic-toggle" type="button" data-traffic-view="site">Theo site</button>
@@ -46,15 +47,15 @@
                 <div class="traffic-chart-wrap mb-4">
                     <div class="d-flex flex-wrap align-items-center justify-content-between gap-3 mb-2">
                         <div>
-                            <div class="dashboard-eyebrow fw-bold">Đối chiếu theo giờ</div>
-                            <div class="traffic-chart-title">Hits hôm nay / hôm trước</div>
+                            <div class="dashboard-eyebrow fw-bold">Theo <?= ($trafficChartData['mode'] ?? '') === 'hourly' ? 'giờ' : 'ngày' ?></div>
+                            <div class="traffic-chart-title">Hits / IP - <?= htmlspecialchars($trafficDateRange['label']) ?></div>
                         </div>
                         <div class="traffic-chart-legend">
-                            <span><i class="traffic-dot traffic-dot-today"></i>Hôm nay</span>
-                            <span><i class="traffic-dot traffic-dot-yesterday"></i>Hôm trước</span>
+                            <span><i class="traffic-dot traffic-dot-today"></i>Hits</span>
+                            <span><i class="traffic-dot traffic-dot-yesterday"></i>IP</span>
                         </div>
                     </div>
-                    <canvas id="traffic_compare_chart" height="260" aria-label="Biểu đồ so sánh lượng truy cập hôm nay và hôm trước"></canvas>
+                    <canvas id="traffic_compare_chart" height="350" aria-label="Biểu đồ lưu lượng truy cập"></canvas>
                     <script type="application/json" id="traffic_compare_data"><?= json_encode($trafficChartData, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?></script>
                 </div>
                 <div class="traffic-view active" data-traffic-panel="site">

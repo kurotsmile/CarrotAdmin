@@ -282,10 +282,6 @@
                         <div class="d-flex flex-wrap align-items-center justify-content-between gap-3 mb-3">
                             <h2 class="h5 mb-0">Danh sách app</h2>
                             <div class="d-flex flex-wrap gap-2">
-                                <a class="btn btn-sm btn-success" href="https://home.carrot28.com" target="_blank" rel="noopener noreferrer" title="Xem Shop" aria-label="Xem Shop">
-                                    <i data-lucide="external-link" style="width:16px;height:16px"></i>
-                                    <span>Xem Shop</span>
-                                </a>
                                 <form class="d-flex gap-2" method="get">
                                     <input type="hidden" name="section" value="apps">
                                     <input type="hidden" name="tab" value="main">

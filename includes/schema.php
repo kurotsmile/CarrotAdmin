@@ -189,6 +189,65 @@ function admin_ensure_app_store_table(PDO $pdo): void
     }
 }
 
+function admin_ensure_app_view_table(PDO $pdo): void
+{
+    $pdo->exec("
+        CREATE TABLE IF NOT EXISTS app_view (
+          id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+          app_id VARCHAR(255) NOT NULL,
+          view_date DATE NOT NULL,
+          ip_address VARBINARY(16) NOT NULL,
+          ip_text VARCHAR(45) NOT NULL,
+          first_seen_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          last_seen_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          hits INT UNSIGNED NOT NULL DEFAULT 1,
+          user_agent VARCHAR(512) DEFAULT NULL,
+          referer VARCHAR(1024) DEFAULT NULL,
+          request_path VARCHAR(1024) DEFAULT NULL,
+          created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+          PRIMARY KEY (id),
+          UNIQUE KEY uq_app_view_daily_ip (app_id, view_date, ip_address),
+          KEY idx_app_view_app_id (app_id),
+          KEY idx_app_view_app_date (app_id, view_date),
+          KEY idx_app_view_date (view_date),
+          CONSTRAINT fk_app_view_app
+            FOREIGN KEY (app_id) REFERENCES app (id)
+            ON DELETE CASCADE ON UPDATE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    ");
+
+    $columns = $pdo->query('SHOW COLUMNS FROM app_view')->fetchAll(PDO::FETCH_COLUMN);
+    $columnSql = [
+        'view_date' => 'DATE NOT NULL AFTER app_id',
+        'ip_address' => 'VARBINARY(16) NOT NULL AFTER view_date',
+        'ip_text' => 'VARCHAR(45) NOT NULL AFTER ip_address',
+        'first_seen_at' => 'DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP AFTER ip_text',
+        'last_seen_at' => 'DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP AFTER first_seen_at',
+        'hits' => 'INT UNSIGNED NOT NULL DEFAULT 1 AFTER last_seen_at',
+        'user_agent' => 'VARCHAR(512) DEFAULT NULL AFTER hits',
+        'referer' => 'VARCHAR(1024) DEFAULT NULL AFTER user_agent',
+        'request_path' => 'VARCHAR(1024) DEFAULT NULL AFTER referer',
+    ];
+    foreach ($columnSql as $column => $sql) {
+        if (!in_array($column, $columns, true)) {
+            $pdo->exec('ALTER TABLE app_view ADD `' . $column . '` ' . $sql);
+        }
+    }
+
+    $indexes = $pdo->query('SHOW INDEX FROM app_view')->fetchAll(PDO::FETCH_ASSOC);
+    $indexNames = array_unique(array_column($indexes, 'Key_name'));
+    if (!in_array('uq_app_view_daily_ip', $indexNames, true)) {
+        $pdo->exec('ALTER TABLE app_view ADD UNIQUE KEY uq_app_view_daily_ip (app_id, view_date, ip_address)');
+    }
+    if (!in_array('idx_app_view_app_id', $indexNames, true)) {
+        $pdo->exec('ALTER TABLE app_view ADD KEY idx_app_view_app_id (app_id)');
+    }
+    if (!in_array('idx_app_view_app_date', $indexNames, true)) {
+        $pdo->exec('ALTER TABLE app_view ADD KEY idx_app_view_app_date (app_id, view_date)');
+    }
+}
+
 function admin_ensure_app_category_tables(PDO $pdo): void
 {
     $pdo->exec("
@@ -304,6 +363,144 @@ function admin_ensure_app_content_table(PDO $pdo): void
     $columns = $pdo->query('SHOW COLUMNS FROM app_content')->fetchAll(PDO::FETCH_COLUMN);
     if (!in_array('title', $columns, true)) {
         $pdo->exec('ALTER TABLE app_content ADD title VARCHAR(255) DEFAULT NULL AFTER lang_key');
+    }
+}
+
+function admin_ensure_song_table(PDO $pdo): void
+{
+    $pdo->exec("
+        CREATE TABLE IF NOT EXISTS song (
+          id VARCHAR(255) NOT NULL COMMENT 'id duy nhất cho bài hát',
+          name TEXT DEFAULT NULL COMMENT 'tên bài hát',
+          artist TEXT DEFAULT NULL COMMENT 'tên ca sĩ',
+          album TEXT DEFAULT NULL COMMENT 'album',
+          genre VARCHAR(255) DEFAULT NULL COMMENT 'thể loại',
+          lang VARCHAR(16) DEFAULT 'vi' COMMENT 'ngôn ngữ',
+          year VARCHAR(32) DEFAULT NULL COMMENT 'năm phát hành',
+          date VARCHAR(32) DEFAULT NULL COMMENT 'ngày',
+          publishedAt VARCHAR(64) DEFAULT NULL COMMENT 'ngày xuất bản (ISO)',
+          link_ytb TEXT DEFAULT NULL COMMENT 'liên kết youtube',
+          mp3 TEXT DEFAULT NULL COMMENT 'link file mp3',
+          avatar TEXT DEFAULT NULL COMMENT 'ảnh bài hát',
+          lyrics LONGTEXT DEFAULT NULL COMMENT 'lời bài hát (HTML)',
+          created_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+          PRIMARY KEY (id)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    ");
+
+    $columns = $pdo->query('SHOW COLUMNS FROM song')->fetchAll(PDO::FETCH_COLUMN);
+    $columnSql = [
+        'name' => "TEXT DEFAULT NULL COMMENT 'tên bài hát' AFTER id",
+        'artist' => "TEXT DEFAULT NULL COMMENT 'tên ca sĩ' AFTER name",
+        'album' => "TEXT DEFAULT NULL COMMENT 'album' AFTER artist",
+        'genre' => "VARCHAR(255) DEFAULT NULL COMMENT 'thể loại' AFTER album",
+        'lang' => "VARCHAR(16) DEFAULT 'vi' COMMENT 'ngôn ngữ' AFTER genre",
+        'year' => "VARCHAR(32) DEFAULT NULL COMMENT 'năm phát hành' AFTER lang",
+        'date' => "VARCHAR(32) DEFAULT NULL COMMENT 'ngày' AFTER year",
+        'publishedAt' => "VARCHAR(64) DEFAULT NULL COMMENT 'ngày xuất bản (ISO)' AFTER date",
+        'link_ytb' => "TEXT DEFAULT NULL COMMENT 'liên kết youtube' AFTER publishedAt",
+        'mp3' => "TEXT DEFAULT NULL COMMENT 'link file mp3' AFTER link_ytb",
+        'avatar' => "TEXT DEFAULT NULL COMMENT 'ảnh bài hát' AFTER mp3",
+        'lyrics' => "LONGTEXT DEFAULT NULL COMMENT 'lời bài hát (HTML)' AFTER avatar",
+        'created_at' => 'TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP AFTER lyrics',
+        'updated_at' => 'TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP AFTER created_at',
+    ];
+
+    foreach ($columnSql as $column => $sql) {
+        if (!in_array($column, $columns, true)) {
+            $pdo->exec('ALTER TABLE song ADD `' . $column . '` ' . $sql);
+        }
+    }
+
+    $columns = $pdo->query('SHOW COLUMNS FROM song')->fetchAll(PDO::FETCH_COLUMN);
+    foreach (['price', 'status', 'sync_status'] as $oldColumn) {
+        if (in_array($oldColumn, $columns, true)) {
+            $pdo->exec('ALTER TABLE song DROP COLUMN `' . $oldColumn . '`');
+        }
+    }
+}
+
+function admin_ensure_music_tables(PDO $pdo): void
+{
+    admin_ensure_song_table($pdo);
+
+    $pdo->exec("
+        CREATE TABLE IF NOT EXISTS song_artist (
+          id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+          name VARCHAR(255) NOT NULL,
+          avatar TEXT DEFAULT NULL,
+          description TEXT DEFAULT NULL,
+          lang_key VARCHAR(24) NOT NULL DEFAULT 'vi',
+          created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+          PRIMARY KEY (id),
+          UNIQUE KEY uq_song_artist_name_lang (name, lang_key),
+          KEY idx_song_artist_lang (lang_key)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    ");
+
+    $pdo->exec("
+        CREATE TABLE IF NOT EXISTS song_artist_map (
+          song_id VARCHAR(255) NOT NULL,
+          artist_id BIGINT UNSIGNED NOT NULL,
+          created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          PRIMARY KEY (song_id, artist_id),
+          KEY idx_song_artist_map_artist (artist_id),
+          CONSTRAINT fk_song_artist_map_song
+            FOREIGN KEY (song_id) REFERENCES song (id)
+            ON DELETE CASCADE ON UPDATE CASCADE,
+          CONSTRAINT fk_song_artist_map_artist
+            FOREIGN KEY (artist_id) REFERENCES song_artist (id)
+            ON DELETE CASCADE ON UPDATE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    ");
+
+    $pdo->exec("
+        CREATE TABLE IF NOT EXISTS song_genre (
+          genre_id VARCHAR(120) NOT NULL,
+          title VARCHAR(255) DEFAULT NULL,
+          description TEXT DEFAULT NULL,
+          created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+          PRIMARY KEY (genre_id)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    ");
+
+    $pdo->exec("
+        CREATE TABLE IF NOT EXISTS song_orders (
+          id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+          song_id VARCHAR(255) NOT NULL,
+          user_id BIGINT UNSIGNED DEFAULT NULL,
+          paypal_order_id VARCHAR(128) NOT NULL,
+          status VARCHAR(40) NOT NULL DEFAULT 'CREATED',
+          amount DECIMAL(12,2) NOT NULL DEFAULT 0.00,
+          currency VARCHAR(8) NOT NULL DEFAULT 'USD',
+          payer_email VARCHAR(255) DEFAULT NULL,
+          paypal_payload JSON DEFAULT NULL,
+          created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          paid_at TIMESTAMP NULL DEFAULT NULL,
+          PRIMARY KEY (id),
+          UNIQUE KEY uq_song_orders_paypal_order_id (paypal_order_id),
+          KEY idx_song_orders_song_id (song_id),
+          KEY idx_song_orders_user_id (user_id),
+          KEY idx_song_orders_status_created (status, created_at),
+          CONSTRAINT fk_song_orders_song
+            FOREIGN KEY (song_id) REFERENCES song (id)
+            ON DELETE CASCADE ON UPDATE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    ");
+
+    $artistColumns = $pdo->query('SHOW COLUMNS FROM song_artist')->fetchAll(PDO::FETCH_COLUMN);
+    $artistColumnSql = [
+        'avatar' => 'TEXT DEFAULT NULL AFTER name',
+        'description' => 'TEXT DEFAULT NULL AFTER avatar',
+        'lang_key' => "VARCHAR(24) NOT NULL DEFAULT 'vi' AFTER description",
+    ];
+    foreach ($artistColumnSql as $column => $sql) {
+        if (!in_array($column, $artistColumns, true)) {
+            $pdo->exec('ALTER TABLE song_artist ADD `' . $column . '` ' . $sql);
+        }
     }
 }
 
@@ -465,6 +662,84 @@ function admin_ensure_text_label_table(PDO $pdo): void
           KEY idx_text_label_key (`key`)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     ");
+}
+
+function admin_ensure_bank_table(PDO $pdo): void
+{
+    $pdo->exec("
+        CREATE TABLE IF NOT EXISTS bank (
+          id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+          name VARCHAR(50) NOT NULL,
+          avatar LONGTEXT NOT NULL,
+          banner LONGTEXT NOT NULL,
+          qr LONGTEXT NOT NULL,
+          account_name VARCHAR(20) NOT NULL,
+          account_number VARCHAR(50) NOT NULL,
+          created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+          PRIMARY KEY (id),
+          KEY idx_bank_name (name)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    ");
+
+    $columns = $pdo->query('SHOW COLUMNS FROM bank')->fetchAll(PDO::FETCH_COLUMN);
+    $columnSql = [
+        'name' => 'VARCHAR(50) NOT NULL',
+        'avatar' => 'LONGTEXT NOT NULL',
+        'banner' => 'LONGTEXT NOT NULL',
+        'qr' => 'LONGTEXT NOT NULL',
+        'account_name' => 'VARCHAR(20) NOT NULL',
+        'account_number' => 'VARCHAR(50) NOT NULL',
+    ];
+
+    foreach ($columnSql as $column => $sql) {
+        if (!in_array($column, $columns, true)) {
+            $pdo->exec('ALTER TABLE bank ADD `' . $column . '` ' . $sql);
+        }
+    }
+}
+
+function admin_ensure_sites_table(PDO $pdo): void
+{
+    $pdo->exec("
+        CREATE TABLE IF NOT EXISTS sites (
+          id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+          name VARCHAR(120) NOT NULL,
+          url VARCHAR(255) NOT NULL,
+          description LONGTEXT DEFAULT NULL,
+          logo LONGTEXT DEFAULT NULL,
+          sort_order INT NOT NULL DEFAULT 0,
+          created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+          PRIMARY KEY (id),
+          UNIQUE KEY uq_sites_url (url),
+          KEY idx_sites_sort_order (sort_order)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    ");
+
+    $columns = $pdo->query('SHOW COLUMNS FROM sites')->fetchAll(PDO::FETCH_COLUMN);
+    $columnSql = [
+        'name' => 'VARCHAR(120) NOT NULL',
+        'url' => 'VARCHAR(255) NOT NULL',
+        'description' => 'LONGTEXT DEFAULT NULL',
+        'logo' => 'LONGTEXT DEFAULT NULL',
+        'sort_order' => 'INT NOT NULL DEFAULT 0',
+    ];
+
+    foreach ($columnSql as $column => $sql) {
+        if (!in_array($column, $columns, true)) {
+            $pdo->exec('ALTER TABLE sites ADD `' . $column . '` ' . $sql);
+        }
+    }
+
+    $indexes = $pdo->query('SHOW INDEX FROM sites')->fetchAll(PDO::FETCH_ASSOC);
+    $indexNames = array_unique(array_column($indexes, 'Key_name'));
+    if (!in_array('uq_sites_url', $indexNames, true)) {
+        $pdo->exec('ALTER TABLE sites ADD UNIQUE KEY uq_sites_url (url)');
+    }
+    if (!in_array('idx_sites_sort_order', $indexNames, true)) {
+        $pdo->exec('ALTER TABLE sites ADD KEY idx_sites_sort_order (sort_order)');
+    }
 }
 
 function admin_ensure_visit_daily_ip_table(PDO $pdo, string $defaultSite = 'web'): void

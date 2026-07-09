@@ -71,6 +71,14 @@ $results[] = install_run_step('CarrotCoc app store table', static function () us
     admin_ensure_app_store_table($cocPdo);
 });
 
+$results[] = install_run_step('CarrotHome app view table', static function () use ($cocPdo, $cocError): void {
+    if (!$cocPdo instanceof PDO) {
+        throw new RuntimeException($cocError ?? 'Không thể kết nối CarrotHome database.');
+    }
+
+    admin_ensure_app_view_table($cocPdo);
+});
+
 $results[] = install_run_step('CarrotCoc app photo table', static function () use ($cocPdo, $cocError): void {
     if (!$cocPdo instanceof PDO) {
         throw new RuntimeException($cocError ?? 'Không thể kết nối CarrotCoc database.');
@@ -85,6 +93,14 @@ $results[] = install_run_step('CarrotCoc app content table', static function () 
     }
 
     admin_ensure_app_content_table($cocPdo);
+});
+
+$results[] = install_run_step('CarrotMusic tables', static function () use ($cocPdo, $cocError): void {
+    if (!$cocPdo instanceof PDO) {
+        throw new RuntimeException($cocError ?? 'Không thể kết nối CarrotCoc database.');
+    }
+
+    admin_ensure_music_tables($cocPdo);
 });
 
 $results[] = install_run_step('CarrotCoc app category tables', static function () use ($cocPdo, $cocError): void {
@@ -149,6 +165,30 @@ $results[] = install_run_step('CarrotCoc visit daily IP table', static function 
     }
 
     admin_ensure_visit_daily_ip_table($cocPdo, 'coc');
+});
+
+$results[] = install_run_step('CarrotMusic visit daily IP table', static function () use ($cocPdo, $cocError): void {
+    if (!$cocPdo instanceof PDO) {
+        throw new RuntimeException($cocError ?? 'Không thể kết nối CarrotMusic database.');
+    }
+
+    admin_ensure_visit_daily_ip_table($cocPdo, 'music');
+});
+
+$results[] = install_run_step('CarrotCoc bank table', static function () use ($cocPdo, $cocError): void {
+    if (!$cocPdo instanceof PDO) {
+        throw new RuntimeException($cocError ?? 'Không thể kết nối CarrotCoc database.');
+    }
+
+    admin_ensure_bank_table($cocPdo);
+});
+
+$results[] = install_run_step('CarrotCoc sites table', static function () use ($cocPdo, $cocError): void {
+    if (!$cocPdo instanceof PDO) {
+        throw new RuntimeException($cocError ?? 'Không thể kết nối CarrotCoc database.');
+    }
+
+    admin_ensure_sites_table($cocPdo);
 });
 
 $results[] = install_run_step('CarrotHome page table', static function (): void {
