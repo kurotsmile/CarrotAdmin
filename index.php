@@ -89,6 +89,7 @@ $editingLabel = null;
 $accounts = [];
 $apps = [];
 $songs = [];
+$songArtistOptions = [];
 $songArtists = [];
 $songGenres = [];
 $songOrders = [];
@@ -169,6 +170,10 @@ $songPage = max(1, (int) ($_GET['song_page'] ?? 1));
 $songPerPage = 25;
 $songTotal = 0;
 $songTotalPages = 1;
+$songSearch = trim($_GET['song_q'] ?? '');
+$songLangFilter = trim($_GET['song_lang'] ?? '');
+$artistSearch = trim($_GET['artist_q'] ?? '');
+$artistLangFilter = trim($_GET['artist_lang'] ?? '');
 $serverRuntime = null;
 
 if (($_GET['duplicate'] ?? '') === 'page') {
@@ -187,7 +192,7 @@ function admin_upload_image_to_nas(array $file, string $typeMedia): string
     }
 
     if (($file['error'] ?? UPLOAD_ERR_OK) !== UPLOAD_ERR_OK) {
-        throw new RuntimeException('Upload ảnh lỗi, mã: ' . (int) $file['error']);
+        throw new RuntimeException('Upload file lỗi, mã: ' . (int) $file['error']);
     }
 
     if (!is_uploaded_file($file['tmp_name'] ?? '')) {
@@ -195,7 +200,7 @@ function admin_upload_image_to_nas(array $file, string $typeMedia): string
     }
 
     if (!function_exists('curl_init') || !function_exists('curl_file_create')) {
-        throw new RuntimeException('Server cần bật PHP cURL để tải ảnh lên CarrotNas.');
+        throw new RuntimeException('Server cần bật PHP cURL để tải file lên CarrotNas.');
     }
 
     $curl = curl_init(admin_nas_upload_endpoint());
@@ -702,6 +707,120 @@ PROMPT;
 
     if ($result['title'] === '' || $result['content_html'] === '') {
         throw new RuntimeException('AI chưa tạo đủ title và HTML content.');
+    }
+
+    return $result;
+}
+
+function admin_gemini_generate_song_artist_description(PDO $pdo, string $idea, string $artistName, string $lang, string $currentDescription = ''): array
+{
+    $prompt = <<<PROMPT
+You are a senior music profile writer for a CMS.
+Write or improve the artist biography from the admin's request and return only valid JSON.
+
+Target language: {$lang}
+Artist name: {$artistName}
+Current description, if any:
+{$currentDescription}
+
+Admin request:
+{$idea}
+
+Return exactly this JSON shape:
+{
+  "description": "<h2>...</h2><p>...</p>"
+}
+
+Rules:
+- description must be clean HTML only, without html/body tags, script tags, markdown fences, or inline event handlers.
+- Keep the tone concise, engaging, and suitable for an artist profile page.
+- Do not include explanations outside the JSON.
+PROMPT;
+
+    $text = admin_gemini_complete($pdo, $prompt, 0.7);
+    $text = trim(preg_replace('/^```(?:json)?\s*|\s*```$/i', '', $text) ?? $text);
+    $data = json_decode($text, true);
+    if (!is_array($data)) {
+        $start = strpos($text, '{');
+        $end = strrpos($text, '}');
+        if ($start !== false && $end !== false && $end > $start) {
+            $data = json_decode(substr($text, $start, $end - $start + 1), true);
+        }
+    }
+
+    if (!is_array($data)) {
+        throw new RuntimeException('AI không trả về JSON hợp lệ.');
+    }
+
+    $descriptionHtml = trim((string) ($data['description'] ?? ''));
+    $descriptionHtml = preg_replace('/<\/?(?:html|body)[^>]*>/i', '', $descriptionHtml) ?? $descriptionHtml;
+    $descriptionHtml = preg_replace('/<script\b[^>]*>.*?<\/script>/is', '', $descriptionHtml) ?? $descriptionHtml;
+    $descriptionHtml = preg_replace('/\son\w+\s*=\s*(".*?"|\'.*?\'|[^\s>]+)/i', '', $descriptionHtml) ?? $descriptionHtml;
+
+    $result = [
+        'description' => trim($descriptionHtml),
+    ];
+
+    if ($result['description'] === '') {
+        throw new RuntimeException('AI chưa tạo đủ description.');
+    }
+
+    return $result;
+}
+
+function admin_gemini_generate_song_genre_description(PDO $pdo, string $idea, string $genreId, string $title, string $lang, string $currentDescription = ''): array
+{
+    $prompt = <<<PROMPT
+You are a senior music taxonomy editor for a CMS.
+Write or improve the music genre description from the admin's request and return only valid JSON.
+
+Target language: {$lang}
+Genre ID: {$genreId}
+Genre title: {$title}
+Current description, if any:
+{$currentDescription}
+
+Admin request:
+{$idea}
+
+Return exactly this JSON shape:
+{
+  "description": "<h2>...</h2><p>...</p>"
+}
+
+Rules:
+- description must be clean HTML only, without html/body tags, script tags, markdown fences, or inline event handlers.
+- Keep the tone concise, engaging, and suitable for a music genre page.
+- Mention listening mood, style, or discovery value when relevant.
+- Do not include explanations outside the JSON.
+PROMPT;
+
+    $text = admin_gemini_complete($pdo, $prompt, 0.7);
+    $text = trim(preg_replace('/^```(?:json)?\s*|\s*```$/i', '', $text) ?? $text);
+    $data = json_decode($text, true);
+    if (!is_array($data)) {
+        $start = strpos($text, '{');
+        $end = strrpos($text, '}');
+        if ($start !== false && $end !== false && $end > $start) {
+            $data = json_decode(substr($text, $start, $end - $start + 1), true);
+        }
+    }
+
+    if (!is_array($data)) {
+        throw new RuntimeException('AI không trả về JSON hợp lệ.');
+    }
+
+    $descriptionHtml = trim((string) ($data['description'] ?? ''));
+    $descriptionHtml = preg_replace('/<\/?(?:html|body)[^>]*>/i', '', $descriptionHtml) ?? $descriptionHtml;
+    $descriptionHtml = preg_replace('/<script\b[^>]*>.*?<\/script>/is', '', $descriptionHtml) ?? $descriptionHtml;
+    $descriptionHtml = preg_replace('/\son\w+\s*=\s*(".*?"|\'.*?\'|[^\s>]+)/i', '', $descriptionHtml) ?? $descriptionHtml;
+
+    $result = [
+        'description' => trim($descriptionHtml),
+    ];
+
+    if ($result['description'] === '') {
+        throw new RuntimeException('AI chưa tạo đủ description.');
     }
 
     return $result;
@@ -1909,7 +2028,7 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages', 'users', '
             admin_ensure_paypal_config_table($pdo);
         }
 
-        if ($section === 'ai_support' || in_array($_POST['action'] ?? '', ['save_ai_support_config', 'ajax_ai_translate_page', 'ajax_ai_translate_label', 'ajax_find_text_label_source', 'ajax_find_app_content_source', 'ajax_ai_translate_app_content', 'ajax_find_app_category_content_source', 'ajax_ai_translate_app_category_content', 'ajax_ai_request_app_category_content'], true)) {
+        if ($section === 'ai_support' || in_array($_POST['action'] ?? '', ['save_ai_support_config', 'ajax_ai_translate_page', 'ajax_ai_translate_label', 'ajax_find_text_label_source', 'ajax_find_app_content_source', 'ajax_ai_translate_app_content', 'ajax_find_app_category_content_source', 'ajax_ai_translate_app_category_content', 'ajax_ai_request_app_category_content', 'ajax_ai_request_song_artist', 'ajax_ai_request_song_genre'], true)) {
             admin_ensure_ai_support_table($pdo);
         }
 
@@ -1920,6 +2039,12 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages', 'users', '
                 $stmt = $pdo->prepare('DELETE FROM coc WHERE id = ?');
                 $stmt->execute([(int) ($_POST['id'] ?? 0)]);
                 $message = 'Đã xóa acc.';
+            }
+
+            if ($section === 'coc' && $action === 'delete_failed_coc_orders') {
+                $stmt = $pdo->prepare("DELETE FROM coc_orders WHERE COALESCE(status, '') <> 'COMPLETED'");
+                $stmt->execute();
+                $message = 'Đã xóa ' . number_format($stmt->rowCount()) . ' đơn COC thanh toán không thành công.';
             }
 
             if ($section === 'coc' && $action === 'save') {
@@ -1968,6 +2093,12 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages', 'users', '
                 $stmt = $pdo->prepare('DELETE FROM app_orders WHERE id = ?');
                 $stmt->execute([(int) ($_POST['id'] ?? 0)]);
                 $message = 'Đã xóa đơn đặt hàng app.';
+            }
+
+            if ($section === 'apps' && $action === 'delete_failed_app_orders') {
+                $stmt = $pdo->prepare("DELETE FROM app_orders WHERE COALESCE(status, '') <> 'COMPLETED'");
+                $stmt->execute();
+                $message = 'Đã xóa ' . number_format($stmt->rowCount()) . ' đơn app thanh toán không thành công.';
             }
 
             if ($section === 'apps' && $action === 'delete_app_photo') {
@@ -2066,13 +2197,24 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages', 'users', '
                 $message = 'Đã xóa đơn đặt hàng nhạc.';
             }
 
+            if ($section === 'music' && $action === 'delete_failed_song_orders') {
+                $stmt = $pdo->prepare("DELETE FROM song_orders WHERE COALESCE(status, '') <> 'COMPLETED'");
+                $stmt->execute();
+                $message = 'Đã xóa ' . number_format($stmt->rowCount()) . ' đơn nhạc thanh toán không thành công.';
+            }
+
             if ($section === 'music' && $action === 'save_song') {
                 $originalId = trim($_POST['original_id'] ?? '');
                 $id = trim($_POST['id'] ?? '');
                 $name = trim($_POST['name'] ?? '');
                 $artist = trim($_POST['artist'] ?? '');
                 $album = trim($_POST['album'] ?? '');
-                $genre = trim($_POST['genre'] ?? '');
+                $genreValues = $_POST['genre'] ?? [];
+                if (!is_array($genreValues)) {
+                    $genreValues = [$genreValues];
+                }
+                $genreIds = array_values(array_unique(array_filter(array_map(static fn($value): string => trim((string) $value), $genreValues))));
+                $genre = implode(',', $genreIds);
                 $lang = trim($_POST['lang'] ?? 'vi') ?: 'vi';
                 $year = trim($_POST['year'] ?? '');
                 $date = trim($_POST['date'] ?? '');
@@ -2098,8 +2240,8 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages', 'users', '
                     ');
                     $stmt->execute([$id, $name, $artist, $album, $genre, $lang, $year, $date, $publishedAt, $linkYtb, $mp3, $avatar, $lyrics, $originalId]);
                     admin_sync_song_artists($pdo, $id, $artistIds);
-                    if ($genre !== '') {
-                        $pdo->prepare('INSERT IGNORE INTO song_genre (genre_id, title) VALUES (?, ?)')->execute([$genre, $genre]);
+                    foreach ($genreIds as $genreId) {
+                        $pdo->prepare('INSERT IGNORE INTO song_genre (genre_id, title) VALUES (?, ?)')->execute([$genreId, $genreId]);
                     }
                     $message = 'Đã cập nhật bài hát.';
                 } else {
@@ -2109,8 +2251,8 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages', 'users', '
                     ');
                     $stmt->execute([$id, $name, $artist, $album, $genre, $lang, $year, $date, $publishedAt, $linkYtb, $mp3, $avatar, $lyrics]);
                     admin_sync_song_artists($pdo, $id, $artistIds);
-                    if ($genre !== '') {
-                        $pdo->prepare('INSERT IGNORE INTO song_genre (genre_id, title) VALUES (?, ?)')->execute([$genre, $genre]);
+                    foreach ($genreIds as $genreId) {
+                        $pdo->prepare('INSERT IGNORE INTO song_genre (genre_id, title) VALUES (?, ?)')->execute([$genreId, $genreId]);
                     }
                     $message = 'Đã thêm bài hát.';
                 }
@@ -2139,6 +2281,98 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages', 'users', '
                     ');
                     $stmt->execute([$name, $avatar, $description, $langKey]);
                     $message = 'Đã lưu nghệ sĩ.';
+                }
+            }
+
+            if ($section === 'music' && $action === 'ajax_quick_add_song_artist') {
+                try {
+                    $name = trim($_POST['name'] ?? '');
+                    $avatar = trim($_POST['avatar'] ?? '');
+                    $description = trim($_POST['description'] ?? '');
+                    $langKey = trim($_POST['lang_key'] ?? 'vi') ?: 'vi';
+
+                    if ($name === '') {
+                        throw new RuntimeException('Vui lòng nhập tên nghệ sĩ.');
+                    }
+
+                    $stmt = $pdo->prepare('
+                        INSERT INTO song_artist (name, avatar, description, lang_key)
+                        VALUES (?, ?, ?, ?)
+                        ON DUPLICATE KEY UPDATE
+                            id = LAST_INSERT_ID(id),
+                            avatar = IF(VALUES(avatar) <> "", VALUES(avatar), avatar),
+                            description = IF(VALUES(description) <> "", VALUES(description), description)
+                    ');
+                    $stmt->execute([$name, $avatar, $description, $langKey]);
+
+                    $artistId = (int) $pdo->lastInsertId();
+                    $artist = admin_fetch_song_artist($pdo, $artistId);
+                    if (!$artist) {
+                        throw new RuntimeException('Không tìm thấy nghệ sĩ vừa lưu.');
+                    }
+
+                    admin_json_success([
+                        'artist' => [
+                            'id' => (int) $artist['id'],
+                            'name' => (string) $artist['name'],
+                            'lang_key' => (string) ($artist['lang_key'] ?? $langKey),
+                        ],
+                    ]);
+                } catch (Throwable $e) {
+                    admin_json_error($e->getMessage());
+                }
+            }
+
+            if ($section === 'music' && $action === 'ajax_ai_request_song_artist') {
+                try {
+                    $idea = trim($_POST['idea'] ?? '');
+                    $artistName = trim($_POST['name'] ?? '');
+                    $langKey = trim($_POST['lang_key'] ?? 'vi');
+                    $currentDescription = trim($_POST['description'] ?? '');
+
+                    if ($idea === '') {
+                        throw new RuntimeException('Vui lòng nhập yêu cầu cho AI.');
+                    }
+                    if ($artistName === '') {
+                        throw new RuntimeException('Vui lòng nhập tên nghệ sĩ trước khi yêu cầu AI.');
+                    }
+                    if ($langKey === '') {
+                        throw new RuntimeException('Vui lòng chọn lang trước khi yêu cầu AI.');
+                    }
+
+                    admin_json_success(admin_gemini_generate_song_artist_description($pdo, $idea, $artistName, $langKey, $currentDescription));
+                } catch (Throwable $e) {
+                    admin_json_error($e->getMessage());
+                }
+            }
+
+            if ($section === 'music' && $action === 'ajax_ai_request_song_genre') {
+                try {
+                    $idea = trim($_POST['idea'] ?? '');
+                    $genreId = trim($_POST['genre_id'] ?? '');
+                    $title = trim($_POST['title'] ?? '');
+                    $langKey = trim($_POST['lang_key'] ?? ($_SESSION['key_lang'] ?? 'vi'));
+                    $currentDescription = trim($_POST['description'] ?? '');
+
+                    if ($idea === '') {
+                        throw new RuntimeException('Vui lòng nhập yêu cầu cho AI.');
+                    }
+                    if ($genreId === '' && $title === '') {
+                        throw new RuntimeException('Vui lòng nhập Genre ID hoặc Title trước khi yêu cầu AI.');
+                    }
+                    if ($genreId === '') {
+                        $genreId = $title;
+                    }
+                    if ($title === '') {
+                        $title = $genreId;
+                    }
+                    if ($langKey === '') {
+                        $langKey = 'vi';
+                    }
+
+                    admin_json_success(admin_gemini_generate_song_genre_description($pdo, $idea, $genreId, $title, $langKey, $currentDescription));
+                } catch (Throwable $e) {
+                    admin_json_error($e->getMessage());
                 }
             }
 
@@ -3218,19 +3452,47 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages', 'users', '
             ')->fetchAll()
             : [];
         if ($section === 'music') {
-            $songTotal = (int) $pdo->query('SELECT COUNT(*) FROM song')->fetchColumn();
+            $songWhere = [];
+            $songParams = [];
+            if ($songSearch !== '') {
+                $songWhere[] = '(s.id LIKE :song_q_id OR s.name LIKE :song_q_name OR s.artist LIKE :song_q_artist OR EXISTS (
+                    SELECT 1
+                    FROM song_artist_map search_map
+                    INNER JOIN song_artist search_artist ON search_artist.id = search_map.artist_id
+                    WHERE search_map.song_id = s.id AND search_artist.name LIKE :song_q_managed_artist
+                ))';
+                $songSearchValue = '%' . $songSearch . '%';
+                $songParams[':song_q_id'] = $songSearchValue;
+                $songParams[':song_q_name'] = $songSearchValue;
+                $songParams[':song_q_artist'] = $songSearchValue;
+                $songParams[':song_q_managed_artist'] = $songSearchValue;
+            }
+            if ($songLangFilter !== '') {
+                $songWhere[] = 's.lang = :song_lang';
+                $songParams[':song_lang'] = $songLangFilter;
+            }
+            $songWhereSql = $songWhere ? ' WHERE ' . implode(' AND ', $songWhere) : '';
+            $songCountStmt = $pdo->prepare('SELECT COUNT(*) FROM song s' . $songWhereSql);
+            $songCountStmt->execute($songParams);
+            $songTotal = (int) $songCountStmt->fetchColumn();
             $songTotalPages = max(1, (int) ceil($songTotal / $songPerPage));
             $songPage = min($songPage, $songTotalPages);
             $songOffset = ($songPage - 1) * $songPerPage;
             $songStmt = $pdo->prepare('
-                SELECT s.*, GROUP_CONCAT(sa.name ORDER BY sa.name SEPARATOR ", ") AS artist_names
+                SELECT s.*,
+                    GROUP_CONCAT(DISTINCT sa.name ORDER BY sa.name SEPARATOR ", ") AS artist_names,
+                    GROUP_CONCAT(DISTINCT sa.id ORDER BY sa.name SEPARATOR ",") AS artist_ids
                 FROM song s
                 LEFT JOIN song_artist_map sam ON sam.song_id = s.id
                 LEFT JOIN song_artist sa ON sa.id = sam.artist_id
+                ' . $songWhereSql . '
                 GROUP BY s.id
                 ORDER BY s.created_at DESC, s.id ASC
                 LIMIT :limit OFFSET :offset
             ');
+            foreach ($songParams as $paramKey => $paramValue) {
+                $songStmt->bindValue($paramKey, $paramValue);
+            }
             $songStmt->bindValue(':limit', $songPerPage, PDO::PARAM_INT);
             $songStmt->bindValue(':offset', $songOffset, PDO::PARAM_INT);
             $songStmt->execute();
@@ -3238,14 +3500,33 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages', 'users', '
         } else {
             $songs = [];
         }
-        $songArtists = $section === 'music'
+        $songArtistOptions = $section === 'music'
             ? $pdo->query('SELECT * FROM song_artist ORDER BY name ASC, id DESC')->fetchAll()
             : [];
+        if ($section === 'music') {
+            $artistWhere = [];
+            $artistParams = [];
+            if ($artistSearch !== '') {
+                $artistWhere[] = '(name LIKE :artist_q OR description LIKE :artist_description_q)';
+                $artistSearchValue = '%' . $artistSearch . '%';
+                $artistParams[':artist_q'] = $artistSearchValue;
+                $artistParams[':artist_description_q'] = $artistSearchValue;
+            }
+            if ($artistLangFilter !== '') {
+                $artistWhere[] = 'lang_key = :artist_lang';
+                $artistParams[':artist_lang'] = $artistLangFilter;
+            }
+            $artistStmt = $pdo->prepare('SELECT * FROM song_artist' . ($artistWhere ? ' WHERE ' . implode(' AND ', $artistWhere) : '') . ' ORDER BY name ASC, id DESC');
+            $artistStmt->execute($artistParams);
+            $songArtists = $artistStmt->fetchAll();
+        } else {
+            $songArtists = [];
+        }
         $songGenres = $section === 'music'
             ? $pdo->query('
                 SELECT g.*, COUNT(s.id) AS song_count
                 FROM song_genre g
-                LEFT JOIN song s ON s.genre = g.genre_id
+                LEFT JOIN song s ON FIND_IN_SET(g.genre_id, REPLACE(COALESCE(s.genre, \'\'), \' \', \'\')) > 0
                 GROUP BY g.genre_id
                 ORDER BY g.genre_id ASC
             ')->fetchAll()
@@ -3360,6 +3641,7 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages', 'users', '
         $accounts = [];
         $apps = [];
         $songs = [];
+        $songArtistOptions = [];
         $songArtists = [];
         $songGenres = [];
         $songOrders = [];
@@ -4243,6 +4525,12 @@ if (window.jQuery && jQuery.fn.select2) {
         placeholder: 'Chọn lang',
     });
 
+    jQuery('.js-country-filter-select').select2({
+        theme: 'bootstrap-5',
+        width: '100%',
+        placeholder: 'Tất cả',
+    });
+
     jQuery('.js-music-artist-select').select2({
         theme: 'bootstrap-5',
         width: '100%',
@@ -4254,6 +4542,234 @@ if (window.jQuery && jQuery.fn.select2) {
         width: '100%',
         tags: true,
         placeholder: 'Chọn hoặc nhập thể loại',
+    });
+}
+
+const quickAddSongArtistButton = document.querySelector('.js-quick-add-song-artist');
+const songArtistSelect = document.getElementById('song_artist_ids');
+const songLangSelect = document.getElementById('song_lang');
+if (quickAddSongArtistButton && songArtistSelect) {
+    quickAddSongArtistButton.addEventListener('click', async () => {
+        const defaultLang = (songLangSelect && songLangSelect.value ? songLangSelect.value : 'vi');
+        const langOptions = songLangSelect ? songLangSelect.innerHTML : `<option value="${defaultLang}">${defaultLang}</option>`;
+        const result = await Swal.fire({
+            title: 'Thêm nhanh nghệ sĩ',
+            width: 760,
+            html: `
+                <div class="text-start">
+                    <div class="mb-3">
+                        <label class="form-label" for="quick_song_artist_name">Name</label>
+                        <input id="quick_song_artist_name" class="form-control" autocomplete="off">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label" for="quick_song_artist_avatar">Avatar</label>
+                        <div class="input-group">
+                            <input id="quick_song_artist_avatar" class="form-control" autocomplete="off">
+                            <button class="btn btn-secondary" id="quick_song_artist_upload" type="button">Upload</button>
+                        </div>
+                        <input id="quick_song_artist_file" class="d-none" type="file" accept="image/*">
+                    </div>
+                    <div class="mb-3">
+                        <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2">
+                            <label class="form-label mb-0" for="quick_song_artist_description_editor">Mô tả</label>
+                            <button class="btn btn-sm btn-primary" id="quick_song_artist_ai" type="button">Yêu cầu AI</button>
+                        </div>
+                        <textarea id="quick_song_artist_ai_idea" class="form-control mb-2" rows="2" placeholder="Yêu cầu AI viết hoặc chỉnh mô tả nghệ sĩ..."></textarea>
+                        <div class="simple-editor-toolbar" role="toolbar" aria-label="Editor toolbar">
+                            <button class="btn btn-sm btn-light" type="button" data-quick-editor-command="bold"><strong>B</strong></button>
+                            <button class="btn btn-sm btn-light" type="button" data-quick-editor-command="italic"><em>I</em></button>
+                            <button class="btn btn-sm btn-light" type="button" data-quick-editor-command="formatBlock" data-quick-editor-value="h2">H2</button>
+                            <button class="btn btn-sm btn-light" type="button" data-quick-editor-command="formatBlock" data-quick-editor-value="p">P</button>
+                            <button class="btn btn-sm btn-light" type="button" data-quick-editor-command="insertUnorderedList">List</button>
+                            <button class="btn btn-sm btn-light" type="button" data-quick-editor-command="createLink">Link</button>
+                            <button class="btn btn-sm btn-light" type="button" data-quick-editor-command="removeFormat">Clear</button>
+                        </div>
+                        <div class="simple-editor-canvas" id="quick_song_artist_description_editor" contenteditable="true" spellcheck="true" style="min-height:220px;margin-top:8px;padding:5px;border:1px solid rgba(0,0,0,.15)"></div>
+                    </div>
+                    <div class="mb-0">
+                        <label class="form-label" for="quick_song_artist_lang">Lang key</label>
+                        <select id="quick_song_artist_lang" class="form-control">${langOptions}</select>
+                    </div>
+                </div>
+            `,
+            showCancelButton: true,
+            confirmButtonText: 'Thêm',
+            cancelButtonText: 'Hủy',
+            focusConfirm: false,
+            didOpen: () => {
+                const nameInput = document.getElementById('quick_song_artist_name');
+                const langInput = document.getElementById('quick_song_artist_lang');
+                const avatarInput = document.getElementById('quick_song_artist_avatar');
+                const fileInput = document.getElementById('quick_song_artist_file');
+                const uploadButton = document.getElementById('quick_song_artist_upload');
+                const aiButton = document.getElementById('quick_song_artist_ai');
+                const aiIdeaInput = document.getElementById('quick_song_artist_ai_idea');
+                const editor = document.getElementById('quick_song_artist_description_editor');
+
+                if (langInput) {
+                    langInput.value = defaultLang;
+                }
+                if (nameInput) {
+                    nameInput.focus();
+                }
+                document.querySelectorAll('[data-quick-editor-command]').forEach((button) => {
+                    button.addEventListener('click', () => {
+                        const command = button.dataset.quickEditorCommand;
+                        let value = button.dataset.quickEditorValue || null;
+                        if (command === 'createLink') {
+                            value = window.prompt('URL');
+                            if (!value) return;
+                        }
+                        if (editor) {
+                            editor.focus();
+                        }
+                        document.execCommand(command, false, value);
+                    });
+                });
+
+                if (uploadButton && fileInput && avatarInput) {
+                    uploadButton.addEventListener('click', () => fileInput.click());
+                    fileInput.addEventListener('change', async () => {
+                        const file = fileInput.files ? fileInput.files[0] : null;
+                        if (!file) {
+                            return;
+                        }
+
+                        const originalText = uploadButton.textContent;
+                        uploadButton.disabled = true;
+                        uploadButton.textContent = 'Uploading...';
+                        try {
+                            const uploadData = new FormData();
+                            uploadData.append('action', 'ajax_upload');
+                            uploadData.append('type_media', 'artist_avatar');
+                            uploadData.append('file', file);
+                            const response = await fetch('index.php', {
+                                method: 'POST',
+                                body: uploadData,
+                            });
+                            const payload = await response.json();
+                            if (!response.ok || payload.status !== 'success') {
+                                throw new Error(payload.message || 'Upload thất bại.');
+                            }
+                            avatarInput.value = payload.url;
+                            Swal.resetValidationMessage();
+                        } catch (error) {
+                            Swal.showValidationMessage(error.message);
+                        } finally {
+                            uploadButton.disabled = false;
+                            uploadButton.textContent = originalText;
+                            fileInput.value = '';
+                        }
+                    });
+                }
+
+                if (aiButton && aiIdeaInput && nameInput && langInput && editor) {
+                    aiButton.addEventListener('click', async () => {
+                        const artistName = nameInput.value.trim();
+                        const langKey = langInput.value.trim();
+                        const aiIdea = aiIdeaInput.value.trim();
+                        if (!artistName || !langKey) {
+                            Swal.showValidationMessage('Vui lòng nhập tên nghệ sĩ và chọn lang trước khi yêu cầu AI.');
+                            return;
+                        }
+                        if (!aiIdea) {
+                            Swal.showValidationMessage('Vui lòng nhập yêu cầu cho AI.');
+                            return;
+                        }
+
+                        aiButton.disabled = true;
+                        const originalHtml = aiButton.innerHTML;
+                        aiButton.innerHTML = '<span class="spinner-border spinner-border-sm" aria-hidden="true"></span> Đang viết';
+
+                        const aiData = new FormData();
+                        aiData.append('action', 'ajax_ai_request_song_artist');
+                        aiData.append('idea', aiIdea);
+                        aiData.append('name', artistName);
+                        aiData.append('lang_key', langKey);
+                        aiData.append('description', editor.innerHTML.trim());
+
+                        try {
+                            const response = await fetch('index.php?section=music&tab=artists', {
+                                method: 'POST',
+                                body: aiData,
+                            });
+                            const payload = await response.json();
+                            if (!response.ok || payload.status !== 'success') {
+                                throw new Error(payload.message || 'Không tạo được mô tả nghệ sĩ theo yêu cầu AI.');
+                            }
+                            if (typeof payload.description === 'string' && payload.description !== '') {
+                                editor.innerHTML = payload.description;
+                                Swal.resetValidationMessage();
+                            }
+                        } catch (error) {
+                            Swal.showValidationMessage(error.message);
+                        } finally {
+                            aiButton.disabled = false;
+                            aiButton.innerHTML = originalHtml;
+                        }
+                    });
+                }
+            },
+            preConfirm: () => {
+                const name = (document.getElementById('quick_song_artist_name')?.value || '').trim();
+                const langKey = (document.getElementById('quick_song_artist_lang')?.value || '').trim();
+                const avatar = (document.getElementById('quick_song_artist_avatar')?.value || '').trim();
+                const description = (document.getElementById('quick_song_artist_description_editor')?.innerHTML || '').trim();
+                if (!name) {
+                    Swal.showValidationMessage('Vui lòng nhập tên nghệ sĩ.');
+                    return false;
+                }
+                if (!langKey) {
+                    Swal.showValidationMessage('Vui lòng nhập lang.');
+                    return false;
+                }
+                return {name, langKey, avatar, description};
+            },
+        });
+
+        if (!result.isConfirmed) {
+            return;
+        }
+
+        const formData = new FormData();
+        formData.append('action', 'ajax_quick_add_song_artist');
+        formData.append('name', result.value.name);
+        formData.append('lang_key', result.value.langKey);
+        formData.append('avatar', result.value.avatar);
+        formData.append('description', result.value.description);
+
+        try {
+            quickAddSongArtistButton.disabled = true;
+            const response = await fetch('index.php?section=music&tab=songs', {
+                method: 'POST',
+                body: formData,
+            });
+            const payload = await response.json();
+            if (!response.ok || payload.status !== 'success' || !payload.artist) {
+                throw new Error(payload.message || 'Không thêm được nghệ sĩ.');
+            }
+
+            const artistId = String(payload.artist.id);
+            const artistName = String(payload.artist.name || result.value.name);
+            let option = Array.from(songArtistSelect.options).find((item) => item.value === artistId);
+            if (!option) {
+                option = new Option(artistName, artistId, true, true);
+                songArtistSelect.add(option);
+            }
+            option.selected = true;
+
+            if (window.jQuery && jQuery.fn.select2) {
+                jQuery(songArtistSelect).trigger('change');
+            } else {
+                songArtistSelect.dispatchEvent(new Event('change', {bubbles: true}));
+            }
+
+            await Swal.fire({icon: 'success', title: 'Đã thêm nghệ sĩ', text: artistName, timer: 1200, showConfirmButton: false});
+        } catch (error) {
+            await Swal.fire({icon: 'warning', title: 'Không thêm được', text: error.message});
+        } finally {
+            quickAddSongArtistButton.disabled = false;
+        }
     });
 }
 
@@ -4303,6 +4819,165 @@ bindSimpleEditor('page_content_editor', 'page_content_html', 'page_content');
 bindSimpleEditor('app_content_editor', 'app_content_html', 'app_content');
 bindSimpleEditor('artist_description_editor', 'artist_description', 'music_artist_description');
 bindSimpleEditor('genre_description_editor', 'genre_description', 'music_genre_description');
+
+const songArtistNameInput = document.getElementById('artist_name');
+const songArtistLangInput = document.getElementById('artist_lang_key');
+const songArtistDescriptionEditor = document.getElementById('artist_description_editor');
+const songArtistDescriptionSource = document.getElementById('artist_description');
+const aiSongArtistRequestButton = document.querySelector('.js-ai-song-artist-request');
+if (songArtistNameInput && songArtistLangInput && songArtistDescriptionEditor && songArtistDescriptionSource && aiSongArtistRequestButton) {
+    aiSongArtistRequestButton.addEventListener('click', async () => {
+        const artistName = songArtistNameInput.value.trim();
+        const langKey = songArtistLangInput.value.trim();
+        if (!artistName || !langKey) {
+            await Swal.fire({icon: 'warning', title: 'Thiếu thông tin', text: 'Vui lòng nhập tên nghệ sĩ và chọn lang trước khi yêu cầu AI.'});
+            return;
+        }
+
+        const requestResult = await Swal.fire({
+            title: 'Yêu cầu AI',
+            input: 'textarea',
+            inputLabel: 'Bạn muốn AI viết hoặc chỉnh mô tả nghệ sĩ này như thế nào?',
+            inputPlaceholder: 'Ví dụ: Viết mô tả ngắn gọn, hấp dẫn, nhấn mạnh phong cách âm nhạc và thành tựu nổi bật...',
+            inputAttributes: {
+                'aria-label': 'Yêu cầu mô tả nghệ sĩ cho AI',
+            },
+            inputAutoTrim: true,
+            showCancelButton: true,
+            confirmButtonText: 'Tạo nội dung',
+            cancelButtonText: 'Hủy',
+            preConfirm: (value) => {
+                if (!value || !value.trim()) {
+                    Swal.showValidationMessage('Vui lòng nhập yêu cầu cho AI.');
+                    return false;
+                }
+                return value.trim();
+            },
+        });
+
+        if (!requestResult.isConfirmed) {
+            return;
+        }
+
+        songArtistDescriptionSource.value = songArtistDescriptionEditor.innerHTML.trim();
+        aiSongArtistRequestButton.disabled = true;
+        const originalHtml = aiSongArtistRequestButton.innerHTML;
+        aiSongArtistRequestButton.innerHTML = '<span class="d-inline-flex align-items-center gap-2"><span class="spinner-border spinner-border-sm" aria-hidden="true"></span>Đang viết</span>';
+
+        const formData = new FormData();
+        formData.append('action', 'ajax_ai_request_song_artist');
+        formData.append('idea', requestResult.value);
+        formData.append('name', artistName);
+        formData.append('lang_key', langKey);
+        formData.append('description', songArtistDescriptionSource.value || '');
+
+        try {
+            const response = await fetch('index.php?section=music&tab=artists', {
+                method: 'POST',
+                body: formData,
+            });
+            const payload = await response.json();
+            if (!response.ok || payload.status !== 'success') {
+                throw new Error(payload.message || 'Không tạo được mô tả nghệ sĩ theo yêu cầu AI.');
+            }
+
+            if (songArtistDescriptionEditor && songArtistDescriptionSource && typeof payload.description === 'string' && payload.description !== '') {
+                songArtistDescriptionEditor.innerHTML = payload.description;
+                songArtistDescriptionSource.value = songArtistDescriptionEditor.innerHTML.trim();
+            }
+
+            await Swal.fire({icon: 'success', title: 'Đã tạo nội dung', text: 'AI đã chèn mô tả nghệ sĩ vào form.'});
+        } catch (error) {
+            await Swal.fire({icon: 'warning', title: 'AI lỗi', text: error.message});
+        } finally {
+            aiSongArtistRequestButton.disabled = false;
+            aiSongArtistRequestButton.innerHTML = originalHtml;
+            if (window.lucide) {
+                lucide.createIcons();
+            }
+        }
+    });
+}
+
+const songGenreIdInput = document.getElementById('genre_id');
+const songGenreTitleInput = document.getElementById('genre_title');
+const songGenreDescriptionEditor = document.getElementById('genre_description_editor');
+const songGenreDescriptionSource = document.getElementById('genre_description');
+const aiSongGenreRequestButton = document.querySelector('.js-ai-song-genre-request');
+if (songGenreIdInput && songGenreTitleInput && songGenreDescriptionEditor && songGenreDescriptionSource && aiSongGenreRequestButton) {
+    aiSongGenreRequestButton.addEventListener('click', async () => {
+        const genreId = songGenreIdInput.value.trim();
+        const genreTitle = songGenreTitleInput.value.trim();
+        if (!genreId && !genreTitle) {
+            await Swal.fire({icon: 'warning', title: 'Thiếu thông tin', text: 'Vui lòng nhập Genre ID hoặc Title trước khi yêu cầu AI.'});
+            return;
+        }
+
+        const requestResult = await Swal.fire({
+            title: 'Yêu cầu AI',
+            input: 'textarea',
+            inputLabel: 'Bạn muốn AI viết hoặc chỉnh mô tả thể loại này như thế nào?',
+            inputPlaceholder: 'Ví dụ: Viết mô tả ngắn gọn, hấp dẫn, giải thích phong cách và cảm giác nghe của thể loại này...',
+            inputAttributes: {
+                'aria-label': 'Yêu cầu mô tả thể loại cho AI',
+            },
+            inputAutoTrim: true,
+            showCancelButton: true,
+            confirmButtonText: 'Tạo nội dung',
+            cancelButtonText: 'Hủy',
+            preConfirm: (value) => {
+                if (!value || !value.trim()) {
+                    Swal.showValidationMessage('Vui lòng nhập yêu cầu cho AI.');
+                    return false;
+                }
+                return value.trim();
+            },
+        });
+
+        if (!requestResult.isConfirmed) {
+            return;
+        }
+
+        songGenreDescriptionSource.value = songGenreDescriptionEditor.innerHTML.trim();
+        aiSongGenreRequestButton.disabled = true;
+        const originalHtml = aiSongGenreRequestButton.innerHTML;
+        aiSongGenreRequestButton.innerHTML = '<span class="d-inline-flex align-items-center gap-2"><span class="spinner-border spinner-border-sm" aria-hidden="true"></span>Đang viết</span>';
+
+        const formData = new FormData();
+        formData.append('action', 'ajax_ai_request_song_genre');
+        formData.append('idea', requestResult.value);
+        formData.append('genre_id', genreId);
+        formData.append('title', genreTitle);
+        formData.append('lang_key', 'vi');
+        formData.append('description', songGenreDescriptionSource.value || '');
+
+        try {
+            const response = await fetch('index.php?section=music&tab=genres', {
+                method: 'POST',
+                body: formData,
+            });
+            const payload = await response.json();
+            if (!response.ok || payload.status !== 'success') {
+                throw new Error(payload.message || 'Không tạo được mô tả thể loại theo yêu cầu AI.');
+            }
+
+            if (typeof payload.description === 'string' && payload.description !== '') {
+                songGenreDescriptionEditor.innerHTML = payload.description;
+                songGenreDescriptionSource.value = songGenreDescriptionEditor.innerHTML.trim();
+            }
+
+            await Swal.fire({icon: 'success', title: 'Đã tạo nội dung', text: 'AI đã chèn mô tả thể loại vào form.'});
+        } catch (error) {
+            await Swal.fire({icon: 'warning', title: 'AI lỗi', text: error.message});
+        } finally {
+            aiSongGenreRequestButton.disabled = false;
+            aiSongGenreRequestButton.innerHTML = originalHtml;
+            if (window.lucide) {
+                lucide.createIcons();
+            }
+        }
+    });
+}
 
 [
     ['app_photo_app_id', 'photos'],

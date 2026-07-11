@@ -198,7 +198,19 @@
 
             <?php if ($cocTab === 'orders'): ?>
             <div class="glass-panel p-4">
-                <h2 class="h5 mb-3">Đơn Đặt hàng</h2>
+                <div class="d-flex flex-wrap align-items-center justify-content-between gap-3 mb-3">
+                    <h2 class="h5 mb-0">Đơn Đặt hàng</h2>
+                    <div class="d-flex flex-wrap align-items-center gap-2">
+                        <span class="badge text-bg-secondary"><?= number_format(count($orders)) ?> đơn</span>
+                        <form class="js-delete d-inline-flex" method="post" data-confirm="Xóa tất cả đơn COC thanh toán không thành công? Các đơn COMPLETED sẽ được giữ lại.">
+                            <input type="hidden" name="action" value="delete_failed_coc_orders">
+                            <button class="btn btn-sm btn-outline-danger" type="submit">
+                                <i data-lucide="trash-2" style="width:16px;height:16px"></i>
+                                Xóa đơn lỗi
+                            </button>
+                        </form>
+                    </div>
+                </div>
                 <div class="table-responsive-sm">
                     <table class="table table-striped table-hover table-sm align-middle">
                         <thead>

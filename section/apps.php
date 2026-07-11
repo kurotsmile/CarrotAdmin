@@ -381,7 +381,16 @@
             <div class="glass-panel p-4">
                 <div class="d-flex flex-wrap align-items-center justify-content-between gap-3 mb-3">
                     <h2 class="h5 mb-0">Đơn đặt hàng App</h2>
-                    <span class="badge text-bg-secondary"><?= number_format(count($appOrders)) ?> đơn</span>
+                    <div class="d-flex flex-wrap align-items-center gap-2">
+                        <span class="badge text-bg-secondary"><?= number_format(count($appOrders)) ?> đơn</span>
+                        <form class="js-delete d-inline-flex" method="post" data-confirm="Xóa tất cả đơn app thanh toán không thành công? Các đơn COMPLETED sẽ được giữ lại.">
+                            <input type="hidden" name="action" value="delete_failed_app_orders">
+                            <button class="btn btn-sm btn-outline-danger" type="submit">
+                                <i data-lucide="trash-2" style="width:16px;height:16px"></i>
+                                Xóa đơn lỗi
+                            </button>
+                        </form>
+                    </div>
                 </div>
                 <div class="table-responsive-sm">
                     <table class="table table-striped table-hover table-sm align-middle">
@@ -966,7 +975,9 @@
                                         <td>
                                             <div class="d-flex align-items-center gap-3">
                                                 <?php if (!empty($category['icon'])): ?>
+                                                    <a href="https://home.carrot28.com/category/<?php echo $category['category_id'];?>" target="_blank">
                                                     <img src="<?= htmlspecialchars($category['icon']) ?>" alt="" width="44" height="44" class="rounded-2 object-fit-cover">
+                                                    </a>
                                                 <?php endif; ?>
                                                 <strong><?= htmlspecialchars($category['category_id']) ?></strong>
                                             </div>

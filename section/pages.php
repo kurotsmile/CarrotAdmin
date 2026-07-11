@@ -285,7 +285,7 @@
                                             <td><?= htmlspecialchars($page['lang']) ?></td>
                                             <td class="text-end">
                                                 <div class="d-inline-flex align-items-center justify-content-end gap-2 flex-nowrap">
-                                                    <a class="btn btn-sm btn-secondary" href="https://home.carrot28.com/index.php?page=<?= urlencode($page['slug']) ?>&lang=<?= urlencode($page['lang']) ?>" target="_blank" rel="noopener noreferrer" title="Xem page" aria-label="Xem page">
+                                                    <a class="btn btn-sm btn-secondary" href="https://music.carrot28.com/index.php?page=<?= urlencode($page['slug']) ?>&lang=<?= urlencode($page['lang']) ?>" target="_blank" rel="noopener noreferrer" title="Xem page CarrotMusic" aria-label="Xem page CarrotMusic">
                                                         <i data-lucide="external-link" style="width:16px;height:16px"></i>
                                                     </a>
                                                     <a class="btn btn-sm btn-warning" href="index.php?section=pages&slug=<?= urlencode($selectedPageSlug) ?>&edit=<?= (int) $page['id'] ?>" title="Cập nhật" aria-label="Cập nhật">
