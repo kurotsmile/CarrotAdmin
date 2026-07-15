@@ -75,15 +75,16 @@ require __DIR__ . '/includes/schema.php';
 
 $message = '';
 $error = '';
-$allowedSections = ['overview', 'apps', 'music', 'pages', 'users', 'api', 'bank', 'sites', 'coc', 'country', 'paypal', 'ai_support', 'backup'];
+$allowedSections = ['overview', 'apps', 'ebook', 'music', 'pages', 'users', 'api', 'bank', 'sites', 'coc', 'country', 'paypal', 'ai_support', 'backup'];
 $section = in_array($_GET['section'] ?? 'overview', $allowedSections, true) ? ($_GET['section'] ?? 'overview') : 'overview';
 $editKey = trim($_GET['edit'] ?? '');
 $editId = isset($_GET['edit']) ? (int) $_GET['edit'] : 0;
 $cocTab = ($_GET['tab'] ?? 'accounts') === 'orders' ? 'orders' : 'accounts';
 $appTab = in_array($_GET['tab'] ?? 'main', ['main', 'photos', 'content', 'categories', 'stores', 'orders'], true) ? ($_GET['tab'] ?? 'main') : 'main';
-$musicTab = in_array($_GET['tab'] ?? 'songs', ['songs', 'artists', 'genres', 'orders'], true) ? ($_GET['tab'] ?? 'songs') : 'songs';
+$ebookTab = in_array($_GET['tab'] ?? 'books', ['books', 'categories', 'stores', 'orders'], true) ? ($_GET['tab'] ?? 'books') : 'books';
+$musicTab = in_array($_GET['tab'] ?? 'songs', ['songs', 'artists', 'genres', 'orders', 'search_log'], true) ? ($_GET['tab'] ?? 'songs') : 'songs';
 $countryTab = ($_GET['tab'] ?? 'countries') === 'labels' ? 'labels' : 'countries';
-$paypalTab = in_array($_GET['tab'] ?? 'home', ['home', 'coc', 'music'], true) ? ($_GET['tab'] ?? 'home') : 'home';
+$paypalTab = in_array($_GET['tab'] ?? 'home', ['home', 'ebook', 'coc', 'music'], true) ? ($_GET['tab'] ?? 'home') : 'home';
 $editing = null;
 $editingLabel = null;
 $accounts = [];
@@ -93,6 +94,8 @@ $songArtistOptions = [];
 $songArtists = [];
 $songGenres = [];
 $songOrders = [];
+$songSearchLogs = [];
+$songSearchLogStats = ['total_rows' => 0, 'unique_queries' => 0, 'unique_ips' => 0];
 $pages = [];
 $users = [];
 $apiConfigs = [];
@@ -106,11 +109,18 @@ $pageSlugOptions = [];
 $textLabels = [];
 $orders = [];
 $appOrders = [];
+$ebooks = [];
+$ebookCategories = [];
+$ebookStoreLinks = [];
+$ebookOrders = [];
+$ebookCategoryOptions = [];
 $dashboardMetrics = [
     'apps' => 0,
     'pages' => 0,
     'users' => 0,
     'coc' => 0,
+    'songs' => 0,
+    'ebook' => 0,
     'bank' => 0,
     'sites' => 0,
     'country' => 0,
@@ -118,6 +128,7 @@ $dashboardMetrics = [
 $trafficMetrics = [
     'coc' => [],
     'home' => [],
+    'ebook' => [],
     'music' => [],
     'total' => [
         'today_unique' => 0,
@@ -149,6 +160,8 @@ $orderSort = 'created_at';
 $orderDir = 'DESC';
 $appSort = 'priority';
 $appDir = 'DESC';
+$ebookSort = 'updated_at';
+$ebookDir = 'DESC';
 $pageSort = 'updated_at';
 $pageDir = 'DESC';
 $userSort = 'created_at';
@@ -172,6 +185,11 @@ $songTotal = 0;
 $songTotalPages = 1;
 $songSearch = trim($_GET['song_q'] ?? '');
 $songLangFilter = trim($_GET['song_lang'] ?? '');
+$songSearchLogQuery = trim($_GET['search_log_q'] ?? '');
+$songSearchLogPage = max(1, (int) ($_GET['search_log_page'] ?? 1));
+$songSearchLogPerPage = 50;
+$songSearchLogTotal = 0;
+$songSearchLogTotalPages = 1;
 $artistSearch = trim($_GET['artist_q'] ?? '');
 $artistLangFilter = trim($_GET['artist_lang'] ?? '');
 $serverRuntime = null;
@@ -244,17 +262,20 @@ function admin_ajax_upload(): void
 
     try {
         $typeMedia = trim($_POST['type_media'] ?? '');
-        if (!in_array($typeMedia, ['carrot_app', 'carrot_app_photo', 'coc_images', 'bank', 'sites', 'country', 'song_avatar', 'song_mp3', 'artist_avatar'], true)) {
+        if (!in_array($typeMedia, ['carrot_app', 'carrot_app_photo', 'carrot_ebook_cover', 'carrot_ebook_file', 'coc_images', 'bank', 'sites', 'country', 'song_avatar', 'song_mp3', 'artist_avatar', 'genre_avatar'], true)) {
             throw new RuntimeException('Type media không hợp lệ.');
         }
 
         $file = $_FILES['file'] ?? [];
         $mimeType = is_file($file['tmp_name'] ?? '') ? (mime_content_type($file['tmp_name']) ?: '') : '';
-        if (in_array($typeMedia, ['song_avatar', 'artist_avatar'], true) && strpos($mimeType, 'image/') !== 0) {
+        if (in_array($typeMedia, ['song_avatar', 'artist_avatar', 'genre_avatar'], true) && strpos($mimeType, 'image/') !== 0) {
             throw new RuntimeException('Vui lòng chọn tệp ảnh.');
         }
         if ($typeMedia === 'song_mp3' && !in_array($mimeType, ['audio/mpeg', 'audio/mp3'], true) && !preg_match('/\.mp3$/i', (string) ($file['name'] ?? ''))) {
             throw new RuntimeException('Vui lòng chọn tệp MP3.');
+        }
+        if ($typeMedia === 'carrot_ebook_cover' && strpos($mimeType, 'image/') !== 0) {
+            throw new RuntimeException('Vui lòng chọn tệp ảnh bìa.');
         }
 
         $url = admin_upload_image_to_nas($file, $typeMedia);
@@ -274,6 +295,30 @@ function admin_ajax_upload(): void
 function admin_fetch_app(PDO $pdo, string $id): ?array
 {
     $stmt = $pdo->prepare('SELECT * FROM app WHERE id = ?');
+    $stmt->execute([$id]);
+    $row = $stmt->fetch();
+    return $row ?: null;
+}
+
+function admin_fetch_ebook(PDO $pdo, string $id): ?array
+{
+    $stmt = $pdo->prepare('SELECT * FROM ebook WHERE id = ?');
+    $stmt->execute([$id]);
+    $row = $stmt->fetch();
+    return $row ?: null;
+}
+
+function admin_fetch_ebook_category(PDO $pdo, string $id): ?array
+{
+    $stmt = $pdo->prepare('SELECT * FROM ebook_categories WHERE id = ?');
+    $stmt->execute([$id]);
+    $row = $stmt->fetch();
+    return $row ?: null;
+}
+
+function admin_fetch_ebook_store_link(PDO $pdo, string $id): ?array
+{
+    $stmt = $pdo->prepare('SELECT * FROM ebook_store_links WHERE id = ?');
     $stmt->execute([$id]);
     $row = $stmt->fetch();
     return $row ?: null;
@@ -416,6 +461,119 @@ function admin_fetch_ai_support_configs(PDO $pdo, bool $enabledOnly = false): ar
     $stmt = $pdo->prepare($sql);
     $stmt->execute(['gemini']);
     return $stmt->fetchAll();
+}
+
+function admin_fetch_youtube_api_key(PDO $apiPdo, ?PDO $aiPdo = null): string
+{
+    admin_ensure_api_table($apiPdo);
+    $stmt = $apiPdo->prepare('
+        SELECT api_key, config_json
+        FROM api_config
+        WHERE provider = "youtube"
+          AND enabled = 1
+          AND (
+              TRIM(COALESCE(api_key, "")) <> ""
+              OR TRIM(COALESCE(config_json, "")) <> ""
+          )
+        ORDER BY id DESC
+        LIMIT 1
+    ');
+    $stmt->execute();
+    $config = $stmt->fetch();
+    if ($config) {
+        $apiKey = trim((string) ($config['api_key'] ?? ''));
+        if ($apiKey !== '') {
+            return $apiKey;
+        }
+
+        $json = json_decode((string) ($config['config_json'] ?? ''), true);
+        if (is_array($json)) {
+            foreach (['api_key', 'key', 'youtube_api_key', 'youtubeKey'] as $keyName) {
+                $apiKey = trim((string) ($json[$keyName] ?? ''));
+                if ($apiKey !== '') {
+                    return $apiKey;
+                }
+            }
+        }
+    }
+
+    $hasAiSupportKey = false;
+    if ($aiPdo instanceof PDO) {
+        admin_ensure_ai_support_table($aiPdo);
+        $stmt = $aiPdo->prepare('SELECT 1 FROM ai_support WHERE enabled = 1 AND TRIM(COALESCE(api_key, "")) <> "" LIMIT 1');
+        $stmt->execute();
+        $hasAiSupportKey = (bool) $stmt->fetchColumn();
+    }
+
+    if ($hasAiSupportKey) {
+        throw new RuntimeException('Bạn đã có key ở AI Support, nhưng nút này cần YouTube Data API key riêng trong mục API. Vào API, chọn Provider = YouTube API, bật Enabled và dán key vào ô API key / anon key.');
+    }
+
+    throw new RuntimeException('Chưa cấu hình YouTube Data API key. Vào mục API, chọn Provider = YouTube API, bật Enabled và dán key vào ô API key / anon key.');
+}
+
+function admin_extract_youtube_video_id(string $url): string
+{
+    $url = trim(html_entity_decode($url, ENT_QUOTES | ENT_HTML5, 'UTF-8'));
+    if ($url === '') {
+        return '';
+    }
+
+    if (preg_match('/^[A-Za-z0-9_-]{11}$/', $url)) {
+        return $url;
+    }
+
+    $parts = parse_url($url);
+    if (!empty($parts['query'])) {
+        parse_str($parts['query'], $query);
+        if (!empty($query['v']) && preg_match('/^[A-Za-z0-9_-]{6,}$/', (string) $query['v'])) {
+            return (string) $query['v'];
+        }
+    }
+
+    $path = trim((string) ($parts['path'] ?? ''), '/');
+    if ($path !== '') {
+        $segments = array_values(array_filter(explode('/', $path), static fn(string $segment): bool => $segment !== ''));
+        if (!empty($segments)) {
+            $host = strtolower((string) ($parts['host'] ?? ''));
+            if (strpos($host, 'youtu.be') !== false && preg_match('/^[A-Za-z0-9_-]{6,}$/', $segments[0])) {
+                return $segments[0];
+            }
+            foreach (['shorts', 'embed', 'live'] as $prefix) {
+                $index = array_search($prefix, $segments, true);
+                if ($index !== false && !empty($segments[$index + 1]) && preg_match('/^[A-Za-z0-9_-]{6,}$/', $segments[$index + 1])) {
+                    return $segments[$index + 1];
+                }
+            }
+        }
+    }
+
+    if (preg_match('/(?:v=|youtu\.be\/|shorts\/|embed\/|live\/)([A-Za-z0-9_-]{6,})/', $url, $matches)) {
+        return $matches[1];
+    }
+
+    return '';
+}
+
+function admin_find_song_by_youtube_video_id(PDO $pdo, string $videoId): ?array
+{
+    if ($videoId === '') {
+        return null;
+    }
+
+    $stmt = $pdo->query('
+        SELECT id, name, artist, link_ytb
+        FROM song
+        WHERE TRIM(COALESCE(link_ytb, "")) <> ""
+        ORDER BY id ASC
+    ');
+    while ($song = $stmt->fetch()) {
+        if (admin_extract_youtube_video_id((string) ($song['link_ytb'] ?? '')) === $videoId) {
+            return $song;
+        }
+    }
+
+    return null;
 }
 
 function admin_mask_secret(?string $value): string
@@ -953,6 +1111,127 @@ function admin_home_pdo(): ?PDO
     return $homePdo;
 }
 
+function admin_carrothome_cache_dir(): string
+{
+    $homeRoot = realpath(__DIR__ . '/../CarrotHome');
+    if ($homeRoot === false) {
+        $homeRoot = __DIR__ . '/../CarrotHome';
+    }
+
+    return $homeRoot . '/storage/cache';
+}
+
+function admin_clear_carrothome_cache(): int
+{
+    $dir = admin_carrothome_cache_dir();
+    if (!is_dir($dir)) {
+        return 0;
+    }
+
+    $deleted = 0;
+    foreach (glob($dir . '/*.json') ?: [] as $file) {
+        if (is_file($file) && @unlink($file)) {
+            $deleted++;
+        }
+    }
+
+    return $deleted;
+}
+
+function admin_carrotmusic_cache_dir(): string
+{
+    $musicRoot = realpath(__DIR__ . '/../CarrotMusic');
+    if ($musicRoot === false) {
+        $musicRoot = __DIR__ . '/../CarrotMusic';
+    }
+
+    return $musicRoot . '/storage/cache';
+}
+
+function admin_clear_carrotmusic_cache(): int
+{
+    $dir = admin_carrotmusic_cache_dir();
+    if (!is_dir($dir)) {
+        return 0;
+    }
+
+    $deleted = 0;
+    foreach (glob($dir . '/*.json') ?: [] as $file) {
+        if (is_file($file) && @unlink($file)) {
+            $deleted++;
+        }
+    }
+
+    return $deleted;
+}
+
+function admin_cache_dir(): string
+{
+    return __DIR__ . '/storage/cache';
+}
+
+function admin_cache_path(string $key): string
+{
+    $key = preg_replace('/[^a-z0-9_.-]+/i', '-', $key);
+    return admin_cache_dir() . '/' . $key . '.json';
+}
+
+function admin_cache_get(string $key, int $ttlSeconds): ?array
+{
+    if ($ttlSeconds <= 0) {
+        return null;
+    }
+
+    $path = admin_cache_path($key);
+    if (!is_file($path) || (time() - (int) filemtime($path)) > $ttlSeconds) {
+        return null;
+    }
+
+    $payload = json_decode((string) @file_get_contents($path), true);
+    return is_array($payload) ? $payload : null;
+}
+
+function admin_cache_set(string $key, array $payload): void
+{
+    $dir = admin_cache_dir();
+    if (!is_dir($dir)) {
+        @mkdir($dir, 0775, true);
+    }
+    if (!is_dir($dir) || !is_writable($dir)) {
+        return;
+    }
+
+    $path = admin_cache_path($key);
+    $tmp = $path . '.' . getmypid() . '.tmp';
+    $json = json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    if ($json === false) {
+        return;
+    }
+
+    if (@file_put_contents($tmp, $json, LOCK_EX) !== false) {
+        @rename($tmp, $path);
+    }
+}
+
+function admin_clear_internal_cache(string $prefix = ''): int
+{
+    $dir = admin_cache_dir();
+    if (!is_dir($dir)) {
+        return 0;
+    }
+
+    $prefix = preg_replace('/[^a-z0-9_.-]+/i', '-', $prefix);
+    $pattern = $dir . '/' . ($prefix !== '' ? $prefix . '*' : '*') . '.json';
+    $deleted = 0;
+    foreach (glob($pattern) ?: [] as $file) {
+        if (is_file($file) && @unlink($file)) {
+            $deleted++;
+        }
+    }
+
+    return $deleted;
+}
+
 function admin_fetch_page(PDO $pdo, int $id): ?array
 {
     $stmt = $pdo->prepare('SELECT * FROM page WHERE id = ?');
@@ -1141,6 +1420,27 @@ function admin_safe_count_table(?PDO $pdo, string $table): int
     } catch (Throwable $e) {
         return 0;
     }
+}
+
+function admin_cached_count_table(?PDO $pdo, string $cacheKey, string $table, int $ttlSeconds = 86400): int
+{
+    if (!$pdo instanceof PDO) {
+        return 0;
+    }
+
+    $cached = admin_cache_get('overview_count_' . $cacheKey, $ttlSeconds);
+    if (is_array($cached) && array_key_exists('value', $cached)) {
+        return (int) $cached['value'];
+    }
+
+    $count = admin_safe_count_table($pdo, $table);
+    admin_cache_set('overview_count_' . $cacheKey, [
+        'value' => $count,
+        'table' => $table,
+        'created_at' => date('c'),
+    ]);
+
+    return $count;
 }
 
 function admin_empty_visit_metrics(): array
@@ -1953,35 +2253,47 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages', 'users', '
             $homePdo = admin_home_pdo();
         }
 
+        if ($section === 'overview' && $_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'clear_system_cache') {
+            $deletedAdminCacheFiles = admin_clear_internal_cache();
+            $deletedHomeCacheFiles = admin_clear_carrothome_cache();
+            $deletedMusicCacheFiles = admin_clear_carrotmusic_cache();
+            $message = 'Đã clear cache hệ thống: CarrotAdmin (' . number_format($deletedAdminCacheFiles) . ' file), CarrotHome (' . number_format($deletedHomeCacheFiles) . ' file), CarrotMusic (' . number_format($deletedMusicCacheFiles) . ' file).';
+        }
+
         if ($section === 'overview') {
             $trafficDateRange = admin_parse_traffic_date_range();
             $serverRuntime = admin_server_runtime();
-            $dashboardMetrics['apps'] = admin_safe_count_table($pdo, 'app');
-            $dashboardMetrics['coc'] = admin_safe_count_table($pdo, 'coc');
-            $dashboardMetrics['bank'] = admin_safe_count_table($pdo, 'bank');
-            $dashboardMetrics['sites'] = admin_safe_count_table($pdo, 'sites');
-            $dashboardMetrics['country'] = admin_safe_count_table($pdo, 'country');
+            $dashboardMetrics['apps'] = admin_cached_count_table($pdo, 'main_app', 'app');
+            $dashboardMetrics['coc'] = admin_cached_count_table($pdo, 'main_coc', 'coc');
+            $dashboardMetrics['songs'] = admin_cached_count_table($pdo, 'main_song', 'song');
+            $dashboardMetrics['ebook'] = admin_cached_count_table($pdo, 'main_ebook', 'ebook');
+            $dashboardMetrics['bank'] = admin_cached_count_table($pdo, 'main_bank', 'bank');
+            $dashboardMetrics['sites'] = admin_cached_count_table($pdo, 'main_sites', 'sites');
+            $dashboardMetrics['country'] = admin_cached_count_table($pdo, 'main_country', 'country');
             $overviewHomePdo = null;
             try {
                 $overviewHomePdo = admin_home_pdo();
-                $dashboardMetrics['pages'] = admin_safe_count_table($overviewHomePdo, 'page');
-                $dashboardMetrics['users'] = admin_safe_count_table($overviewHomePdo, 'users');
+                $dashboardMetrics['pages'] = admin_cached_count_table($overviewHomePdo, 'home_page', 'page');
+                $dashboardMetrics['users'] = admin_cached_count_table($overviewHomePdo, 'home_users', 'users');
             } catch (Throwable $e) {
                 $dashboardMetrics['pages'] = 0;
                 $dashboardMetrics['users'] = 0;
             }
             $trafficMetrics['coc'] = admin_visit_metrics($pdo, 'coc', $trafficDateRange);
             $trafficMetrics['home'] = admin_visit_metrics($overviewHomePdo, 'home', $trafficDateRange);
+            $trafficMetrics['ebook'] = admin_visit_metrics($pdo, 'ebook', $trafficDateRange);
             $trafficMetrics['music'] = admin_visit_metrics($pdo, 'music', $trafficDateRange);
-            $trafficMetrics['total'] = admin_sum_visit_metrics([$trafficMetrics['coc'], $trafficMetrics['home'], $trafficMetrics['music']]);
+            $trafficMetrics['total'] = admin_sum_visit_metrics([$trafficMetrics['coc'], $trafficMetrics['home'], $trafficMetrics['ebook'], $trafficMetrics['music']]);
             $trafficChartData = admin_sum_visit_chart([
                 admin_visit_chart($pdo, 'coc', $trafficDateRange),
                 admin_visit_chart($overviewHomePdo, 'home', $trafficDateRange),
+                admin_visit_chart($pdo, 'ebook', $trafficDateRange),
                 admin_visit_chart($pdo, 'music', $trafficDateRange),
             ], $trafficDateRange);
             $trafficIpRows = array_merge(
                 admin_visit_ip_rows($pdo, 'coc', 'COC Shop', $trafficDateRange),
                 admin_visit_ip_rows($overviewHomePdo, 'home', 'CarrotHome', $trafficDateRange),
+                admin_visit_ip_rows($pdo, 'ebook', 'CarrotEbook', $trafficDateRange),
                 admin_visit_ip_rows($pdo, 'music', 'CarrotMusic', $trafficDateRange)
             );
             usort($trafficIpRows, static function (array $a, array $b): int {
@@ -2010,6 +2322,10 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages', 'users', '
             admin_ensure_app_store_table($pdo);
             admin_ensure_app_category_tables($pdo);
             admin_ensure_app_order_table($pdo);
+        }
+
+        if ($section === 'ebook') {
+            admin_ensure_ebook_tables($pdo);
         }
 
         if ($section === 'music') {
@@ -2086,6 +2402,7 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages', 'users', '
             if ($section === 'apps' && $action === 'delete_app') {
                 $stmt = $pdo->prepare('DELETE FROM app WHERE id = ?');
                 $stmt->execute([trim($_POST['id'] ?? '')]);
+                admin_clear_carrothome_cache();
                 $message = 'Đã xóa app.';
             }
 
@@ -2104,30 +2421,35 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages', 'users', '
             if ($section === 'apps' && $action === 'delete_app_photo') {
                 $stmt = $pdo->prepare('DELETE FROM app_photo WHERE id = ?');
                 $stmt->execute([(int) ($_POST['id'] ?? 0)]);
+                admin_clear_carrothome_cache();
                 $message = 'Đã xóa ảnh mô tả.';
             }
 
             if ($section === 'apps' && $action === 'delete_app_store') {
                 $stmt = $pdo->prepare('DELETE FROM app_store WHERE id = ?');
                 $stmt->execute([(int) ($_POST['id'] ?? 0)]);
+                admin_clear_carrothome_cache();
                 $message = 'Đã xóa cổng phân phối.';
             }
 
             if ($section === 'apps' && $action === 'delete_app_content') {
                 $stmt = $pdo->prepare('DELETE FROM app_content WHERE id = ?');
                 $stmt->execute([(int) ($_POST['id'] ?? 0)]);
+                admin_clear_carrothome_cache();
                 $message = 'Đã xóa nội dung mô tả.';
             }
 
             if ($section === 'apps' && $action === 'delete_app_category') {
                 $stmt = $pdo->prepare('DELETE FROM app_category WHERE category_id = ?');
                 $stmt->execute([trim($_POST['category_id'] ?? '')]);
+                admin_clear_carrothome_cache();
                 $message = 'Đã xóa chuyên mục.';
             }
 
             if ($section === 'apps' && $action === 'delete_app_category_content') {
                 $stmt = $pdo->prepare('DELETE FROM app_category_content WHERE id = ?');
                 $stmt->execute([(int) ($_POST['id'] ?? 0)]);
+                admin_clear_carrothome_cache();
                 $message = 'Đã xóa nội dung chuyên mục.';
             }
 
@@ -2164,30 +2486,177 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages', 'users', '
                     $stmt = $pdo->prepare('UPDATE app SET id = ?, decription = ?, github = ?, microsoft_store = ?, icon = ?, itch = ?, exe_file = ?, ipa_file = ?, deb_file = ?, amazon_app_store = ?, huawei_store = ?, youtube_link = ?, google_play = ?, dmg_file = ?, uptodown = ?, simmer = ?, type = ?, apk_file = ?, status = ?, priority = ?, price = ?, category = ? WHERE id = ?');
                     $stmt->execute([$id, $decription, $values['github'], $values['microsoft_store'], $values['icon'], $values['itch'], $values['exe_file'], $values['ipa_file'], $values['deb_file'], $values['amazon_app_store'], $values['huawei_store'], $values['youtube_link'], $values['google_play'], $values['dmg_file'], $values['uptodown'], $values['simmer'], $type, $values['apk_file'], $status, $priority, $price, $values['category'], $originalId]);
                     admin_sync_app_categories($pdo, $id, $categoryIds);
+                    admin_clear_carrothome_cache();
                     $message = 'Đã cập nhật app.';
                 } else {
                     $stmt = $pdo->prepare('INSERT INTO app (id, decription, github, microsoft_store, icon, itch, exe_file, ipa_file, deb_file, amazon_app_store, huawei_store, youtube_link, google_play, dmg_file, uptodown, simmer, type, apk_file, status, priority, price, category) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
                     $stmt->execute([$id, $decription, $values['github'], $values['microsoft_store'], $values['icon'], $values['itch'], $values['exe_file'], $values['ipa_file'], $values['deb_file'], $values['amazon_app_store'], $values['huawei_store'], $values['youtube_link'], $values['google_play'], $values['dmg_file'], $values['uptodown'], $values['simmer'], $type, $values['apk_file'], $status, $priority, $price, $values['category']]);
                     admin_sync_app_categories($pdo, $id, $categoryIds);
+                    admin_clear_carrothome_cache();
                     $message = 'Đã thêm app mới.';
+                }
+            }
+
+            if ($section === 'ebook' && $action === 'delete_ebook') {
+                $stmt = $pdo->prepare('DELETE FROM ebook WHERE id = ?');
+                $stmt->execute([trim($_POST['id'] ?? '')]);
+                $message = 'Đã xóa ebook.';
+            }
+
+            if ($section === 'ebook' && $action === 'delete_ebook_category') {
+                $stmt = $pdo->prepare('DELETE FROM ebook_categories WHERE id = ?');
+                $stmt->execute([trim($_POST['id'] ?? '')]);
+                $message = 'Đã xóa chuyên mục ebook.';
+            }
+
+            if ($section === 'ebook' && $action === 'delete_ebook_store_link') {
+                $stmt = $pdo->prepare('DELETE FROM ebook_store_links WHERE id = ?');
+                $stmt->execute([trim($_POST['id'] ?? '')]);
+                $message = 'Đã xóa liên kết cửa hàng.';
+            }
+
+            if ($section === 'ebook' && $action === 'delete_ebook_order') {
+                $stmt = $pdo->prepare('DELETE FROM ebook_orders WHERE id = ?');
+                $stmt->execute([(int) ($_POST['id'] ?? 0)]);
+                $message = 'Đã xóa đơn đặt hàng ebook.';
+            }
+
+            if ($section === 'ebook' && $action === 'delete_failed_ebook_orders') {
+                $stmt = $pdo->prepare("DELETE FROM ebook_orders WHERE COALESCE(status, '') <> 'COMPLETED'");
+                $stmt->execute();
+                $message = 'Đã xóa ' . number_format($stmt->rowCount()) . ' đơn ebook thanh toán không thành công.';
+            }
+
+            if ($section === 'ebook' && $action === 'save_ebook') {
+                $originalId = trim($_POST['original_id'] ?? '');
+                $id = trim($_POST['id'] ?? '');
+                $name = trim($_POST['name'] ?? '');
+                $author = trim($_POST['author'] ?? '');
+                $categoryId = trim($_POST['category_id'] ?? '');
+                $lang = trim($_POST['lang'] ?? 'en') ?: 'en';
+                $price = (float) ($_POST['price'] ?? 0);
+                $currency = strtoupper(trim($_POST['currency'] ?? 'USD') ?: 'USD');
+                $isFree = !empty($_POST['is_free']) ? 1 : 0;
+                $status = trim($_POST['status'] ?? 'draft') ?: 'draft';
+                $cover = trim($_POST['cover'] ?? '');
+                $previewFile = trim($_POST['preview_file'] ?? '');
+                $description = trim($_POST['description'] ?? '');
+                $publishedAt = trim($_POST['published_at'] ?? '');
+                $now = gmdate('c');
+
+                if ($id === '' || $name === '') {
+                    throw new RuntimeException('Vui lòng nhập ID và tên ebook.');
+                }
+
+                if ($categoryId === '') {
+                    $categoryId = null;
+                }
+
+                if ($originalId !== '') {
+                    $stmt = $pdo->prepare('
+                        UPDATE ebook
+                        SET id = ?, name = ?, author = ?, category_id = ?, lang = ?, price = ?, currency = ?, is_free = ?, status = ?, cover = ?, preview_file = ?, description = ?, published_at = ?, updated_at = ?
+                        WHERE id = ?
+                    ');
+                    $stmt->execute([$id, $name, $author, $categoryId, $lang, $price, $currency, $isFree, $status, $cover, $previewFile, $description, $publishedAt, $now, $originalId]);
+                    $message = 'Đã cập nhật ebook.';
+                } else {
+                    $stmt = $pdo->prepare('
+                        INSERT INTO ebook (id, name, author, category_id, lang, price, currency, is_free, status, cover, preview_file, description, published_at, created_at, updated_at)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ');
+                    $stmt->execute([$id, $name, $author, $categoryId, $lang, $price, $currency, $isFree, $status, $cover, $previewFile, $description, $publishedAt, $now, $now]);
+                    $message = 'Đã thêm ebook mới.';
+                }
+            }
+
+            if ($section === 'ebook' && $action === 'save_ebook_category') {
+                $originalId = trim($_POST['original_id'] ?? '');
+                $id = trim($_POST['id'] ?? '');
+                $name = trim($_POST['name'] ?? '');
+                $description = trim($_POST['description'] ?? '');
+                $now = gmdate('c');
+
+                if ($id === '' || $name === '') {
+                    throw new RuntimeException('Vui lòng nhập ID và tên chuyên mục.');
+                }
+
+                if ($originalId !== '') {
+                    $stmt = $pdo->prepare('UPDATE ebook_categories SET id = ?, name = ?, description = ?, updated_at = ? WHERE id = ?');
+                    $stmt->execute([$id, $name, $description, $now, $originalId]);
+                    $message = 'Đã cập nhật chuyên mục ebook.';
+                } else {
+                    $stmt = $pdo->prepare('
+                        INSERT INTO ebook_categories (id, name, description, created_at, updated_at)
+                        VALUES (?, ?, ?, ?, ?)
+                        ON DUPLICATE KEY UPDATE name = VALUES(name), description = VALUES(description), updated_at = VALUES(updated_at)
+                    ');
+                    $stmt->execute([$id, $name, $description, $now, $now]);
+                    $message = 'Đã lưu chuyên mục ebook.';
+                }
+            }
+
+            if ($section === 'ebook' && $action === 'save_ebook_store_link') {
+                $originalId = trim($_POST['original_id'] ?? '');
+                $id = trim($_POST['id'] ?? '');
+                $ebookId = trim($_POST['ebook_id'] ?? '');
+                $storeId = trim($_POST['store_id'] ?? '');
+                $storeName = trim($_POST['store_name'] ?? '');
+                $storeIcon = trim($_POST['store_icon'] ?? '');
+                $url = trim($_POST['url'] ?? '');
+                $isPrimary = !empty($_POST['is_primary']) ? 1 : 0;
+                $sortOrder = (int) ($_POST['sort_order'] ?? 0);
+                $now = gmdate('c');
+
+                if ($id === '') {
+                    $id = bin2hex(random_bytes(8));
+                }
+                if ($ebookId === '' || $storeId === '' || $storeName === '' || $url === '') {
+                    throw new RuntimeException('Vui lòng nhập ebook, store_id, store_name và URL.');
+                }
+
+                if ($isPrimary) {
+                    $stmt = $pdo->prepare('UPDATE ebook_store_links SET is_primary = 0 WHERE ebook_id = ?');
+                    $stmt->execute([$ebookId]);
+                }
+
+                if ($originalId !== '') {
+                    $stmt = $pdo->prepare('
+                        UPDATE ebook_store_links
+                        SET id = ?, ebook_id = ?, store_id = ?, store_name = ?, store_icon = ?, url = ?, is_primary = ?, sort_order = ?, updated_at = ?
+                        WHERE id = ?
+                    ');
+                    $stmt->execute([$id, $ebookId, $storeId, $storeName, $storeIcon, $url, $isPrimary, $sortOrder, $now, $originalId]);
+                    $message = 'Đã cập nhật liên kết cửa hàng.';
+                } else {
+                    $stmt = $pdo->prepare('
+                        INSERT INTO ebook_store_links (id, ebook_id, store_id, store_name, store_icon, url, is_primary, sort_order, created_at, updated_at)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        ON DUPLICATE KEY UPDATE store_name = VALUES(store_name), store_icon = VALUES(store_icon), url = VALUES(url), is_primary = VALUES(is_primary), sort_order = VALUES(sort_order), updated_at = VALUES(updated_at)
+                    ');
+                    $stmt->execute([$id, $ebookId, $storeId, $storeName, $storeIcon, $url, $isPrimary, $sortOrder, $now, $now]);
+                    $message = 'Đã lưu liên kết cửa hàng.';
                 }
             }
 
             if ($section === 'music' && $action === 'delete_song') {
                 $stmt = $pdo->prepare('DELETE FROM song WHERE id = ?');
                 $stmt->execute([trim($_POST['id'] ?? '')]);
+                admin_clear_carrotmusic_cache();
                 $message = 'Đã xóa bài hát.';
             }
 
             if ($section === 'music' && $action === 'delete_song_artist') {
                 $stmt = $pdo->prepare('DELETE FROM song_artist WHERE id = ?');
                 $stmt->execute([(int) ($_POST['id'] ?? 0)]);
+                admin_clear_carrotmusic_cache();
                 $message = 'Đã xóa nghệ sĩ.';
             }
 
             if ($section === 'music' && $action === 'delete_song_genre') {
                 $stmt = $pdo->prepare('DELETE FROM song_genre WHERE genre_id = ?');
                 $stmt->execute([trim($_POST['genre_id'] ?? '')]);
+                admin_clear_carrotmusic_cache();
                 $message = 'Đã xóa thể loại.';
             }
 
@@ -2201,6 +2670,18 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages', 'users', '
                 $stmt = $pdo->prepare("DELETE FROM song_orders WHERE COALESCE(status, '') <> 'COMPLETED'");
                 $stmt->execute();
                 $message = 'Đã xóa ' . number_format($stmt->rowCount()) . ' đơn nhạc thanh toán không thành công.';
+            }
+
+            if ($section === 'music' && $action === 'delete_song_search_log') {
+                $stmt = $pdo->prepare('DELETE FROM song_search_log WHERE id = ?');
+                $stmt->execute([(int) ($_POST['id'] ?? 0)]);
+                $message = 'Đã xóa lịch sử tìm kiếm.';
+            }
+
+            if ($section === 'music' && $action === 'clear_song_search_log') {
+                $stmt = $pdo->prepare('DELETE FROM song_search_log');
+                $stmt->execute();
+                $message = 'Đã xóa ' . number_format($stmt->rowCount()) . ' lịch sử tìm kiếm.';
             }
 
             if ($section === 'music' && $action === 'save_song') {
@@ -2243,6 +2724,7 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages', 'users', '
                     foreach ($genreIds as $genreId) {
                         $pdo->prepare('INSERT IGNORE INTO song_genre (genre_id, title) VALUES (?, ?)')->execute([$genreId, $genreId]);
                     }
+                    admin_clear_carrotmusic_cache();
                     $message = 'Đã cập nhật bài hát.';
                 } else {
                     $stmt = $pdo->prepare('
@@ -2254,6 +2736,7 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages', 'users', '
                     foreach ($genreIds as $genreId) {
                         $pdo->prepare('INSERT IGNORE INTO song_genre (genre_id, title) VALUES (?, ?)')->execute([$genreId, $genreId]);
                     }
+                    admin_clear_carrotmusic_cache();
                     $message = 'Đã thêm bài hát.';
                 }
             }
@@ -2272,6 +2755,7 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages', 'users', '
                 if ($id > 0) {
                     $stmt = $pdo->prepare('UPDATE song_artist SET name = ?, avatar = ?, description = ?, lang_key = ? WHERE id = ?');
                     $stmt->execute([$name, $avatar, $description, $langKey, $id]);
+                    admin_clear_carrotmusic_cache();
                     $message = 'Đã cập nhật nghệ sĩ.';
                 } else {
                     $stmt = $pdo->prepare('
@@ -2280,6 +2764,7 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages', 'users', '
                         ON DUPLICATE KEY UPDATE avatar = VALUES(avatar), description = VALUES(description)
                     ');
                     $stmt->execute([$name, $avatar, $description, $langKey]);
+                    admin_clear_carrotmusic_cache();
                     $message = 'Đã lưu nghệ sĩ.';
                 }
             }
@@ -2311,6 +2796,7 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages', 'users', '
                         throw new RuntimeException('Không tìm thấy nghệ sĩ vừa lưu.');
                     }
 
+                    admin_clear_carrotmusic_cache();
                     admin_json_success([
                         'artist' => [
                             'id' => (int) $artist['id'],
@@ -2380,6 +2866,7 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages', 'users', '
                 $originalId = trim($_POST['original_genre_id'] ?? '');
                 $genreId = trim($_POST['genre_id'] ?? '');
                 $title = trim($_POST['title'] ?? '');
+                $avatar = trim($_POST['avatar'] ?? '');
                 $description = trim($_POST['description'] ?? '');
 
                 if ($genreId === '') {
@@ -2390,16 +2877,18 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages', 'users', '
                 }
 
                 if ($originalId !== '') {
-                    $stmt = $pdo->prepare('UPDATE song_genre SET genre_id = ?, title = ?, description = ? WHERE genre_id = ?');
-                    $stmt->execute([$genreId, $title, $description, $originalId]);
+                    $stmt = $pdo->prepare('UPDATE song_genre SET genre_id = ?, title = ?, avatar = ?, description = ? WHERE genre_id = ?');
+                    $stmt->execute([$genreId, $title, $avatar, $description, $originalId]);
+                    admin_clear_carrotmusic_cache();
                     $message = 'Đã cập nhật thể loại.';
                 } else {
                     $stmt = $pdo->prepare('
-                        INSERT INTO song_genre (genre_id, title, description)
-                        VALUES (?, ?, ?)
-                        ON DUPLICATE KEY UPDATE title = VALUES(title), description = VALUES(description)
+                        INSERT INTO song_genre (genre_id, title, avatar, description)
+                        VALUES (?, ?, ?, ?)
+                        ON DUPLICATE KEY UPDATE title = VALUES(title), avatar = VALUES(avatar), description = VALUES(description)
                     ');
-                    $stmt->execute([$genreId, $title, $description]);
+                    $stmt->execute([$genreId, $title, $avatar, $description]);
+                    admin_clear_carrotmusic_cache();
                     $message = 'Đã lưu thể loại.';
                 }
             }
@@ -2410,20 +2899,25 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages', 'users', '
                     if ($url === '') {
                         throw new RuntimeException('Vui lòng nhập link YouTube.');
                     }
-                    preg_match('/(?:v=|youtu\.be\/|shorts\/)([A-Za-z0-9_-]{6,})/', $url, $matches);
-                    $videoId = $matches[1] ?? '';
+                    $videoId = admin_extract_youtube_video_id($url);
                     if ($videoId === '') {
                         throw new RuntimeException('Không nhận diện được video ID.');
                     }
 
-                    $apiPdo = $homePdo instanceof PDO ? $homePdo : admin_home_pdo();
-                    admin_ensure_api_table($apiPdo);
-                    $stmt = $apiPdo->prepare('SELECT api_key FROM api_config WHERE provider = "youtube" AND enabled = 1 AND TRIM(COALESCE(api_key, "")) <> "" ORDER BY id DESC LIMIT 1');
-                    $stmt->execute();
-                    $apiKey = trim((string) $stmt->fetchColumn());
-                    if ($apiKey === '') {
-                        throw new RuntimeException('Chưa cấu hình YouTube API key ở mục API.');
+                    $existingSong = admin_find_song_by_youtube_video_id($pdo, $videoId);
+                    if ($existingSong) {
+                        $existingTitle = trim((string) ($existingSong['name'] ?? ''));
+                        $existingId = trim((string) ($existingSong['id'] ?? ''));
+                        $existingArtist = trim((string) ($existingSong['artist'] ?? ''));
+                        $existingLabel = $existingTitle !== '' ? $existingTitle : $existingId;
+                        if ($existingArtist !== '') {
+                            $existingLabel .= ' - ' . $existingArtist;
+                        }
+                        admin_json_error('Link YouTube này đã tồn tại trong bài "' . $existingLabel . '" (ID: ' . $existingId . ').', 409);
                     }
+
+                    $apiPdo = $homePdo instanceof PDO ? $homePdo : admin_home_pdo();
+                    $apiKey = admin_fetch_youtube_api_key($apiPdo, $pdo instanceof PDO ? $pdo : null);
                     if (!function_exists('curl_init')) {
                         throw new RuntimeException('Server cần bật PHP cURL.');
                     }
@@ -2439,19 +2933,48 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages', 'users', '
                         CURLOPT_TIMEOUT => 20,
                     ]);
                     $response = curl_exec($curl);
+                    $curlError = curl_error($curl);
                     $statusCode = (int) curl_getinfo($curl, CURLINFO_RESPONSE_CODE);
                     curl_close($curl);
+                    if ($response === false) {
+                        throw new RuntimeException('Không gọi được YouTube API: ' . ($curlError ?: 'cURL error'));
+                    }
+
                     $payload = json_decode((string) $response, true);
-                    if ($statusCode >= 300 || empty($payload['items'][0]['snippet'])) {
-                        throw new RuntimeException('Không lấy được dữ liệu YouTube.');
+                    if (!is_array($payload)) {
+                        throw new RuntimeException('YouTube API trả về dữ liệu không hợp lệ.');
+                    }
+
+                    if ($statusCode >= 300) {
+                        $apiMessage = trim((string) ($payload['error']['message'] ?? ''));
+                        $apiReason = trim((string) ($payload['error']['errors'][0]['reason'] ?? ''));
+                        $detail = $apiMessage !== '' ? $apiMessage : 'HTTP ' . $statusCode;
+                        if ($apiReason !== '') {
+                            $detail .= ' (' . $apiReason . ')';
+                        }
+                        throw new RuntimeException('YouTube API lỗi: ' . $detail);
+                    }
+
+                    if (empty($payload['items'][0]['snippet'])) {
+                        throw new RuntimeException('Không tìm thấy video YouTube hoặc video không public.');
                     }
                     $snippet = $payload['items'][0]['snippet'];
+                    $publishedAt = (string) ($snippet['publishedAt'] ?? '');
+                    $publishedDate = '';
+                    $publishedYear = '';
+                    if (preg_match('/^(\d{4})-(\d{2})-(\d{2})/', $publishedAt, $dateMatches)) {
+                        $publishedYear = $dateMatches[1];
+                        $publishedDate = $dateMatches[1] . '-' . $dateMatches[2] . '-' . $dateMatches[3];
+                    }
                     $thumbs = $snippet['thumbnails'] ?? [];
                     $avatar = $thumbs['maxres']['url'] ?? $thumbs['high']['url'] ?? $thumbs['medium']['url'] ?? $thumbs['default']['url'] ?? '';
                     admin_json_success([
                         'name' => (string) ($snippet['title'] ?? ''),
                         'artist' => (string) ($snippet['channelTitle'] ?? ''),
-                        'publishedAt' => (string) ($snippet['publishedAt'] ?? ''),
+                        'album' => (string) ($snippet['channelTitle'] ?? ''),
+                        'year' => $publishedYear,
+                        'date' => $publishedDate,
+                        'publishedAt' => $publishedAt,
                         'avatar' => (string) $avatar,
                         'lyrics' => (string) ($snippet['description'] ?? ''),
                     ]);
@@ -2485,10 +3008,12 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages', 'users', '
                 if ($id > 0) {
                     $stmt = $pdo->prepare('UPDATE app_store SET slug = ?, title = ?, description = ?, icon = ?, link = ?, platform = ?, sort_order = ?, status = ? WHERE id = ?');
                     $stmt->execute([$slug, $title, $description, $icon, $link, $platform, $sortOrder, $status, $id]);
+                    admin_clear_carrothome_cache();
                     $message = 'Đã cập nhật cổng phân phối.';
                 } else {
                     $stmt = $pdo->prepare('INSERT INTO app_store (slug, title, description, icon, link, platform, sort_order, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
                     $stmt->execute([$slug, $title, $description, $icon, $link, $platform, $sortOrder, $status]);
+                    admin_clear_carrothome_cache();
                     $message = 'Đã thêm cổng phân phối.';
                 }
             }
@@ -2505,10 +3030,12 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages', 'users', '
                 if ($originalId !== '') {
                     $stmt = $pdo->prepare('UPDATE app_category SET category_id = ?, icon = ? WHERE category_id = ?');
                     $stmt->execute([$categoryId, $icon, $originalId]);
+                    admin_clear_carrothome_cache();
                     $message = 'Đã cập nhật chuyên mục.';
                 } else {
                     $stmt = $pdo->prepare('INSERT INTO app_category (category_id, icon) VALUES (?, ?) ON DUPLICATE KEY UPDATE icon = VALUES(icon)');
                     $stmt->execute([$categoryId, $icon]);
+                    admin_clear_carrothome_cache();
                     $message = 'Đã lưu chuyên mục.';
                 }
             }
@@ -2535,6 +3062,7 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages', 'users', '
                 if ($id > 0) {
                     $stmt = $pdo->prepare('UPDATE app_category_content SET category_id = ?, title = ?, description = ?, key_lang = ? WHERE id = ?');
                     $stmt->execute([$categoryId, $title, $description, $keyLang, $id]);
+                    admin_clear_carrothome_cache();
                     $message = 'Đã cập nhật nội dung chuyên mục.';
                 } else {
                     $stmt = $pdo->prepare('
@@ -2543,6 +3071,7 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages', 'users', '
                         ON DUPLICATE KEY UPDATE title = VALUES(title), description = VALUES(description)
                     ');
                     $stmt->execute([$categoryId, $title, $description, $keyLang]);
+                    admin_clear_carrothome_cache();
                     $message = 'Đã lưu nội dung chuyên mục.';
                 }
             }
@@ -2641,10 +3170,12 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages', 'users', '
                 if ($id > 0) {
                     $stmt = $pdo->prepare('UPDATE app_photo SET app_id = ?, image_url = ?, display_mode = ?, sort_order = ? WHERE id = ?');
                     $stmt->execute([$appId, $imageUrl, $displayMode, $sortOrder, $id]);
+                    admin_clear_carrothome_cache();
                     $message = 'Đã cập nhật ảnh mô tả.';
                 } else {
                     $stmt = $pdo->prepare('INSERT INTO app_photo (app_id, image_url, display_mode, sort_order) VALUES (?, ?, ?, ?)');
                     $stmt->execute([$appId, $imageUrl, $displayMode, $sortOrder]);
+                    admin_clear_carrothome_cache();
                     $message = 'Đã thêm ảnh mô tả.';
                 }
             }
@@ -2671,6 +3202,7 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages', 'users', '
                 if ($id > 0) {
                     $stmt = $pdo->prepare('UPDATE app_content SET app_id = ?, lang_key = ?, title = ?, content_html = ? WHERE id = ?');
                     $stmt->execute([$appId, $langKey, $title !== '' ? $title : null, $contentHtml, $id]);
+                    admin_clear_carrothome_cache();
                     $message = 'Đã cập nhật nội dung mô tả.';
                 } else {
                     $stmt = $pdo->prepare('
@@ -2679,6 +3211,7 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages', 'users', '
                         ON DUPLICATE KEY UPDATE title = VALUES(title), content_html = VALUES(content_html)
                     ');
                     $stmt->execute([$appId, $langKey, $title !== '' ? $title : null, $contentHtml]);
+                    admin_clear_carrothome_cache();
                     $message = 'Đã lưu nội dung mô tả.';
                 }
             }
@@ -2734,7 +3267,7 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages', 'users', '
             }
 
             if ($section === 'paypal' && $action === 'save_paypal_config') {
-                $site = in_array($_POST['site'] ?? '', ['home', 'coc', 'music'], true) ? (string) $_POST['site'] : 'home';
+                $site = in_array($_POST['site'] ?? '', ['home', 'ebook', 'coc', 'music'], true) ? (string) $_POST['site'] : 'home';
                 $enabled = isset($_POST['enabled']) ? 1 : 0;
                 $activeMode = ($_POST['active_mode'] ?? 'sandbox') === 'live' ? 'live' : 'sandbox';
                 $currency = strtoupper(trim($_POST['currency'] ?? 'USD')) ?: 'USD';
@@ -3297,6 +3830,16 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages', 'users', '
             $editing = admin_fetch_app($pdo, $editKey);
         }
 
+        if ($section === 'ebook' && $editKey !== '') {
+            if ($ebookTab === 'categories') {
+                $editing = admin_fetch_ebook_category($pdo, $editKey);
+            } elseif ($ebookTab === 'stores') {
+                $editing = admin_fetch_ebook_store_link($pdo, $editKey);
+            } else {
+                $editing = admin_fetch_ebook($pdo, $editKey);
+            }
+        }
+
         if ($section === 'music' && $musicTab === 'songs' && $editKey !== '') {
             $editing = admin_fetch_song($pdo, $editKey);
         }
@@ -3370,6 +3913,18 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages', 'users', '
             'created_at' => 'created_at',
         ];
         [$appSort, $appDir] = admin_sort_state($appSortColumns, 'priority', 'DESC');
+
+        $ebookSortColumns = [
+            'id' => 'ebook.id',
+            'name' => 'ebook.name',
+            'author' => 'ebook.author',
+            'category' => 'ebook.category_id',
+            'lang' => 'ebook.lang',
+            'price' => 'ebook.price',
+            'status' => 'ebook.status',
+            'updated_at' => 'ebook.updated_at',
+        ];
+        [$ebookSort, $ebookDir] = admin_sort_state($ebookSortColumns, 'updated_at', 'DESC');
 
         $pageSortColumns = [
             'id' => 'id',
@@ -3451,6 +4006,41 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages', 'users', '
                 ORDER BY app_orders.created_at DESC, app_orders.id DESC
             ')->fetchAll()
             : [];
+        if ($section === 'ebook') {
+            $ebookCategoryOptions = $pdo->query('SELECT id, name FROM ebook_categories ORDER BY name ASC, id ASC')->fetchAll();
+            $ebooks = $pdo->query('
+                SELECT ebook.*, ebook_categories.name AS category_name
+                FROM ebook
+                LEFT JOIN ebook_categories ON ebook_categories.id = ebook.category_id
+                ORDER BY ' . admin_order_by($ebookSortColumns, $ebookSort, $ebookDir) . ', ebook.id ASC
+            ')->fetchAll();
+            if ($ebookTab === 'categories') {
+                $ebookCategories = $pdo->query('
+                    SELECT ebook_categories.*, COUNT(ebook.id) AS ebook_count
+                    FROM ebook_categories
+                    LEFT JOIN ebook ON ebook.category_id = ebook_categories.id
+                    GROUP BY ebook_categories.id, ebook_categories.name, ebook_categories.description, ebook_categories.created_at, ebook_categories.updated_at
+                    ORDER BY ebook_categories.name ASC
+                ')->fetchAll();
+            }
+            if ($ebookTab === 'stores') {
+                $ebookStoreLinks = $pdo->query('
+                    SELECT ebook_store_links.*, ebook.name AS ebook_name
+                    FROM ebook_store_links
+                    LEFT JOIN ebook ON ebook.id = ebook_store_links.ebook_id
+                    ORDER BY ebook_store_links.sort_order ASC, ebook_store_links.store_name ASC, ebook_store_links.id DESC
+                ')->fetchAll();
+            }
+            if ($ebookTab === 'orders') {
+                $ebookOrders = $pdo->query('
+                    SELECT ebook_orders.*, ebook.name AS ebook_name, ebook.cover AS ebook_cover, users.name AS user_name, users.email AS user_email
+                    FROM ebook_orders
+                    LEFT JOIN ebook ON ebook.id = ebook_orders.ebook_id
+                    LEFT JOIN users ON users.id = ebook_orders.user_id
+                    ORDER BY ebook_orders.created_at DESC, ebook_orders.id DESC
+                ')->fetchAll();
+            }
+        }
         if ($section === 'music') {
             $songWhere = [];
             $songParams = [];
@@ -3527,7 +4117,7 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages', 'users', '
                 SELECT g.*, COUNT(s.id) AS song_count
                 FROM song_genre g
                 LEFT JOIN song s ON FIND_IN_SET(g.genre_id, REPLACE(COALESCE(s.genre, \'\'), \' \', \'\')) > 0
-                GROUP BY g.genre_id
+                GROUP BY g.genre_id, g.title, g.avatar, g.description, g.created_at, g.updated_at
                 ORDER BY g.genre_id ASC
             ')->fetchAll()
             : [];
@@ -3540,6 +4130,49 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages', 'users', '
                 ORDER BY song_orders.created_at DESC, song_orders.id DESC
             ')->fetchAll()
             : [];
+        if ($section === 'music' && $musicTab === 'search_log') {
+            $songSearchLogWhere = [];
+            $songSearchLogParams = [];
+            if ($songSearchLogQuery !== '') {
+                $songSearchLogWhere[] = '(query LIKE :search_log_query OR normalized_query LIKE :search_log_normalized OR lang LIKE :search_log_lang OR ip_text LIKE :search_log_ip OR request_path LIKE :search_log_path)';
+                $songSearchLogValue = '%' . $songSearchLogQuery . '%';
+                $songSearchLogParams[':search_log_query'] = $songSearchLogValue;
+                $songSearchLogParams[':search_log_normalized'] = $songSearchLogValue;
+                $songSearchLogParams[':search_log_lang'] = $songSearchLogValue;
+                $songSearchLogParams[':search_log_ip'] = $songSearchLogValue;
+                $songSearchLogParams[':search_log_path'] = $songSearchLogValue;
+            }
+            $songSearchLogWhereSql = $songSearchLogWhere ? ' WHERE ' . implode(' AND ', $songSearchLogWhere) : '';
+
+            $songSearchLogStats = $pdo->query('
+                SELECT COUNT(*) AS total_rows,
+                       COUNT(DISTINCT normalized_query) AS unique_queries,
+                       COUNT(DISTINCT ip_text) AS unique_ips
+                FROM song_search_log
+            ')->fetch() ?: $songSearchLogStats;
+
+            $songSearchLogCountStmt = $pdo->prepare('SELECT COUNT(*) FROM song_search_log' . $songSearchLogWhereSql);
+            $songSearchLogCountStmt->execute($songSearchLogParams);
+            $songSearchLogTotal = (int) $songSearchLogCountStmt->fetchColumn();
+            $songSearchLogTotalPages = max(1, (int) ceil($songSearchLogTotal / $songSearchLogPerPage));
+            $songSearchLogPage = min($songSearchLogPage, $songSearchLogTotalPages);
+            $songSearchLogOffset = ($songSearchLogPage - 1) * $songSearchLogPerPage;
+
+            $songSearchLogStmt = $pdo->prepare('
+                SELECT *
+                FROM song_search_log
+                ' . $songSearchLogWhereSql . '
+                ORDER BY created_at DESC, id DESC
+                LIMIT :limit OFFSET :offset
+            ');
+            foreach ($songSearchLogParams as $paramKey => $paramValue) {
+                $songSearchLogStmt->bindValue($paramKey, $paramValue);
+            }
+            $songSearchLogStmt->bindValue(':limit', $songSearchLogPerPage, PDO::PARAM_INT);
+            $songSearchLogStmt->bindValue(':offset', $songSearchLogOffset, PDO::PARAM_INT);
+            $songSearchLogStmt->execute();
+            $songSearchLogs = $songSearchLogStmt->fetchAll();
+        }
         $apps = $section === 'apps'
             ? $pdo->query('SELECT * FROM app ORDER BY ' . admin_order_by($appSortColumns, $appSort, $appDir) . ', id ASC')->fetchAll()
             : [];
@@ -3645,6 +4278,10 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages', 'users', '
         $songArtists = [];
         $songGenres = [];
         $songOrders = [];
+        $songSearchLogs = [];
+        $songSearchLogStats = ['total_rows' => 0, 'unique_queries' => 0, 'unique_ips' => 0];
+        $songSearchLogTotal = 0;
+        $songSearchLogTotalPages = 1;
         $pages = [];
         $users = [];
         $apiConfigs = [];
@@ -3665,26 +4302,29 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages', 'users', '
 }
 
 $photoText = ($section === 'coc' && $editing) ? implode("\n", coc_decode_photos($editing['photos'])) : '';
-$pageTitle = ['overview' => 'Tổng quan', 'apps' => 'App', 'music' => 'Âm nhạc', 'pages' => 'Page', 'users' => 'Users', 'api' => 'API', 'bank' => 'Bank', 'sites' => 'Sites', 'coc' => 'Coc', 'country' => 'Country', 'paypal' => 'Paypal', 'ai_support' => 'AI Support', 'backup' => 'Sao Lưu'][$section] ?? 'Tổng quan';
-$sectionLabels = ['overview' => 'tổng quan', 'apps' => 'ứng dụng', 'music' => 'âm nhạc', 'pages' => 'Page/SEO', 'users' => 'người dùng', 'api' => 'API key', 'bank' => 'ngân hàng', 'sites' => 'website', 'coc' => 'shop', 'country' => 'quốc gia hỗ trợ', 'paypal' => 'PayPal', 'ai_support' => 'AI Support', 'backup' => 'sao lưu dữ liệu'];
-$sectionTitles = ['overview' => 'Tổng quan', 'apps' => 'App Carrot Home', 'music' => 'CarrotMusic', 'pages' => 'Page Carrot Home', 'users' => 'User Carrot Home', 'api' => 'API Config', 'bank' => 'Bank', 'sites' => 'Sites', 'coc' => 'Acc Clash of Clans', 'country' => 'Country', 'paypal' => 'Paypal Config', 'ai_support' => 'AI - Support', 'backup' => 'Sao Lưu Database'];
+$pageTitle = ['overview' => 'Tổng quan', 'apps' => 'App', 'ebook' => 'Ebook', 'music' => 'Âm nhạc', 'pages' => 'Page', 'users' => 'Users', 'api' => 'API', 'bank' => 'Bank', 'sites' => 'Sites', 'coc' => 'Coc', 'country' => 'Country', 'paypal' => 'Paypal', 'ai_support' => 'AI Support', 'backup' => 'Sao Lưu'][$section] ?? 'Tổng quan';
+$sectionLabels = ['overview' => 'tổng quan', 'apps' => 'ứng dụng', 'ebook' => 'ebook', 'music' => 'âm nhạc', 'pages' => 'Page/SEO', 'users' => 'người dùng', 'api' => 'API key', 'bank' => 'ngân hàng', 'sites' => 'website', 'coc' => 'shop', 'country' => 'quốc gia hỗ trợ', 'paypal' => 'PayPal', 'ai_support' => 'AI Support', 'backup' => 'sao lưu dữ liệu'];
+$sectionTitles = ['overview' => 'Tổng quan', 'apps' => 'App Carrot Home', 'ebook' => 'CarrotEbook', 'music' => 'CarrotMusic', 'pages' => 'Page Carrot Home', 'users' => 'User Carrot Home', 'api' => 'API Config', 'bank' => 'Bank', 'sites' => 'Sites', 'coc' => 'Acc Clash of Clans', 'country' => 'Country', 'paypal' => 'Paypal Config', 'ai_support' => 'AI - Support', 'backup' => 'Sao Lưu Database'];
 $dashboardCards = [
     ['label' => 'App', 'value' => $dashboardMetrics['apps'], 'icon' => 'boxes'],
     ['label' => 'Page', 'value' => $dashboardMetrics['pages'], 'icon' => 'file-text'],
     ['label' => 'Users', 'value' => $dashboardMetrics['users'], 'icon' => 'users'],
     ['label' => 'Coc', 'value' => $dashboardMetrics['coc'], 'icon' => 'shield'],
+    ['label' => 'Bài hát', 'value' => $dashboardMetrics['songs'], 'icon' => 'music-2'],
+    ['label' => 'Ebook', 'value' => $dashboardMetrics['ebook'], 'icon' => 'book-open'],
     ['label' => 'Bank', 'value' => $dashboardMetrics['bank'], 'icon' => 'landmark'],
     ['label' => 'Sites', 'value' => $dashboardMetrics['sites'], 'icon' => 'globe'],
     ['label' => 'Country', 'value' => $dashboardMetrics['country'], 'icon' => 'globe-2'],
-    ['label' => 'IP hôm nay', 'value' => $trafficMetrics['total']['today_unique'], 'icon' => 'activity'],
+    ['label' => 'IP hôm nay', 'value' => $trafficMetrics['total']['today_unique'], 'icon' => 'wifi', 'class' => 'dashboard-card-live-ip'],
 ];
 $trafficRows = [
     ['label' => 'COC Shop', 'url' => 'https://coc.carrot28.com/', 'metrics' => $trafficMetrics['coc']],
     ['label' => 'CarrotHome', 'url' => 'https://home.carrot28.com/', 'metrics' => $trafficMetrics['home']],
+    ['label' => 'CarrotEbook', 'url' => 'https://ebook.carrot28.com/', 'metrics' => $trafficMetrics['ebook']],
     ['label' => 'CarrotMusic', 'url' => 'https://music.carrot28.com/', 'metrics' => $trafficMetrics['music']],
     ['label' => 'Tổng cộng', 'url' => '', 'metrics' => $trafficMetrics['total']],
 ];
-$useSelect2 = $section === 'overview' || $section === 'apps' || $section === 'music' || $section === 'pages' || ($section === 'country' && $countryTab === 'labels');
+$useSelect2 = $section === 'overview' || $section === 'apps' || $section === 'ebook' || $section === 'music' || $section === 'pages' || ($section === 'country' && $countryTab === 'labels');
 ?>
 <!doctype html>
 <html lang="vi">
@@ -3730,11 +4370,18 @@ $useSelect2 = $section === 'overview' || $section === 'apps' || $section === 'mu
         .dashboard-eyebrow{color:#64748b;font-size:.76rem;letter-spacing:0;text-transform:uppercase}
         .dashboard-actions .btn{border-radius:8px}
         .dashboard-grid{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:.75rem}
-        .dashboard-card{border:1px solid rgba(15,23,42,.08);border-radius:8px;background:#fff;box-shadow:0 10px 28px rgba(15,23,42,.05);padding:.72rem .85rem}
-        .dashboard-card-icon{display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;border-radius:8px;background:#f1f5f9;color:#172033}
-        .dashboard-card-icon i{width:16px;height:16px}
-        .dashboard-card-label{font-size:.7rem;color:#64748b;font-weight:800;text-transform:uppercase}
-        .dashboard-card-value{font-size:1.18rem;font-weight:850;line-height:1.05}
+        .dashboard-card{border:1px solid rgba(15,23,42,.08);border-radius:8px;background:#fff;box-shadow:0 10px 28px rgba(15,23,42,.05);padding:.62rem .75rem}
+        .dashboard-card-line{display:flex;align-items:center;gap:.55rem;min-width:0}
+        .dashboard-card-icon{display:inline-flex;align-items:center;justify-content:center;flex:0 0 auto;width:28px;height:28px;border-radius:8px;background:#f1f5f9;color:#172033}
+        .dashboard-card-icon i,.dashboard-card-icon svg{width:15px;height:15px}
+        .dashboard-card-live-ip .dashboard-card-icon{position:relative;background:#dcfce7;color:#16a34a;animation:dashboardLivePulse 1.05s ease-in-out infinite;box-shadow:0 0 0 0 rgba(34,197,94,.52)}
+        .dashboard-card-live-ip .dashboard-card-icon::after{content:"";position:absolute;inset:-4px;border:1px solid rgba(34,197,94,.48);border-radius:10px;animation:dashboardLiveRing 1.05s ease-out infinite}
+        .dashboard-card-live-ip .dashboard-card-icon svg{animation:dashboardLiveBlink .7s steps(2,end) infinite}
+        @keyframes dashboardLivePulse{0%,100%{background:#dcfce7;color:#16a34a;box-shadow:0 0 0 0 rgba(34,197,94,.38)}50%{background:#22c55e;color:#fff;box-shadow:0 0 18px 4px rgba(34,197,94,.48)}}
+        @keyframes dashboardLiveRing{0%{opacity:.75;transform:scale(.86)}100%{opacity:0;transform:scale(1.42)}}
+        @keyframes dashboardLiveBlink{0%,100%{opacity:1}50%{opacity:.28}}
+        .dashboard-card-label{min-width:0;font-size:.72rem;color:#64748b;font-weight:800;text-transform:uppercase;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+        .dashboard-card-value{font-size:1.08rem;font-weight:850;line-height:1.05;white-space:nowrap}
         .dashboard-uptime{background:#172033;color:#fff}
         .dashboard-uptime .dashboard-card-label{color:#cbd5e1}
         .dashboard-uptime .dashboard-card-icon{background:rgba(255,255,255,.12);color:#fff}
@@ -3752,8 +4399,10 @@ $useSelect2 = $section === 'overview' || $section === 'apps' || $section === 'mu
         .traffic-toggle .btn{border-radius:6px;font-weight:800}
         .traffic-chart-wrap{border:1px solid rgba(15,23,42,.08);border-radius:8px;background:#f8fafc;padding:1rem}
         .traffic-chart-title{font-size:1rem;font-weight:850;color:#172033}
-        .traffic-chart-legend{display:flex;align-items:center;gap:1rem;color:#475569;font-size:.82rem;font-weight:800}
-        .traffic-chart-legend span{display:inline-flex;align-items:center;gap:.35rem;white-space:nowrap}
+        .traffic-chart-legend{display:flex;align-items:center;gap:.5rem;color:#475569;font-size:.82rem;font-weight:800}
+        .traffic-legend-btn{display:inline-flex;align-items:center;gap:.35rem;white-space:nowrap;border:1px solid rgba(15,23,42,.12);border-radius:999px;background:#fff;color:#475569;padding:.28rem .62rem;font:inherit;cursor:pointer;transition:opacity .15s ease,background .15s ease,border-color .15s ease}
+        .traffic-legend-btn:hover{border-color:rgba(15,23,42,.24);background:#f8fafc}
+        .traffic-legend-btn:not(.is-active){opacity:.42;background:#f1f5f9;text-decoration:line-through}
         .traffic-dot{display:inline-block;width:10px;height:10px;border-radius:999px}
         .traffic-dot-today{background:#0f766e}
         .traffic-dot-yesterday{background:#f59e0b}
@@ -3765,13 +4414,22 @@ $useSelect2 = $section === 'overview' || $section === 'apps' || $section === 'mu
         .glass-panel,.admin-shell{border:1px solid rgba(15,23,42,.08)!important;border-radius:8px!important;background:rgba(255,255,255,.96)!important;box-shadow:0 14px 36px rgba(15,23,42,.06)!important}
         .table{--bs-table-bg:transparent}
         .table thead th{color:#64748b;font-size:.78rem;text-transform:uppercase}
+        .music-song-table{table-layout:fixed}
+        .music-song-table th:nth-child(1){width:42%}
+        .music-song-table th:nth-child(2){width:26%}
+        .music-song-table th:nth-child(3){width:22%}
+        .music-song-table th:nth-child(4){width:72px}
+        .music-song-cell .d-flex{min-width:0}
+        .music-song-cell a{flex:0 0 auto}
+        .music-song-text{min-width:0;max-width:100%}
+        .music-song-name,.music-song-id{display:block;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
         .api-config-name{display:flex;flex-wrap:wrap;align-items:baseline;gap:.45rem}
         .api-config-meta{display:grid;grid-template-columns:86px minmax(0,1fr);gap:.45rem;margin-top:.25rem;color:#64748b}
         .api-config-meta span{font-weight:800;text-transform:uppercase;font-size:.68rem}
         .api-config-meta code{white-space:normal;overflow-wrap:anywhere;word-break:break-word;color:#334155;background:transparent;padding:0}
         @media (max-width:1199px){.dashboard-grid{grid-template-columns:repeat(3,minmax(0,1fr))}}
         @media (max-width:991px){.dashboard-sidebar{position:static;min-height:auto}.dashboard-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
-        @media (max-width:575px){.dashboard-grid{grid-template-columns:1fr}.dashboard-card-value{font-size:1.12rem}.traffic-tools{width:100%;justify-content:stretch}.traffic-date-form{width:100%}.traffic-range-select{width:100%;min-width:0}.traffic-chart-legend{width:100%;justify-content:space-between}#traffic_compare_chart{height:260px!important;max-height:260px}}
+        @media (max-width:575px){.dashboard-grid{grid-template-columns:1fr}.dashboard-card-value{font-size:1.05rem}.traffic-tools{width:100%;justify-content:stretch}.traffic-date-form{width:100%}.traffic-range-select{width:100%;min-width:0}.traffic-chart-legend{width:100%;justify-content:space-between}#traffic_compare_chart{height:260px!important;max-height:260px}}
     </style>
     <style>
         .simple-editor-toolbar{display:flex;flex-wrap:wrap;gap:.35rem;padding:.5rem;border:1px solid rgba(0,0,0,.15);border-bottom:0;border-radius:.375rem .375rem 0 0;background:rgba(255,255,255,.7)}
@@ -3795,6 +4453,7 @@ $useSelect2 = $section === 'overview' || $section === 'apps' || $section === 'mu
                 <a class="list-group-item list-group-item-action <?= $section === 'users' ? 'active' : '' ?>" href="index.php?section=users"><i data-lucide="users"></i><span>User</span></a>
                 <a class="list-group-item list-group-item-action <?= $section === 'api' ? 'active' : '' ?>" href="index.php?section=api"><i data-lucide="key-round"></i><span>API</span></a>
                 <a class="list-group-item list-group-item-action <?= $section === 'coc' ? 'active' : '' ?>" href="index.php?section=coc"><i data-lucide="shield"></i><span>Coc</span></a>
+                <a class="list-group-item list-group-item-action <?= $section === 'ebook' ? 'active' : '' ?>" href="index.php?section=ebook"><i data-lucide="book-open"></i><span>Ebook</span></a>
                 <a class="list-group-item list-group-item-action <?= $section === 'paypal' ? 'active' : '' ?>" href="index.php?section=paypal"><i data-lucide="credit-card"></i><span>Paypal</span></a>
                 <a class="list-group-item list-group-item-action <?= $section === 'ai_support' ? 'active' : '' ?>" href="index.php?section=ai_support"><i data-lucide="sparkles"></i><span>AI - Support</span></a>
                 <a class="list-group-item list-group-item-action <?= $section === 'bank' ? 'active' : '' ?>" href="index.php?section=bank"><i data-lucide="landmark"></i><span>Bank</span></a>
@@ -3815,6 +4474,9 @@ $useSelect2 = $section === 'overview' || $section === 'apps' || $section === 'mu
                         <?php if ($section === 'apps'): ?>
                             <a class="btn btn-success fw-bold" href="https://home.carrot28.com/" target="_blank" rel="noopener noreferrer"><i data-lucide="external-link" style="width:16px;height:16px"></i> Carrot Store</a>
                         <?php endif; ?>
+                        <?php if ($section === 'ebook'): ?>
+                            <a class="btn btn-success fw-bold" href="https://ebook.carrot28.com/" target="_blank" rel="noopener noreferrer"><i data-lucide="external-link" style="width:16px;height:16px"></i> CarrotEbook</a>
+                        <?php endif; ?>
                         <?php if ($section === 'music'): ?>
                             <a class="btn btn-success fw-bold" href="https://music.carrot28.com/" target="_blank" rel="noopener noreferrer"><i data-lucide="external-link" style="width:16px;height:16px"></i> CarrotMusic</a>
                         <?php endif; ?>
@@ -3822,7 +4484,7 @@ $useSelect2 = $section === 'overview' || $section === 'apps' || $section === 'mu
                             <a class="btn btn-secondary fw-bold" href="https://coc.carrot28.com/" target="_blank" rel="noopener noreferrer">Xem shop</a>
                         <?php endif; ?>
                         <?php if ($editing): ?>
-                            <a class="btn btn-success fw-bold" href="index.php<?= $section === 'apps' ? '?section=apps' : ($section === 'music' ? '?section=music&tab=' . urlencode($musicTab) : ($section === 'pages' ? '?section=pages' : ($section === 'users' ? '?section=users' : ($section === 'api' ? '?section=api' : ($section === 'bank' ? '?section=bank' : ($section === 'country' ? '?section=country' : '?section=coc')))))) ?>">Thêm mới</a>
+                            <a class="btn btn-success fw-bold" href="index.php<?= $section === 'apps' ? '?section=apps' : ($section === 'ebook' ? '?section=ebook&tab=' . urlencode($ebookTab) : ($section === 'music' ? '?section=music&tab=' . urlencode($musicTab) : ($section === 'pages' ? '?section=pages' : ($section === 'users' ? '?section=users' : ($section === 'api' ? '?section=api' : ($section === 'bank' ? '?section=bank' : ($section === 'country' ? '?section=country' : '?section=coc'))))))) ?>">Thêm mới</a>
                         <?php endif; ?>
                         <a class="btn btn-danger fw-bold" href="index.php?logout=1" title="Đăng xuất">
                             <span class="d-inline-flex align-items-center gap-2"><i data-lucide="log-out" style="width:16px;height:16px"></i><?= htmlspecialchars($_SESSION['admin_user']) ?></span>
@@ -3944,7 +4606,7 @@ const trafficChartCanvas = document.getElementById('traffic_compare_chart');
 const trafficChartDataEl = document.getElementById('traffic_compare_data');
 if (trafficChartCanvas && trafficChartDataEl && window.Chart) {
     const trafficChartData = JSON.parse(trafficChartDataEl.textContent || '{}');
-    new Chart(trafficChartCanvas, {
+    const trafficChart = new Chart(trafficChartCanvas, {
         type: 'line',
         data: {
             labels: Array.isArray(trafficChartData.labels) ? trafficChartData.labels : [],
@@ -4008,6 +4670,16 @@ if (trafficChartCanvas && trafficChartDataEl && window.Chart) {
                 },
             },
         },
+    });
+    document.querySelectorAll('.traffic-legend-btn[data-traffic-dataset]').forEach((button) => {
+        button.addEventListener('click', () => {
+            const datasetIndex = Number(button.dataset.trafficDataset || 0);
+            const isVisible = trafficChart.isDatasetVisible(datasetIndex);
+            trafficChart.setDatasetVisibility(datasetIndex, !isVisible);
+            trafficChart.update();
+            button.classList.toggle('is-active', !isVisible);
+            button.setAttribute('aria-pressed', String(!isVisible));
+        });
     });
 }
 

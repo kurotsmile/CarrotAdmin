@@ -2,6 +2,7 @@
             <?php
             $paypalSites = [
                 'home' => 'CarrotHome',
+                'ebook' => 'CarrotEbook',
                 'coc' => 'Coc',
                 'music' => 'CarrotMusic',
             ];
@@ -20,7 +21,7 @@
 
             if ($pdo instanceof PDO) {
                 admin_ensure_paypal_config_table($pdo);
-                $paypalRows = $pdo->query('SELECT * FROM paypal_config ORDER BY FIELD(site, "home", "coc", "music"), site ASC')->fetchAll();
+                $paypalRows = $pdo->query('SELECT * FROM paypal_config ORDER BY FIELD(site, "home", "ebook", "coc", "music"), site ASC')->fetchAll();
                 $paypalDbRow = admin_fetch_paypal_config($pdo, $paypalTab);
                 if ($paypalDbRow) {
                     $paypalEditing = array_merge($paypalEditing, $paypalDbRow);

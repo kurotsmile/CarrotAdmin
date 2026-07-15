@@ -1,3 +1,4 @@
 storage/server_runtime.json
 storage/backups
 
+/storage/cache

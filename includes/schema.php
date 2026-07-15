@@ -248,6 +248,119 @@ function admin_ensure_app_view_table(PDO $pdo): void
     }
 }
 
+function admin_ensure_song_view_table(PDO $pdo): void
+{
+    $pdo->exec("
+        CREATE TABLE IF NOT EXISTS song_view (
+          id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+          song_id VARCHAR(255) NOT NULL,
+          view_date DATE NOT NULL,
+          ip_address VARBINARY(16) NOT NULL,
+          ip_text VARCHAR(45) NOT NULL,
+          first_seen_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          last_seen_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          hits INT UNSIGNED NOT NULL DEFAULT 1,
+          user_agent VARCHAR(512) DEFAULT NULL,
+          referer VARCHAR(1024) DEFAULT NULL,
+          request_path VARCHAR(1024) DEFAULT NULL,
+          created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+          PRIMARY KEY (id),
+          UNIQUE KEY uq_song_view_daily_ip (song_id, view_date, ip_address),
+          KEY idx_song_view_song_id (song_id),
+          KEY idx_song_view_song_date (song_id, view_date),
+          KEY idx_song_view_date (view_date),
+          CONSTRAINT fk_song_view_song
+            FOREIGN KEY (song_id) REFERENCES song (id)
+            ON DELETE CASCADE ON UPDATE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    ");
+
+    $columns = $pdo->query('SHOW COLUMNS FROM song_view')->fetchAll(PDO::FETCH_COLUMN);
+    $columnSql = [
+        'view_date' => 'DATE NOT NULL AFTER song_id',
+        'ip_address' => 'VARBINARY(16) NOT NULL AFTER view_date',
+        'ip_text' => 'VARCHAR(45) NOT NULL AFTER ip_address',
+        'first_seen_at' => 'DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP AFTER ip_text',
+        'last_seen_at' => 'DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP AFTER first_seen_at',
+        'hits' => 'INT UNSIGNED NOT NULL DEFAULT 1 AFTER last_seen_at',
+        'user_agent' => 'VARCHAR(512) DEFAULT NULL AFTER hits',
+        'referer' => 'VARCHAR(1024) DEFAULT NULL AFTER user_agent',
+        'request_path' => 'VARCHAR(1024) DEFAULT NULL AFTER referer',
+    ];
+    foreach ($columnSql as $column => $sql) {
+        if (!in_array($column, $columns, true)) {
+            $pdo->exec('ALTER TABLE song_view ADD `' . $column . '` ' . $sql);
+        }
+    }
+
+    $indexes = $pdo->query('SHOW INDEX FROM song_view')->fetchAll(PDO::FETCH_ASSOC);
+    $indexNames = array_unique(array_column($indexes, 'Key_name'));
+    if (!in_array('uq_song_view_daily_ip', $indexNames, true)) {
+        $pdo->exec('ALTER TABLE song_view ADD UNIQUE KEY uq_song_view_daily_ip (song_id, view_date, ip_address)');
+    }
+    if (!in_array('idx_song_view_song_id', $indexNames, true)) {
+        $pdo->exec('ALTER TABLE song_view ADD KEY idx_song_view_song_id (song_id)');
+    }
+    if (!in_array('idx_song_view_song_date', $indexNames, true)) {
+        $pdo->exec('ALTER TABLE song_view ADD KEY idx_song_view_song_date (song_id, view_date)');
+    }
+}
+
+function admin_ensure_song_search_log_table(PDO $pdo): void
+{
+    $pdo->exec("
+        CREATE TABLE IF NOT EXISTS song_search_log (
+          id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+          query VARCHAR(255) NOT NULL,
+          normalized_query VARCHAR(255) NOT NULL,
+          lang VARCHAR(24) DEFAULT NULL,
+          result_count INT UNSIGNED NOT NULL DEFAULT 0,
+          ip_address VARBINARY(16) DEFAULT NULL,
+          ip_text VARCHAR(45) DEFAULT NULL,
+          user_agent VARCHAR(512) DEFAULT NULL,
+          referer VARCHAR(1024) DEFAULT NULL,
+          request_path VARCHAR(1024) DEFAULT NULL,
+          created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          PRIMARY KEY (id),
+          KEY idx_song_search_log_created (created_at),
+          KEY idx_song_search_log_query (normalized_query),
+          KEY idx_song_search_log_lang_created (lang, created_at),
+          KEY idx_song_search_log_ip_created (ip_text, created_at)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    ");
+
+    $columns = $pdo->query('SHOW COLUMNS FROM song_search_log')->fetchAll(PDO::FETCH_COLUMN);
+    $columnSql = [
+        'normalized_query' => 'VARCHAR(255) NOT NULL DEFAULT "" AFTER query',
+        'lang' => 'VARCHAR(24) DEFAULT NULL AFTER normalized_query',
+        'result_count' => 'INT UNSIGNED NOT NULL DEFAULT 0 AFTER lang',
+        'ip_address' => 'VARBINARY(16) DEFAULT NULL AFTER result_count',
+        'ip_text' => 'VARCHAR(45) DEFAULT NULL AFTER ip_address',
+        'user_agent' => 'VARCHAR(512) DEFAULT NULL AFTER ip_text',
+        'referer' => 'VARCHAR(1024) DEFAULT NULL AFTER user_agent',
+        'request_path' => 'VARCHAR(1024) DEFAULT NULL AFTER referer',
+        'created_at' => 'TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP',
+    ];
+    foreach ($columnSql as $column => $sql) {
+        if (!in_array($column, $columns, true)) {
+            $pdo->exec('ALTER TABLE song_search_log ADD `' . $column . '` ' . $sql);
+        }
+    }
+
+    $indexes = $pdo->query('SHOW INDEX FROM song_search_log')->fetchAll(PDO::FETCH_ASSOC);
+    $indexNames = array_unique(array_column($indexes, 'Key_name'));
+    if (!in_array('idx_song_search_log_created', $indexNames, true)) {
+        $pdo->exec('ALTER TABLE song_search_log ADD KEY idx_song_search_log_created (created_at)');
+    }
+    if (!in_array('idx_song_search_log_query', $indexNames, true)) {
+        $pdo->exec('ALTER TABLE song_search_log ADD KEY idx_song_search_log_query (normalized_query)');
+    }
+    if (!in_array('idx_song_search_log_lang_created', $indexNames, true)) {
+        $pdo->exec('ALTER TABLE song_search_log ADD KEY idx_song_search_log_lang_created (lang, created_at)');
+    }
+}
+
 function admin_ensure_app_category_tables(PDO $pdo): void
 {
     $pdo->exec("
@@ -460,6 +573,7 @@ function admin_ensure_music_tables(PDO $pdo): void
         CREATE TABLE IF NOT EXISTS song_genre (
           genre_id VARCHAR(120) NOT NULL,
           title VARCHAR(255) DEFAULT NULL,
+          avatar TEXT DEFAULT NULL,
           description TEXT DEFAULT NULL,
           created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
           updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -502,6 +616,20 @@ function admin_ensure_music_tables(PDO $pdo): void
             $pdo->exec('ALTER TABLE song_artist ADD `' . $column . '` ' . $sql);
         }
     }
+
+    $genreColumns = $pdo->query('SHOW COLUMNS FROM song_genre')->fetchAll(PDO::FETCH_COLUMN);
+    $genreColumnSql = [
+        'avatar' => 'TEXT DEFAULT NULL AFTER title',
+        'description' => 'TEXT DEFAULT NULL AFTER avatar',
+    ];
+    foreach ($genreColumnSql as $column => $sql) {
+        if (!in_array($column, $genreColumns, true)) {
+            $pdo->exec('ALTER TABLE song_genre ADD `' . $column . '` ' . $sql);
+        }
+    }
+
+    admin_ensure_song_view_table($pdo);
+    admin_ensure_song_search_log_table($pdo);
 }
 
 function admin_ensure_app_order_table(PDO $pdo): void
@@ -543,6 +671,97 @@ function admin_ensure_app_order_table(PDO $pdo): void
             $pdo->exec('ALTER TABLE app_orders ADD `' . $column . '` ' . $sql);
         }
     }
+}
+
+function admin_ensure_ebook_tables(PDO $pdo): void
+{
+    $pdo->exec("
+        CREATE TABLE IF NOT EXISTS ebook_categories (
+          id VARCHAR(255) NOT NULL,
+          name VARCHAR(255) NOT NULL,
+          description TEXT DEFAULT NULL,
+          created_at VARCHAR(64) NOT NULL DEFAULT '',
+          updated_at VARCHAR(64) NOT NULL DEFAULT '',
+          PRIMARY KEY (id),
+          UNIQUE KEY uniq_ebook_categories_name (name)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    ");
+
+    $pdo->exec("
+        CREATE TABLE IF NOT EXISTS ebook (
+          id VARCHAR(255) NOT NULL,
+          name TEXT NOT NULL,
+          author TEXT DEFAULT NULL,
+          category_id VARCHAR(255) DEFAULT NULL,
+          lang VARCHAR(16) DEFAULT 'en',
+          price DECIMAL(10,2) NOT NULL DEFAULT 0.00,
+          currency VARCHAR(16) NOT NULL DEFAULT 'USD',
+          is_free TINYINT(1) NOT NULL DEFAULT 0,
+          status VARCHAR(32) NOT NULL DEFAULT 'draft',
+          cover TEXT DEFAULT NULL,
+          preview_file TEXT DEFAULT NULL,
+          description LONGTEXT DEFAULT NULL,
+          published_at VARCHAR(64) DEFAULT NULL,
+          created_at VARCHAR(64) NOT NULL DEFAULT '',
+          updated_at VARCHAR(64) NOT NULL DEFAULT '',
+          PRIMARY KEY (id),
+          KEY idx_ebook_status (status),
+          KEY idx_ebook_category_id (category_id),
+          KEY idx_ebook_name (name(191)),
+          KEY idx_ebook_author (author(191)),
+          KEY idx_ebook_updated_at (updated_at),
+          CONSTRAINT fk_ebook_category_id
+            FOREIGN KEY (category_id) REFERENCES ebook_categories (id)
+            ON DELETE SET NULL
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    ");
+
+    $pdo->exec("
+        CREATE TABLE IF NOT EXISTS ebook_store_links (
+          id VARCHAR(255) NOT NULL,
+          ebook_id VARCHAR(255) NOT NULL,
+          store_id VARCHAR(255) NOT NULL DEFAULT '',
+          store_name VARCHAR(255) NOT NULL DEFAULT '',
+          store_icon VARCHAR(255) DEFAULT '',
+          url TEXT NOT NULL,
+          is_primary TINYINT(1) NOT NULL DEFAULT 0,
+          sort_order INT NOT NULL DEFAULT 0,
+          created_at VARCHAR(64) NOT NULL DEFAULT '',
+          updated_at VARCHAR(64) NOT NULL DEFAULT '',
+          PRIMARY KEY (id),
+          UNIQUE KEY uniq_ebook_store_links_ebook_store (ebook_id, store_id),
+          KEY idx_ebook_store_links_ebook_id (ebook_id),
+          KEY idx_ebook_store_links_store_id (store_id),
+          KEY idx_ebook_store_links_sort_order (sort_order),
+          CONSTRAINT fk_ebook_store_links_ebook_id
+            FOREIGN KEY (ebook_id) REFERENCES ebook (id)
+            ON DELETE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    ");
+
+    $pdo->exec("
+        CREATE TABLE IF NOT EXISTS ebook_orders (
+          id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+          ebook_id VARCHAR(255) NOT NULL,
+          user_id BIGINT UNSIGNED DEFAULT NULL,
+          paypal_order_id VARCHAR(128) NOT NULL,
+          status VARCHAR(40) NOT NULL DEFAULT 'CREATED',
+          amount DECIMAL(12,2) NOT NULL DEFAULT 0.00,
+          currency VARCHAR(8) NOT NULL DEFAULT 'USD',
+          payer_email VARCHAR(255) DEFAULT NULL,
+          paypal_payload JSON DEFAULT NULL,
+          created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          paid_at TIMESTAMP NULL DEFAULT NULL,
+          PRIMARY KEY (id),
+          UNIQUE KEY uq_ebook_orders_paypal_order_id (paypal_order_id),
+          KEY idx_ebook_orders_ebook_id (ebook_id),
+          KEY idx_ebook_orders_user_id (user_id),
+          KEY idx_ebook_orders_status_created (status, created_at),
+          CONSTRAINT fk_ebook_orders_ebook
+            FOREIGN KEY (ebook_id) REFERENCES ebook (id)
+            ON DELETE CASCADE ON UPDATE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    ");
 }
 
 function admin_ensure_paypal_config_table(PDO $pdo): void

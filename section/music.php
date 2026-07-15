@@ -11,6 +11,7 @@
                 <li class="nav-item"><a class="nav-link <?= $musicTab === 'artists' ? 'active' : '' ?>" href="index.php?section=music&tab=artists">Nghệ sĩ</a></li>
                 <li class="nav-item"><a class="nav-link <?= $musicTab === 'genres' ? 'active' : '' ?>" href="index.php?section=music&tab=genres">Thể loại</a></li>
                 <li class="nav-item"><a class="nav-link <?= $musicTab === 'orders' ? 'active' : '' ?>" href="index.php?section=music&tab=orders">Đơn đặt hàng</a></li>
+                <li class="nav-item"><a class="nav-link <?= $musicTab === 'search_log' ? 'active' : '' ?>" href="index.php?section=music&tab=search_log">Lịch sử tìm kiếm</a></li>
             </ul>
 
             <?php if ($musicTab === 'songs'): ?>
@@ -24,11 +25,21 @@
                         <div class="row g-3">
                             <div class="col-md-5">
                                 <label class="form-label" for="song_id">ID</label>
-                                <input class="form-control" id="song_id" name="id" value="<?= htmlspecialchars($editing['id'] ?? '') ?>" required>
+                                <div class="input-group">
+                                    <input class="form-control" id="song_id" name="id" value="<?= htmlspecialchars($editing['id'] ?? '') ?>" required>
+                                    <button class="btn btn-secondary" id="song_generate_id" type="button" title="Tạo ID từ tên bài hát và ca sĩ">
+                                        <i data-lucide="wand-sparkles" style="width:16px;height:16px"></i>
+                                    </button>
+                                </div>
                             </div>
                             <div class="col-md-7">
                                 <label class="form-label" for="song_name">Tên bài hát</label>
-                                <input class="form-control" id="song_name" name="name" value="<?= htmlspecialchars($editing['name'] ?? '') ?>" required>
+                                <div class="input-group">
+                                    <input class="form-control" id="song_name" name="name" value="<?= htmlspecialchars($editing['name'] ?? '') ?>" required>
+                                    <button class="btn btn-secondary" id="song_title_case" type="button" title="Định dạng tên bài hát: in thường và viết hoa chữ cái đầu mỗi từ" aria-label="Định dạng tên bài hát">
+                                        <i data-lucide="case-lower" style="width:16px;height:16px"></i>
+                                    </button>
+                                </div>
                             </div>
                         </div>
 
@@ -166,7 +177,7 @@
                         ?>
                         <?= admin_pagination($songPageParams, 'song_page', $songPage, $songTotalPages, 'Phân trang bài hát', 'mb-3') ?>
                         <div class="table-responsive-sm">
-                            <table class="table table-striped table-hover table-sm align-middle">
+                            <table class="table table-striped table-hover table-sm align-middle music-song-table">
                                 <thead><tr><th>Bài hát</th><th>Nghệ sĩ</th><th>Thể loại</th><th></th></tr></thead>
                                 <tbody>
                                 <?php foreach ($songs as $song): ?>
@@ -178,14 +189,17 @@
                                         $songGenreLabels = array_values(array_filter(array_map('trim', preg_split('/\s*,\s*/', (string) ($song['genre'] ?? '')) ?: [])));
 	                                    ?>
                                     <tr>
-                                        <td>
+                                        <td class="music-song-cell">
                                             <div class="d-flex align-items-center gap-2">
                                                 <?php if (!empty($song['avatar'])): ?>
                                                     <a href="https://music.carrot28.com/song.php?id=<?php echo $song['id'];?>" target="_blank">
                                                         <img src="<?= htmlspecialchars($song['avatar']) ?>" alt="" style="width:42px;height:42px;object-fit:cover;border-radius:8px">
                                                     </a>
                                                 <?php endif; ?>
-                                                <div><strong><?= htmlspecialchars($song['name'] ?? $song['id']) ?></strong><div class="small text-muted"><?= htmlspecialchars($song['id']) ?></div></div>
+                                                <div class="music-song-text">
+                                                    <strong class="music-song-name" title="<?= htmlspecialchars($song['name'] ?? $song['id']) ?>"><?= htmlspecialchars($song['name'] ?? $song['id']) ?></strong>
+                                                    <div class="small text-muted music-song-id" title="<?= htmlspecialchars($song['id']) ?>"><?= htmlspecialchars($song['id']) ?></div>
+                                                </div>
                                             </div>
                                         </td>
                                         <td>
@@ -195,6 +209,7 @@
                                                         <?php $linkedArtistId = (int) ($songArtistIds[$artistIndex] ?? 0); ?>
                                                         <?php if ($linkedArtistId > 0): ?>
                                                             <a class="badge text-bg-light border text-decoration-none" href="https://music.carrot28.com/artist.php?id=<?= $linkedArtistId ?>" target="_blank" rel="noopener noreferrer"><?= htmlspecialchars($artistName) ?></a>
+                                                            <a class="badge text-bg-light border text-decoration-none" target="_blank" href="https://www.google.com/search?tbm=vid&q=<?= htmlspecialchars($artistName) ?>"><i data-lucide="user-round-search" style="width:15px;height:15px"></i></a>
                                                         <?php else: ?>
                                                             <span class="badge text-bg-light border"><?= htmlspecialchars($artistName) ?></span>
                                                         <?php endif; ?>
@@ -315,6 +330,7 @@
                                         <td><?= htmlspecialchars($artistRow['lang_key'] ?? '') ?></td>
                                         <td><?= htmlspecialchars(admin_excerpt(strip_tags($artistRow['description']) ?? '', 50)) ?></td>
                                         <td class="text-end">
+                                            <a class="btn btn-sm btn-dark" target="_blank" href="https://www.google.com/search?tbm=vid&q=<?= $artistRow['name'] ?>"><i data-lucide="user-round-search" style="width:15px;height:15px"></i></a>
                                             <a class="btn btn-sm btn-warning" href="index.php?section=music&tab=artists&edit=<?= (int) $artistRow['id'] ?>"><i data-lucide="pencil" style="width:15px;height:15px"></i></a>
                                             <form class="d-inline js-confirm-delete" method="post">
                                                 <input type="hidden" name="action" value="delete_song_artist">
@@ -349,6 +365,16 @@
                             <input class="form-control" id="genre_title" name="title" value="<?= htmlspecialchars($editing['title'] ?? '') ?>">
                         </div>
                         <div class="mb-3">
+                            <label class="form-label" for="genre_avatar">Avatar</label>
+                            <div class="input-group">
+                                <input class="form-control" id="genre_avatar" name="avatar" value="<?= htmlspecialchars($editing['avatar'] ?? '') ?>">
+                                <button class="btn btn-secondary js-upload" type="button" data-target="genre_avatar" data-type-media="genre_avatar" data-mode="replace" data-accept="image/*">Upload</button>
+                            </div>
+                            <?php if (!empty($editing['avatar'])): ?>
+                                <img class="mt-2 rounded-2 object-fit-cover" src="<?= htmlspecialchars($editing['avatar']) ?>" alt="" width="76" height="76">
+                            <?php endif; ?>
+                        </div>
+                        <div class="mb-3">
                             <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2">
                                 <label class="form-label mb-0" for="genre_description">Description</label>
                                 <button class="btn btn-sm btn-primary js-ai-song-genre-request" type="button">
@@ -375,11 +401,23 @@
                         <h2 class="h5 mb-3">Thể loại</h2>
                         <div class="table-responsive-sm">
                             <table class="table table-striped table-hover table-sm align-middle">
-                                <thead><tr><th>Genre</th><th>Mô tả</th><th>Số bài</th><th></th></tr></thead>
+                                <thead><tr><th>Genre</th><th>Avatar</th><th>Mô tả</th><th>Số bài</th><th></th></tr></thead>
                                 <tbody>
                                 <?php foreach ($songGenres as $genreRow): ?>
                                     <tr>
-                                        <td><strong><?= htmlspecialchars($genreRow['title'] ?: $genreRow['genre_id']) ?></strong><div class="small text-muted"><?= htmlspecialchars($genreRow['genre_id']) ?></div></td>
+                                        <td>
+                                            <a class="fw-bold text-decoration-none" href="https://music.carrot28.com/genre.php?id=<?= urlencode($genreRow['genre_id']) ?>" target="_blank" rel="noopener noreferrer">
+                                                <?= htmlspecialchars($genreRow['title'] ?: $genreRow['genre_id']) ?>
+                                            </a>
+                                            <div class="small text-muted"><?= htmlspecialchars($genreRow['genre_id']) ?></div>
+                                        </td>
+                                        <td>
+                                            <?php if (!empty($genreRow['avatar'])): ?>
+                                                <img src="<?= htmlspecialchars($genreRow['avatar']) ?>" alt="" width="54" height="54" class="rounded-2 object-fit-cover">
+                                            <?php else: ?>
+                                                <span class="text-muted small">-</span>
+                                            <?php endif; ?>
+                                        </td>
                                         <td><?= htmlspecialchars(admin_excerpt(strip_tags($genreRow['description']) ?? '', 50)) ?></td>
                                         <td><?= number_format((int) ($genreRow['song_count'] ?? 0)) ?></td>
                                         <td class="text-end">
@@ -392,7 +430,7 @@
                                         </td>
                                     </tr>
                                 <?php endforeach; ?>
-                                <?php if (!$songGenres): ?><tr><td colspan="4" class="text-center text-muted py-4">Chưa có thể loại.</td></tr><?php endif; ?>
+                                <?php if (!$songGenres): ?><tr><td colspan="5" class="text-center text-muted py-4">Chưa có thể loại.</td></tr><?php endif; ?>
                                 </tbody>
                             </table>
                         </div>
@@ -444,29 +482,152 @@
             </div>
             <?php endif; ?>
 
+            <?php if ($musicTab === 'search_log'): ?>
+            <div class="glass-panel p-4">
+                <div class="d-flex flex-wrap align-items-center justify-content-between gap-3 mb-3">
+                    <div>
+                        <h2 class="h5 mb-1">Lịch sử tìm kiếm bài hát</h2>
+                        <div class="muted-text small">Ghi lại lượt tìm kiếm từ thanh search header CarrotMusic.</div>
+                    </div>
+                    <div class="d-flex flex-wrap align-items-center gap-2">
+                        <span class="badge text-bg-secondary"><?= number_format((int) ($songSearchLogStats['total_rows'] ?? 0)) ?> lượt</span>
+                        <span class="badge text-bg-light border text-dark"><?= number_format((int) ($songSearchLogStats['unique_queries'] ?? 0)) ?> từ khóa</span>
+                        <span class="badge text-bg-light border text-dark"><?= number_format((int) ($songSearchLogStats['unique_ips'] ?? 0)) ?> IP</span>
+                        <form class="js-delete d-inline-flex" method="post" data-confirm="Xóa toàn bộ lịch sử tìm kiếm bài hát?">
+                            <input type="hidden" name="action" value="clear_song_search_log">
+                            <button class="btn btn-sm btn-outline-danger" type="submit">
+                                <i data-lucide="trash-2" style="width:16px;height:16px"></i>
+                                Xóa tất cả
+                            </button>
+                        </form>
+                    </div>
+                </div>
+                <form class="row g-2 align-items-end mb-3" method="get">
+                    <input type="hidden" name="section" value="music">
+                    <input type="hidden" name="tab" value="search_log">
+                    <div class="col-md-10">
+                        <label class="form-label" for="search_log_q">Search</label>
+                        <input class="form-control" id="search_log_q" name="search_log_q" value="<?= htmlspecialchars($songSearchLogQuery) ?>" placeholder="Từ khóa, lang, IP hoặc URL">
+                    </div>
+                    <div class="col-md-2 d-grid">
+                        <button class="btn btn-secondary" type="submit">Lọc</button>
+                    </div>
+                </form>
+                <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2">
+                    <div class="muted-text small"><?= number_format($songSearchLogTotal) ?> log phù hợp</div>
+                    <div class="muted-text small">Trang <?= number_format($songSearchLogPage) ?>/<?= number_format($songSearchLogTotalPages) ?></div>
+                </div>
+                <?php
+                $songSearchLogPageParams = $_GET;
+                $songSearchLogPageParams['section'] = 'music';
+                $songSearchLogPageParams['tab'] = 'search_log';
+                ?>
+                <?= admin_pagination($songSearchLogPageParams, 'search_log_page', $songSearchLogPage, $songSearchLogTotalPages, 'Phân trang lịch sử tìm kiếm', 'mb-3') ?>
+                <div class="table-responsive-sm">
+                    <table class="table table-striped table-hover table-sm align-middle">
+                        <thead><tr><th>Từ khóa</th><th>Lang</th><th>Kết quả</th><th>IP</th><th>Thiết bị</th><th>Thời gian</th><th></th></tr></thead>
+                        <tbody>
+                        <?php foreach ($songSearchLogs as $log): ?>
+                            <tr>
+                                <td>
+                                    <a class="fw-bold text-decoration-none" href="https://music.carrot28.com/index.php?q=<?= urlencode($log['query'] ?? '') ?>" target="_blank" rel="noopener noreferrer">
+                                        <?= htmlspecialchars($log['query'] ?? '') ?>
+                                    </a>
+                                    <div class="small text-muted text-truncate" style="max-width:360px" title="<?= htmlspecialchars($log['request_path'] ?? '') ?>"><?= htmlspecialchars($log['request_path'] ?? '') ?></div>
+                                </td>
+                                <td><?= htmlspecialchars($log['lang'] ?? '') ?></td>
+                                <td><?= number_format((int) ($log['result_count'] ?? 0)) ?></td>
+                                <td class="font-monospace small"><?= htmlspecialchars($log['ip_text'] ?? '') ?></td>
+                                <td class="small text-muted text-truncate" style="max-width:260px" title="<?= htmlspecialchars($log['user_agent'] ?? '') ?>"><?= htmlspecialchars($log['user_agent'] ?? '') ?></td>
+                                <td><?= htmlspecialchars($log['created_at'] ?? '') ?></td>
+                                <td class="text-end">
+                                    <form class="d-inline js-confirm-delete" method="post">
+                                        <input type="hidden" name="action" value="delete_song_search_log">
+                                        <input type="hidden" name="id" value="<?= (int) $log['id'] ?>">
+                                        <button class="btn btn-sm btn-danger" type="submit"><i data-lucide="trash-2" style="width:15px;height:15px"></i></button>
+                                    </form>
+                                </td>
+                            </tr>
+                        <?php endforeach; ?>
+                        <?php if (!$songSearchLogs): ?><tr><td colspan="7" class="text-center text-muted py-4">Chưa có lịch sử tìm kiếm.</td></tr><?php endif; ?>
+                        </tbody>
+                    </table>
+                </div>
+                <?= admin_pagination($songSearchLogPageParams, 'search_log_page', $songSearchLogPage, $songSearchLogTotalPages, 'Phân trang lịch sử tìm kiếm') ?>
+            </div>
+            <?php endif; ?>
+
             <script>
+            const songSlugify = (value) => String(value || '')
+                .normalize('NFD')
+                .replace(/[\u0300-\u036f]/g, '')
+                .replace(/[đĐ]/g, 'd')
+                .toLowerCase()
+                .replace(/[^a-z0-9]+/g, '-')
+                .replace(/^-+|-+$/g, '')
+                .replace(/-{2,}/g, '-');
+
+            const songGenerateIdButton = document.getElementById('song_generate_id');
+            if (songGenerateIdButton) {
+                songGenerateIdButton.addEventListener('click', () => {
+                    const idInput = document.getElementById('song_id');
+                    const nameInput = document.getElementById('song_name');
+                    const artistInput = document.getElementById('song_artist');
+                    const slug = songSlugify([nameInput?.value || '', artistInput?.value || ''].filter(Boolean).join('-'));
+                    if (idInput && slug) idInput.value = slug;
+                });
+            }
+
+            const songTitleCaseButton = document.getElementById('song_title_case');
+            if (songTitleCaseButton) {
+                songTitleCaseButton.addEventListener('click', () => {
+                    const nameInput = document.getElementById('song_name');
+                    if (!nameInput) return;
+                    nameInput.value = String(nameInput.value || '')
+                        .toLocaleLowerCase('vi-VN')
+                        .replace(/(^|\s)(\S)/gu, (match, prefix, firstChar) => prefix + firstChar.toLocaleUpperCase('vi-VN'));
+                    nameInput.focus();
+                });
+            }
+
             const youtubeButton = document.getElementById('song_load_youtube');
             if (youtubeButton) {
                 youtubeButton.addEventListener('click', async () => {
                     const linkInput = document.getElementById('song_link_ytb');
+                    const currentIdInput = document.querySelector('input[name="original_id"]');
                     const formData = new FormData();
                     formData.append('action', 'ajax_youtube_song');
                     formData.append('url', linkInput ? linkInput.value : '');
+                    formData.append('current_id', currentIdInput ? currentIdInput.value : '');
                     try {
                         youtubeButton.disabled = true;
                         const response = await fetch('index.php?section=music', {method: 'POST', body: formData});
                         const payload = await response.json();
                         if (!response.ok || payload.status !== 'success') {
-                            throw new Error(payload.message || 'Không load được YouTube.');
+                            const error = new Error(payload.message || 'Không load được YouTube.');
+                            error.status = response.status;
+                            throw error;
                         }
-                        const fields = ['name', 'artist', 'publishedAt', 'avatar', 'lyrics'];
+                        if ((!payload.year || !payload.date) && payload.publishedAt) {
+                            const dateMatch = String(payload.publishedAt).match(/^(\d{4})-(\d{2})-(\d{2})/);
+                            if (dateMatch) {
+                                payload.year = payload.year || dateMatch[1];
+                                payload.date = payload.date || `${dateMatch[1]}-${dateMatch[2]}-${dateMatch[3]}`;
+                            }
+                        }
+                        payload.album = payload.album || payload.artist;
+                        const fields = ['name', 'artist', 'album', 'year', 'date', 'publishedAt', 'avatar', 'lyrics'];
                         fields.forEach((field) => {
                             const input = document.getElementById('song_' + field);
                             if (input && payload[field]) input.value = payload[field];
                         });
                         Swal.fire({icon: 'success', title: 'Đã lấy dữ liệu YouTube', timer: 1300, showConfirmButton: false});
                     } catch (error) {
-                        Swal.fire({icon: 'error', title: 'YouTube API', text: error.message});
+                        Swal.fire({
+                            icon: error.status === 409 ? 'warning' : 'error',
+                            title: error.status === 409 ? 'Link YouTube đã tồn tại' : 'YouTube API',
+                            text: error.message
+                        });
                     } finally {
                         youtubeButton.disabled = false;
                     }

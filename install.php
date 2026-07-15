@@ -103,6 +103,22 @@ $results[] = install_run_step('CarrotMusic tables', static function () use ($coc
     admin_ensure_music_tables($cocPdo);
 });
 
+$results[] = install_run_step('CarrotMusic song view table', static function () use ($cocPdo, $cocError): void {
+    if (!$cocPdo instanceof PDO) {
+        throw new RuntimeException($cocError ?? 'Không thể kết nối CarrotCoc database.');
+    }
+
+    admin_ensure_song_view_table($cocPdo);
+});
+
+$results[] = install_run_step('CarrotMusic song search log table', static function () use ($cocPdo, $cocError): void {
+    if (!$cocPdo instanceof PDO) {
+        throw new RuntimeException($cocError ?? 'Không thể kết nối CarrotMusic database.');
+    }
+
+    admin_ensure_song_search_log_table($cocPdo);
+});
+
 $results[] = install_run_step('CarrotCoc app category tables', static function () use ($cocPdo, $cocError): void {
     if (!$cocPdo instanceof PDO) {
         throw new RuntimeException($cocError ?? 'Không thể kết nối CarrotCoc database.');
@@ -117,6 +133,14 @@ $results[] = install_run_step('CarrotHome app orders table', static function () 
     }
 
     admin_ensure_app_order_table($cocPdo);
+});
+
+$results[] = install_run_step('CarrotEbook tables', static function () use ($cocPdo, $cocError): void {
+    if (!$cocPdo instanceof PDO) {
+        throw new RuntimeException($cocError ?? 'Không thể kết nối database.');
+    }
+
+    admin_ensure_ebook_tables($cocPdo);
 });
 
 $results[] = install_run_step('PayPal config table', static function () use ($cocPdo, $cocError): void {
@@ -173,6 +197,14 @@ $results[] = install_run_step('CarrotMusic visit daily IP table', static functio
     }
 
     admin_ensure_visit_daily_ip_table($cocPdo, 'music');
+});
+
+$results[] = install_run_step('CarrotEbook visit daily IP table', static function () use ($cocPdo, $cocError): void {
+    if (!$cocPdo instanceof PDO) {
+        throw new RuntimeException($cocError ?? 'Không thể kết nối CarrotEbook database.');
+    }
+
+    admin_ensure_visit_daily_ip_table($cocPdo, 'ebook');
 });
 
 $results[] = install_run_step('CarrotCoc bank table', static function () use ($cocPdo, $cocError): void {

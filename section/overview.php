@@ -1,24 +1,51 @@
             <?php if ($section === 'overview'): ?>
             <div class="dashboard-grid mb-4">
                 <?php foreach ($dashboardCards as $card): ?>
-                    <div class="dashboard-card">
-                        <div class="d-flex align-items-center justify-content-between gap-3 mb-3">
-                            <div class="dashboard-card-label"><?= htmlspecialchars($card['label']) ?></div>
+                    <div class="dashboard-card <?= htmlspecialchars($card['class'] ?? '') ?>">
+                        <div class="dashboard-card-line">
                             <span class="dashboard-card-icon"><i data-lucide="<?= htmlspecialchars($card['icon']) ?>"></i></span>
+                            <span class="dashboard-card-value"><?= number_format((int) $card['value']) ?></span>
+                            <span class="dashboard-card-label"><?= htmlspecialchars($card['label']) ?></span>
                         </div>
-                        <div class="dashboard-card-value"><?= number_format((int) $card['value']) ?></div>
                     </div>
                 <?php endforeach; ?>
-                <?php if (is_array($serverRuntime)): ?>
-                <div class="dashboard-card dashboard-uptime">
-                    <div class="d-flex align-items-center justify-content-between gap-3 mb-3">
-                        <div class="dashboard-card-label">XAMPP uptime</div>
-                        <span class="dashboard-card-icon"><i data-lucide="timer"></i></span>
+            </div>
+
+            <div class="row g-3 mb-4">
+                <div class="col-lg-6">
+                    <div class="dashboard-card dashboard-uptime h-100">
+                        <div class="d-flex flex-wrap align-items-center justify-content-between gap-3">
+                            <div>
+                                <div class="dashboard-card-label mb-2">XAMPP uptime</div>
+                                <?php if (is_array($serverRuntime)): ?>
+                                    <div class="dashboard-card-value font-monospace" id="server_uptime" data-started-at="<?= (int) $serverRuntime['started_at'] ?>"><?= htmlspecialchars(admin_format_uptime($serverRuntime['uptime_seconds'])) ?></div>
+                                    <div class="dashboard-uptime-start mt-2">Start: <?= htmlspecialchars(date('Y-m-d H:i:s', $serverRuntime['started_at'])) ?></div>
+                                <?php else: ?>
+                                    <div class="dashboard-card-value font-monospace">--:--:--</div>
+                                    <div class="dashboard-uptime-start mt-2">Chưa có dữ liệu runtime.</div>
+                                <?php endif; ?>
+                            </div>
+                            <span class="dashboard-card-icon"><i data-lucide="timer"></i></span>
+                        </div>
                     </div>
-                    <div class="dashboard-card-value font-monospace" id="server_uptime" data-started-at="<?= (int) $serverRuntime['started_at'] ?>"><?= htmlspecialchars(admin_format_uptime($serverRuntime['uptime_seconds'])) ?></div>
-                    <div class="dashboard-uptime-start mt-2">Start: <?= htmlspecialchars(date('Y-m-d H:i:s', $serverRuntime['started_at'])) ?></div>
                 </div>
-                <?php endif; ?>
+                <div class="col-lg-6">
+                    <div class="glass-panel p-4 h-100">
+                        <div class="d-flex flex-wrap align-items-center justify-content-between gap-3">
+                            <div>
+                                <h2 class="h5 mb-1 overview-panel-title"><i data-lucide="database-zap"></i><span>Cache hệ thống</span></h2>
+                                <div class="muted-text">Hiện đang quản lý cache thống kê CarrotAdmin, list trang chủ CarrotHome và CarrotMusic.</div>
+                            </div>
+                            <form class="js-delete" method="post" data-confirm="Clear toàn bộ cache CarrotAdmin, CarrotHome và CarrotMusic hiện tại?">
+                                <input type="hidden" name="action" value="clear_system_cache">
+                                <button class="btn btn-warning fw-bold" type="submit">
+                                    <i data-lucide="trash-2" style="width:18px;height:18px"></i>
+                                    Clear Cache
+                                </button>
+                            </form>
+                        </div>
+                    </div>
+                </div>
             </div>
 
             <div class="glass-panel p-4 mb-4">
@@ -51,8 +78,8 @@
                             <div class="traffic-chart-title">Hits / IP - <?= htmlspecialchars($trafficDateRange['label']) ?></div>
                         </div>
                         <div class="traffic-chart-legend">
-                            <span><i class="traffic-dot traffic-dot-today"></i>Hits</span>
-                            <span><i class="traffic-dot traffic-dot-yesterday"></i>IP</span>
+                            <button class="traffic-legend-btn is-active" type="button" data-traffic-dataset="0" aria-pressed="true"><i class="traffic-dot traffic-dot-today"></i>Hits</button>
+                            <button class="traffic-legend-btn is-active" type="button" data-traffic-dataset="1" aria-pressed="true"><i class="traffic-dot traffic-dot-yesterday"></i>IP</button>
                         </div>
                     </div>
                     <canvas id="traffic_compare_chart" height="350" aria-label="Biểu đồ lưu lượng truy cập"></canvas>
