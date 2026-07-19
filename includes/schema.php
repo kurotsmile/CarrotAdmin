@@ -77,6 +77,7 @@ function admin_ensure_api_table(PDO $pdo): void
         CREATE TABLE IF NOT EXISTS api_config (
           id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
           provider VARCHAR(64) NOT NULL,
+          site_id BIGINT UNSIGNED DEFAULT NULL,
           name VARCHAR(160) NOT NULL,
           enabled TINYINT(1) NOT NULL DEFAULT 0,
           client_id TEXT DEFAULT NULL,
@@ -90,13 +91,15 @@ function admin_ensure_api_table(PDO $pdo): void
           created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
           updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
           PRIMARY KEY (id),
-          KEY idx_api_provider_enabled (provider, enabled)
+          KEY idx_api_provider_enabled (provider, enabled),
+          KEY idx_api_site_provider_enabled (site_id, provider, enabled)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     ");
 
     $columns = $pdo->query('SHOW COLUMNS FROM api_config')->fetchAll(PDO::FETCH_COLUMN);
     $columnSql = [
         'provider' => 'VARCHAR(64) NOT NULL DEFAULT "custom"',
+        'site_id' => 'BIGINT UNSIGNED DEFAULT NULL',
         'name' => 'VARCHAR(160) NOT NULL DEFAULT "API"',
         'enabled' => 'TINYINT(1) NOT NULL DEFAULT 0',
         'client_id' => 'TEXT DEFAULT NULL',
@@ -115,6 +118,15 @@ function admin_ensure_api_table(PDO $pdo): void
         if (!in_array($column, $columns, true)) {
             $pdo->exec('ALTER TABLE api_config ADD `' . $column . '` ' . $sql);
         }
+    }
+
+    $indexes = $pdo->query('SHOW INDEX FROM api_config')->fetchAll(PDO::FETCH_ASSOC);
+    $indexNames = array_unique(array_column($indexes, 'Key_name'));
+    if (!in_array('idx_api_provider_enabled', $indexNames, true)) {
+        $pdo->exec('ALTER TABLE api_config ADD KEY idx_api_provider_enabled (provider, enabled)');
+    }
+    if (!in_array('idx_api_site_provider_enabled', $indexNames, true)) {
+        $pdo->exec('ALTER TABLE api_config ADD KEY idx_api_site_provider_enabled (site_id, provider, enabled)');
     }
 }
 
@@ -883,6 +895,136 @@ function admin_ensure_text_label_table(PDO $pdo): void
     ");
 }
 
+function admin_ensure_cloud_tables(PDO $pdo): void
+{
+    $pdo->exec("
+        CREATE TABLE IF NOT EXISTS cloud (
+          id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+          name VARCHAR(160) NOT NULL,
+          description LONGTEXT DEFAULT NULL,
+          limit_gb DECIMAL(10,2) NOT NULL DEFAULT 0,
+          price DECIMAL(10,2) NOT NULL DEFAULT 0,
+          currency VARCHAR(12) NOT NULL DEFAULT 'USD',
+          user VARCHAR(255) DEFAULT NULL,
+          status VARCHAR(24) NOT NULL DEFAULT 'active',
+          sort_order INT NOT NULL DEFAULT 0,
+          created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+          PRIMARY KEY (id),
+          KEY idx_cloud_status_sort (status, sort_order, id),
+          KEY idx_cloud_user (user(191))
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    ");
+
+    $columns = $pdo->query('SHOW COLUMNS FROM cloud')->fetchAll(PDO::FETCH_COLUMN);
+    $columnSql = [
+        'name' => "VARCHAR(160) NOT NULL DEFAULT ''",
+        'description' => 'LONGTEXT DEFAULT NULL',
+        'limit_gb' => 'DECIMAL(10,2) NOT NULL DEFAULT 0',
+        'price' => 'DECIMAL(10,2) NOT NULL DEFAULT 0',
+        'currency' => "VARCHAR(12) NOT NULL DEFAULT 'USD'",
+        'user' => 'VARCHAR(255) DEFAULT NULL',
+        'status' => "VARCHAR(24) NOT NULL DEFAULT 'active'",
+        'sort_order' => 'INT NOT NULL DEFAULT 0',
+        'created_at' => 'TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP',
+        'updated_at' => 'TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP',
+    ];
+
+    foreach ($columnSql as $column => $sql) {
+        if (!in_array($column, $columns, true)) {
+            $pdo->exec('ALTER TABLE cloud ADD `' . $column . '` ' . $sql);
+        }
+    }
+
+    $pdo->exec("
+        CREATE TABLE IF NOT EXISTS cloud_lang (
+          id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+          cloud_id BIGINT UNSIGNED NOT NULL,
+          lang_key VARCHAR(24) NOT NULL,
+          name VARCHAR(160) NOT NULL,
+          description LONGTEXT DEFAULT NULL,
+          created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+          PRIMARY KEY (id),
+          UNIQUE KEY uq_cloud_lang (cloud_id, lang_key),
+          KEY idx_cloud_lang_key (lang_key),
+          CONSTRAINT fk_cloud_lang_cloud
+            FOREIGN KEY (cloud_id) REFERENCES cloud (id)
+            ON DELETE CASCADE ON UPDATE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    ");
+
+    $pdo->exec("
+        CREATE TABLE IF NOT EXISTS cloud_subscription (
+          id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+          cloud_id BIGINT UNSIGNED NOT NULL,
+          user VARCHAR(255) NOT NULL,
+          user_id BIGINT UNSIGNED DEFAULT NULL,
+          payer_email VARCHAR(255) DEFAULT NULL,
+          provider VARCHAR(64) DEFAULT NULL,
+          provider_order_id VARCHAR(255) DEFAULT NULL,
+          amount DECIMAL(10,2) NOT NULL DEFAULT 0.00,
+          currency VARCHAR(12) NOT NULL DEFAULT 'USD',
+          paypal_payload JSON DEFAULT NULL,
+          status VARCHAR(24) NOT NULL DEFAULT 'active',
+          started_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          expires_at DATETIME DEFAULT NULL,
+          paid_at DATETIME DEFAULT NULL,
+          created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+          PRIMARY KEY (id),
+          KEY idx_cloud_subscription_user (user(191), status),
+          KEY idx_cloud_subscription_user_id (user_id, status),
+          KEY idx_cloud_subscription_cloud (cloud_id),
+          UNIQUE KEY uq_cloud_subscription_provider_order (provider_order_id),
+          CONSTRAINT fk_cloud_subscription_cloud
+            FOREIGN KEY (cloud_id) REFERENCES cloud (id)
+            ON DELETE CASCADE ON UPDATE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    ");
+
+    $subscriptionColumns = $pdo->query('SHOW COLUMNS FROM cloud_subscription')->fetchAll(PDO::FETCH_COLUMN);
+    $subscriptionColumnSql = [
+        'amount' => 'DECIMAL(10,2) NOT NULL DEFAULT 0.00 AFTER provider_order_id',
+        'currency' => "VARCHAR(12) NOT NULL DEFAULT 'USD' AFTER amount",
+        'paypal_payload' => 'JSON DEFAULT NULL AFTER currency',
+        'paid_at' => 'DATETIME DEFAULT NULL AFTER expires_at',
+    ];
+    foreach ($subscriptionColumnSql as $column => $sql) {
+        if (!in_array($column, $subscriptionColumns, true)) {
+            $pdo->exec('ALTER TABLE cloud_subscription ADD `' . $column . '` ' . $sql);
+        }
+    }
+
+    $subscriptionIndexes = $pdo->query('SHOW INDEX FROM cloud_subscription')->fetchAll(PDO::FETCH_ASSOC);
+    $subscriptionIndexNames = array_unique(array_column($subscriptionIndexes, 'Key_name'));
+    if (!in_array('uq_cloud_subscription_provider_order', $subscriptionIndexNames, true)) {
+        $pdo->exec('ALTER TABLE cloud_subscription ADD UNIQUE KEY uq_cloud_subscription_provider_order (provider_order_id)');
+    }
+
+    $pdo->exec("
+        CREATE TABLE IF NOT EXISTS cloud_file (
+          id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+          subscription_id BIGINT UNSIGNED DEFAULT NULL,
+          user VARCHAR(255) NOT NULL,
+          user_id BIGINT UNSIGNED DEFAULT NULL,
+          original_name VARCHAR(255) NOT NULL,
+          stored_name VARCHAR(255) NOT NULL,
+          mime_type VARCHAR(160) DEFAULT NULL,
+          size_bytes BIGINT UNSIGNED NOT NULL DEFAULT 0,
+          relative_path VARCHAR(500) NOT NULL,
+          created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          PRIMARY KEY (id),
+          KEY idx_cloud_file_user (user(191), created_at),
+          KEY idx_cloud_file_user_id (user_id, created_at),
+          KEY idx_cloud_file_subscription (subscription_id),
+          CONSTRAINT fk_cloud_file_subscription
+            FOREIGN KEY (subscription_id) REFERENCES cloud_subscription (id)
+            ON DELETE SET NULL ON UPDATE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    ");
+}
+
 function admin_ensure_bank_table(PDO $pdo): void
 {
     $pdo->exec("
@@ -927,12 +1069,14 @@ function admin_ensure_sites_table(PDO $pdo): void
           url VARCHAR(255) NOT NULL,
           description LONGTEXT DEFAULT NULL,
           logo LONGTEXT DEFAULT NULL,
+          status VARCHAR(24) NOT NULL DEFAULT 'active',
           sort_order INT NOT NULL DEFAULT 0,
           created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
           updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
           PRIMARY KEY (id),
           UNIQUE KEY uq_sites_url (url),
-          KEY idx_sites_sort_order (sort_order)
+          KEY idx_sites_sort_order (sort_order),
+          KEY idx_sites_status_sort (status, sort_order, id)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     ");
 
@@ -942,6 +1086,7 @@ function admin_ensure_sites_table(PDO $pdo): void
         'url' => 'VARCHAR(255) NOT NULL',
         'description' => 'LONGTEXT DEFAULT NULL',
         'logo' => 'LONGTEXT DEFAULT NULL',
+        'status' => "VARCHAR(24) NOT NULL DEFAULT 'active'",
         'sort_order' => 'INT NOT NULL DEFAULT 0',
     ];
 
@@ -958,6 +1103,9 @@ function admin_ensure_sites_table(PDO $pdo): void
     }
     if (!in_array('idx_sites_sort_order', $indexNames, true)) {
         $pdo->exec('ALTER TABLE sites ADD KEY idx_sites_sort_order (sort_order)');
+    }
+    if (!in_array('idx_sites_status_sort', $indexNames, true)) {
+        $pdo->exec('ALTER TABLE sites ADD KEY idx_sites_status_sort (status, sort_order, id)');
     }
 }
 

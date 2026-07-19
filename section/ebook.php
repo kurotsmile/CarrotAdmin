@@ -37,7 +37,7 @@
                         </div>
                         <div class="mb-3">
                             <label class="form-label" for="ebook_preview_file">File đọc / preview</label>
-                            <div class="input-group"><input class="form-control" id="ebook_preview_file" name="preview_file" value="<?= htmlspecialchars($editing['preview_file'] ?? '') ?>"><button class="btn btn-secondary js-upload" type="button" data-target="ebook_preview_file" data-type-media="carrot_ebook_file" data-mode="replace" data-accept=".epub,.pdf,text/*,application/pdf">Upload</button></div>
+                            <div class="input-group"><input class="form-control" id="ebook_preview_file" name="preview_file" value="<?= htmlspecialchars($editing['preview_file'] ?? '') ?>"><button class="btn btn-secondary js-upload" type="button" data-target="ebook_preview_file" data-type-media="carrot_ebook_file" data-mode="replace" data-accept=".epub,application/epub+zip,.pdf,application/pdf,text/*">Upload</button></div>
                         </div>
                         <div class="mb-3"><label class="form-label" for="ebook_published_at">Published at</label><input class="form-control" id="ebook_published_at" name="published_at" value="<?= htmlspecialchars($editing['published_at'] ?? '') ?>"></div>
                         <div class="mb-3"><label class="form-label" for="ebook_description">Mô tả</label><textarea class="form-control" id="ebook_description" name="description" rows="7"><?= htmlspecialchars($editing['description'] ?? '') ?></textarea></div>

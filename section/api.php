@@ -36,6 +36,30 @@
                         </div>
 
                         <div class="mb-3 mt-3">
+                            <label class="form-label" for="api_site_id">Site áp dụng</label>
+                            <select class="form-control js-api-site-select" id="api_site_id" name="site_id">
+                                <option value="0">Dùng chung / tất cả site</option>
+                                <?php foreach ($apiSiteOptions as $siteOption): ?>
+                                    <?php
+                                    $siteOptionId = (int) ($siteOption['id'] ?? 0);
+                                    if ($siteOptionId <= 0) {
+                                        continue;
+                                    }
+                                    $siteOptionName = trim((string) ($siteOption['name'] ?? ''));
+                                    $siteOptionUrl = trim((string) ($siteOption['url'] ?? ''));
+                                    $siteOptionLabel = '#' . $siteOptionId . ' · ' . ($siteOptionName !== '' ? $siteOptionName : $siteOptionUrl);
+                                    if ($siteOptionUrl !== '') {
+                                        $siteOptionLabel .= ' · ' . $siteOptionUrl;
+                                    }
+                                    ?>
+                                    <option value="<?= $siteOptionId ?>" <?= (int) ($editing['site_id'] ?? 0) === $siteOptionId ? 'selected' : '' ?>>
+                                        <?= htmlspecialchars($siteOptionLabel) ?>
+                                    </option>
+                                <?php endforeach; ?>
+                            </select>
+                        </div>
+
+                        <div class="mb-3">
                             <label class="form-label" for="api_name">Name</label>
                             <input class="form-control" id="api_name" name="name" value="<?= htmlspecialchars($editing['name'] ?? '') ?>" placeholder="Google Login Production" required>
                         </div>
@@ -62,7 +86,7 @@
 
                         <div class="mb-3">
                             <label class="form-label" for="api_redirect_uri">Redirect URI</label>
-                            <input class="form-control" id="api_redirect_uri" name="redirect_uri" value="<?= htmlspecialchars($editing['redirect_uri'] ?? '') ?>" placeholder="https://home.carrot28.com/oauth-callback.php">
+                            <input class="form-control" id="api_redirect_uri" name="redirect_uri" value="<?= htmlspecialchars($editing['redirect_uri'] ?? '') ?>" placeholder="https://music.carrot28.com/oauth-callback.php">
                         </div>
 
                         <div class="mb-3">
@@ -94,6 +118,7 @@
                             <table class="table table-striped table-hover table-sm align-middle">
                                 <thead>
                                 <tr>
+                                    <th><?= admin_sort_link('site_id', 'Site', $apiSort, $apiDir) ?></th>
                                     <th><?= admin_sort_link('provider', 'Provider', $apiSort, $apiDir) ?></th>
                                     <th><?= admin_sort_link('name', 'Name', $apiSort, $apiDir) ?></th>
                                     <th><?= admin_sort_link('enabled', 'Status', $apiSort, $apiDir) ?></th>
@@ -103,6 +128,14 @@
                                 <tbody>
                                 <?php foreach ($apiConfigs as $apiConfig): ?>
                                     <tr>
+                                        <td>
+                                            <?php if (!empty($apiConfig['site_id'])): ?>
+                                                <div><strong>#<?= (int) $apiConfig['site_id'] ?></strong></div>
+                                                <div class="small text-muted"><?= htmlspecialchars($apiConfig['site_name'] ?: 'Site không tồn tại') ?></div>
+                                            <?php else: ?>
+                                                <span class="badge text-bg-secondary">Chung</span>
+                                            <?php endif; ?>
+                                        </td>
                                         <td><span class="badge text-bg-light"><?= htmlspecialchars($apiConfig['provider'] ?? '') ?></span></td>
                                         <td>
                                             <?php $keyPreview = trim((string) ($apiConfig['client_id'] ?: $apiConfig['api_key'] ?: $apiConfig['project_url'] ?: '')); ?>
@@ -129,6 +162,13 @@
                                         </td>
                                         <td class="text-end">
                                             <div class="d-inline-flex align-items-center justify-content-end gap-2 flex-nowrap">
+                                                <form class="js-delete" method="post" data-confirm-title="Xác nhận nhân đôi" data-confirm="Nhân đôi API config này?" data-confirm-button="Nhân đôi" data-confirm-color="#6c757d" data-confirm-icon="question">
+                                                    <input type="hidden" name="action" value="duplicate_api_config">
+                                                    <input type="hidden" name="id" value="<?= (int) $apiConfig['id'] ?>">
+                                                    <button class="btn btn-sm btn-secondary" type="submit" title="Nhân đôi" aria-label="Nhân đôi">
+                                                        <i data-lucide="copy" style="width:16px;height:16px"></i>
+                                                    </button>
+                                                </form>
                                                 <a class="btn btn-sm btn-warning" href="index.php?section=api&edit=<?= (int) $apiConfig['id'] ?>" title="Cập nhật" aria-label="Cập nhật">
                                                     <i data-lucide="pencil" style="width:16px;height:16px"></i>
                                                 </a>
@@ -144,7 +184,7 @@
                                     </tr>
                                 <?php endforeach; ?>
                                 <?php if (!$apiConfigs): ?>
-                                    <tr><td colspan="4" class="text-center muted-text py-4">Chưa có API config.</td></tr>
+                                    <tr><td colspan="5" class="text-center muted-text py-4">Chưa có API config.</td></tr>
                                 <?php endif; ?>
                                 </tbody>
                             </table>

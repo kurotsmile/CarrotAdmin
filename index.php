@@ -75,7 +75,7 @@ require __DIR__ . '/includes/schema.php';
 
 $message = '';
 $error = '';
-$allowedSections = ['overview', 'apps', 'ebook', 'music', 'pages', 'users', 'api', 'bank', 'sites', 'coc', 'country', 'paypal', 'ai_support', 'backup'];
+$allowedSections = ['overview', 'apps', 'ebook', 'music', 'pages', 'users', 'api', 'bank', 'sites', 'coc', 'country', 'paypal', 'ai_support', 'cloud', 'backup'];
 $section = in_array($_GET['section'] ?? 'overview', $allowedSections, true) ? ($_GET['section'] ?? 'overview') : 'overview';
 $editKey = trim($_GET['edit'] ?? '');
 $editId = isset($_GET['edit']) ? (int) $_GET['edit'] : 0;
@@ -84,7 +84,8 @@ $appTab = in_array($_GET['tab'] ?? 'main', ['main', 'photos', 'content', 'catego
 $ebookTab = in_array($_GET['tab'] ?? 'books', ['books', 'categories', 'stores', 'orders'], true) ? ($_GET['tab'] ?? 'books') : 'books';
 $musicTab = in_array($_GET['tab'] ?? 'songs', ['songs', 'artists', 'genres', 'orders', 'search_log'], true) ? ($_GET['tab'] ?? 'songs') : 'songs';
 $countryTab = ($_GET['tab'] ?? 'countries') === 'labels' ? 'labels' : 'countries';
-$paypalTab = in_array($_GET['tab'] ?? 'home', ['home', 'ebook', 'coc', 'music'], true) ? ($_GET['tab'] ?? 'home') : 'home';
+$paypalTab = in_array($_GET['tab'] ?? 'home', ['home', 'ebook', 'coc', 'music', 'cloud'], true) ? ($_GET['tab'] ?? 'home') : 'home';
+$cloudTab = in_array($_GET['tab'] ?? 'plans', ['plans', 'langs', 'subscriptions'], true) ? ($_GET['tab'] ?? 'plans') : 'plans';
 $editing = null;
 $editingLabel = null;
 $accounts = [];
@@ -99,8 +100,12 @@ $songSearchLogStats = ['total_rows' => 0, 'unique_queries' => 0, 'unique_ips' =>
 $pages = [];
 $users = [];
 $apiConfigs = [];
+$apiSiteOptions = [];
 $banks = [];
 $sites = [];
+$cloudPlans = [];
+$cloudLangs = [];
+$cloudSubscriptions = [];
 $countries = [];
 $languageOptions = [];
 $labelTranslationMap = [];
@@ -123,6 +128,7 @@ $dashboardMetrics = [
     'ebook' => 0,
     'bank' => 0,
     'sites' => 0,
+    'cloud' => 0,
     'country' => 0,
 ];
 $trafficMetrics = [
@@ -170,6 +176,8 @@ $apiSort = 'updated_at';
 $apiDir = 'DESC';
 $bankSort = 'id';
 $bankDir = 'DESC';
+$cloudSort = 'sort_order';
+$cloudDir = 'ASC';
 $countrySort = 'id';
 $countryDir = 'DESC';
 $textLabelSort = 'key';
@@ -201,6 +209,16 @@ if (($_GET['duplicate'] ?? '') === 'page') {
 function admin_nas_upload_endpoint(): string
 {
     return 'https://nas.carrot28.com/index.php?api=upload_image';
+}
+
+function admin_nas_delete_endpoint(): string
+{
+    return 'https://nas.carrot28.com/index.php?api=delete_media';
+}
+
+function admin_allowed_media_types(): array
+{
+    return ['carrot_app', 'carrot_app_photo', 'carrot_ebook_cover', 'carrot_ebook_file', 'coc_images', 'bank', 'sites', 'country', 'song_avatar', 'song_mp3', 'artist_avatar', 'genre_avatar'];
 }
 
 function admin_upload_image_to_nas(array $file, string $typeMedia): string
@@ -262,7 +280,7 @@ function admin_ajax_upload(): void
 
     try {
         $typeMedia = trim($_POST['type_media'] ?? '');
-        if (!in_array($typeMedia, ['carrot_app', 'carrot_app_photo', 'carrot_ebook_cover', 'carrot_ebook_file', 'coc_images', 'bank', 'sites', 'country', 'song_avatar', 'song_mp3', 'artist_avatar', 'genre_avatar'], true)) {
+        if (!in_array($typeMedia, admin_allowed_media_types(), true)) {
             throw new RuntimeException('Type media không hợp lệ.');
         }
 
@@ -277,6 +295,13 @@ function admin_ajax_upload(): void
         if ($typeMedia === 'carrot_ebook_cover' && strpos($mimeType, 'image/') !== 0) {
             throw new RuntimeException('Vui lòng chọn tệp ảnh bìa.');
         }
+        if ($typeMedia === 'carrot_ebook_file') {
+            $fileName = (string) ($file['name'] ?? '');
+            $allowedEbookMimes = ['application/epub+zip', 'application/pdf', 'text/plain', 'text/markdown', 'text/html'];
+            if (!in_array($mimeType, $allowedEbookMimes, true) && !preg_match('/\.(epub|pdf|txt|md|html)$/i', $fileName)) {
+                throw new RuntimeException('Vui lòng chọn tệp EPUB, PDF hoặc file văn bản.');
+            }
+        }
 
         $url = admin_upload_image_to_nas($file, $typeMedia);
         if ($url === '') {
@@ -284,6 +309,76 @@ function admin_ajax_upload(): void
         }
 
         echo json_encode(['status' => 'success', 'url' => $url], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+    } catch (Throwable $e) {
+        http_response_code(400);
+        echo json_encode(['status' => 'error', 'message' => $e->getMessage()], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+    }
+
+    exit;
+}
+
+function admin_delete_file_from_nas(string $imageUrl, string $typeMedia = '', string $filename = ''): array
+{
+    if (!function_exists('curl_init')) {
+        throw new RuntimeException('Server cần bật PHP cURL để xóa file trên CarrotNas.');
+    }
+
+    $postFields = [];
+    if ($imageUrl !== '') {
+        $postFields['image_url'] = $imageUrl;
+    }
+    if ($typeMedia !== '') {
+        $postFields['type_media'] = $typeMedia;
+    }
+    if ($filename !== '') {
+        $postFields['filename'] = $filename;
+    }
+
+    if (!$postFields) {
+        throw new RuntimeException('Thiếu URL hoặc filename để xóa.');
+    }
+
+    $curl = curl_init(admin_nas_delete_endpoint());
+    curl_setopt_array($curl, [
+        CURLOPT_POST => true,
+        CURLOPT_POSTFIELDS => $postFields,
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_TIMEOUT => 30,
+    ]);
+
+    $response = curl_exec($curl);
+    $curlError = curl_error($curl);
+    $statusCode = (int) curl_getinfo($curl, CURLINFO_RESPONSE_CODE);
+    curl_close($curl);
+
+    if ($response === false) {
+        throw new RuntimeException('Không gọi được API CarrotNas: ' . $curlError);
+    }
+
+    $payload = json_decode($response, true);
+    if ($statusCode >= 400 || !is_array($payload) || ($payload['status'] ?? '') !== 'success') {
+        $apiMessage = is_array($payload) ? ($payload['message'] ?? 'unknown error') : trim($response);
+        throw new RuntimeException('CarrotNas xóa file thất bại: ' . $apiMessage);
+    }
+
+    return $payload;
+}
+
+function admin_ajax_delete_file(): void
+{
+    header('Content-Type: application/json; charset=utf-8');
+
+    try {
+        $typeMedia = trim($_POST['type_media'] ?? '');
+        if ($typeMedia !== '' && !in_array($typeMedia, admin_allowed_media_types(), true)) {
+            throw new RuntimeException('Type media không hợp lệ.');
+        }
+
+        $imageUrl = trim($_POST['image_url'] ?? '');
+        $filename = trim($_POST['filename'] ?? '');
+        $payload = admin_delete_file_from_nas($imageUrl, $typeMedia, $filename);
+
+        echo json_encode(['status' => 'success', 'file' => $payload], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
     } catch (Throwable $e) {
         http_response_code(400);
         echo json_encode(['status' => 'error', 'message' => $e->getMessage()], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
@@ -441,6 +536,32 @@ function admin_fetch_paypal_config(PDO $pdo, string $site): ?array
     return $row ?: null;
 }
 
+function admin_fetch_cloud_plan(PDO $pdo, int $id): ?array
+{
+    admin_ensure_cloud_tables($pdo);
+    $stmt = $pdo->prepare('SELECT * FROM cloud WHERE id = ?');
+    $stmt->execute([$id]);
+    $row = $stmt->fetch();
+    return $row ?: null;
+}
+
+function admin_fetch_cloud_lang(PDO $pdo, int $id): ?array
+{
+    admin_ensure_cloud_tables($pdo);
+    $stmt = $pdo->prepare('SELECT * FROM cloud_lang WHERE id = ?');
+    $stmt->execute([$id]);
+    $row = $stmt->fetch();
+    return $row ?: null;
+}
+
+function admin_fetch_cloud_langs(PDO $pdo, int $cloudId): array
+{
+    admin_ensure_cloud_tables($pdo);
+    $stmt = $pdo->prepare('SELECT * FROM cloud_lang WHERE cloud_id = ? ORDER BY lang_key ASC');
+    $stmt->execute([$cloudId]);
+    return $stmt->fetchAll();
+}
+
 function admin_fetch_ai_support_config(PDO $pdo): ?array
 {
     admin_ensure_ai_support_table($pdo);
@@ -463,22 +584,40 @@ function admin_fetch_ai_support_configs(PDO $pdo, bool $enabledOnly = false): ar
     return $stmt->fetchAll();
 }
 
-function admin_fetch_youtube_api_key(PDO $apiPdo, ?PDO $aiPdo = null): string
+function admin_fetch_youtube_api_key(PDO $apiPdo, ?PDO $aiPdo = null, ?int $siteId = null): string
 {
     admin_ensure_api_table($apiPdo);
-    $stmt = $apiPdo->prepare('
-        SELECT api_key, config_json
-        FROM api_config
-        WHERE provider = "youtube"
-          AND enabled = 1
-          AND (
-              TRIM(COALESCE(api_key, "")) <> ""
-              OR TRIM(COALESCE(config_json, "")) <> ""
-          )
-        ORDER BY id DESC
-        LIMIT 1
-    ');
-    $stmt->execute();
+    if ($siteId !== null && $siteId > 0) {
+        $stmt = $apiPdo->prepare('
+            SELECT api_key, config_json
+            FROM api_config
+            WHERE provider = "youtube"
+              AND enabled = 1
+              AND (site_id = ? OR site_id IS NULL OR site_id = 0)
+              AND (
+                  TRIM(COALESCE(api_key, "")) <> ""
+                  OR TRIM(COALESCE(config_json, "")) <> ""
+              )
+            ORDER BY CASE WHEN site_id = ? THEN 0 ELSE 1 END, id DESC
+            LIMIT 1
+        ');
+        $stmt->execute([$siteId, $siteId]);
+    } else {
+        $stmt = $apiPdo->prepare('
+            SELECT api_key, config_json
+            FROM api_config
+            WHERE provider = "youtube"
+              AND enabled = 1
+              AND (site_id IS NULL OR site_id = 0)
+              AND (
+                  TRIM(COALESCE(api_key, "")) <> ""
+                  OR TRIM(COALESCE(config_json, "")) <> ""
+              )
+            ORDER BY id DESC
+            LIMIT 1
+        ');
+        $stmt->execute();
+    }
     $config = $stmt->fetch();
     if ($config) {
         $apiKey = trim((string) ($config['api_key'] ?? ''));
@@ -1038,6 +1177,54 @@ PROMPT;
     return $result;
 }
 
+function admin_gemini_generate_site_description(PDO $pdo, string $idea, string $name, string $url, string $currentDescription = ''): array
+{
+    $prompt = <<<PROMPT
+You are a senior website copywriter for a CMS.
+Write or improve a short site description from the admin's request and return only valid JSON.
+
+Site name: {$name}
+Site URL: {$url}
+Current description:
+{$currentDescription}
+
+Admin request:
+{$idea}
+
+Return exactly this JSON shape:
+{
+  "description": "clear site description, 1-3 concise sentences"
+}
+
+Rules:
+- Keep the description useful for a footer/list of related Carrot sites.
+- Use the same language as the admin request unless the request says otherwise.
+- Do not include markdown, HTML, code fences, URLs, or explanations outside the JSON.
+PROMPT;
+
+    $text = admin_gemini_complete($pdo, $prompt, 0.7);
+    $text = trim(preg_replace('/^```(?:json)?\s*|\s*```$/i', '', $text) ?? $text);
+    $data = json_decode($text, true);
+    if (!is_array($data)) {
+        $start = strpos($text, '{');
+        $end = strrpos($text, '}');
+        if ($start !== false && $end !== false && $end > $start) {
+            $data = json_decode(substr($text, $start, $end - $start + 1), true);
+        }
+    }
+
+    if (!is_array($data)) {
+        throw new RuntimeException('AI không trả về JSON hợp lệ.');
+    }
+
+    $description = trim(strip_tags((string) ($data['description'] ?? '')));
+    if ($description === '') {
+        throw new RuntimeException('AI chưa tạo đủ description.');
+    }
+
+    return ['description' => $description];
+}
+
 function admin_fetch_language_options(?PDO $pdo): array
 {
     if (!$pdo instanceof PDO) {
@@ -1254,6 +1441,51 @@ function admin_fetch_api_config(PDO $pdo, int $id): ?array
     $stmt->execute([$id]);
     $row = $stmt->fetch();
     return $row ?: null;
+}
+
+function admin_fetch_api_site_options(PDO $pdo): array
+{
+    try {
+        admin_ensure_sites_table($pdo);
+        return $pdo->query('SELECT id, name, url FROM sites ORDER BY sort_order ASC, name ASC, id ASC')->fetchAll();
+    } catch (Throwable $e) {
+        return [];
+    }
+}
+
+function admin_site_id_by_key(PDO $pdo, string $siteKey, array $aliases = []): ?int
+{
+    try {
+        admin_ensure_sites_table($pdo);
+        $names = array_values(array_unique(array_filter(array_map(static fn($value): string => strtolower(trim((string) $value)), array_merge([$siteKey], $aliases)))));
+        if ($names) {
+            $stmt = $pdo->prepare('SELECT id FROM sites WHERE LOWER(name) IN (' . implode(',', array_fill(0, count($names), '?')) . ') ORDER BY sort_order ASC, id ASC LIMIT 1');
+            $stmt->execute($names);
+            $siteId = (int) $stmt->fetchColumn();
+            if ($siteId > 0) {
+                return $siteId;
+            }
+        }
+
+        $hostMap = [
+            'CarrotHome' => 'home.carrot28.com',
+            'CarrotMusic' => 'music.carrot28.com',
+            'CarrotCoc' => 'coc.carrot28.com',
+        ];
+        $host = $hostMap[$siteKey] ?? '';
+        if ($host !== '') {
+            $stmt = $pdo->prepare('SELECT id FROM sites WHERE LOWER(url) LIKE ? ORDER BY sort_order ASC, id ASC LIMIT 1');
+            $stmt->execute(['%' . strtolower($host) . '%']);
+            $siteId = (int) $stmt->fetchColumn();
+            if ($siteId > 0) {
+                return $siteId;
+            }
+        }
+    } catch (Throwable $e) {
+        return null;
+    }
+
+    return null;
 }
 
 function admin_fetch_page_by_slug_lang(PDO $pdo, string $slug, string $lang): ?array
@@ -1878,10 +2110,76 @@ function admin_sql_value($value): string
     ]) . "'";
 }
 
+function admin_backup_packet_limit(PDO $pdo): int
+{
+    try {
+        $packet = (int) $pdo->query('SELECT @@max_allowed_packet')->fetchColumn();
+        if ($packet > 0) {
+            return max(1024 * 64, (int) floor($packet * 0.75));
+        }
+    } catch (Throwable $e) {
+    }
+    return 1024 * 1024;
+}
+
+function admin_backup_set_large_packet(PDO $pdo): void
+{
+    try {
+        $pdo->exec('SET SESSION max_allowed_packet=67108864');
+    } catch (Throwable $e) {
+    }
+}
+
+function admin_backup_error_message(Throwable $e): string
+{
+    $message = $e->getMessage();
+    if (stripos($message, 'max_allowed_packet') !== false || stripos($message, 'Got a packet bigger') !== false) {
+        return 'Gói dữ liệu backup/restore lớn hơn max_allowed_packet của MySQL. Hệ thống đã tự chia nhỏ INSERT theo giới hạn hiện tại; nếu vẫn lỗi, có một bản ghi đơn lẻ quá lớn và cần tăng max_allowed_packet trên MySQL lên 64M hoặc 128M rồi khởi động lại MySQL.';
+    }
+    return $message;
+}
+
 function admin_backup_write(string $path, string $content): void
 {
     if (@file_put_contents($path, $content, FILE_APPEND | LOCK_EX) === false) {
         throw new RuntimeException('Không ghi được file backup.');
+    }
+}
+
+function admin_backup_write_insert_rows(string $filePath, string $table, array $columns, array $rows, int $packetLimit): void
+{
+    if (!$rows) {
+        return;
+    }
+
+    $columnSql = implode(', ', array_map('admin_sql_ident', $columns));
+    $prefix = 'INSERT INTO ' . admin_sql_ident($table) . ' (' . $columnSql . ") VALUES\n";
+    $statement = $prefix;
+    $statementRows = 0;
+
+    foreach ($rows as $row) {
+        $values = [];
+        foreach ($columns as $column) {
+            $values[] = admin_sql_value($row[$column] ?? null);
+        }
+        $line = '(' . implode(', ', $values) . ')';
+        $candidateLength = strlen($statement) + ($statementRows > 0 ? 2 : 0) + strlen($line) + 2;
+
+        if ($statementRows > 0 && $candidateLength > $packetLimit) {
+            admin_backup_write($filePath, $statement . ";\n");
+            $statement = $prefix;
+            $statementRows = 0;
+        }
+
+        if ($statementRows > 0) {
+            $statement .= ",\n";
+        }
+        $statement .= $line;
+        $statementRows++;
+    }
+
+    if ($statementRows > 0) {
+        admin_backup_write($filePath, $statement . ";\n");
     }
 }
 
@@ -1986,6 +2284,7 @@ function admin_backup_progress(array $state): array
 
 function admin_backup_start(PDO $pdo, string $dbName): array
 {
+    admin_backup_set_large_packet($pdo);
     $dir = admin_ensure_backup_dir();
     admin_backup_cleanup_incomplete(60);
     $stamp = date('Ymd_His');
@@ -2024,8 +2323,9 @@ function admin_backup_start(PDO $pdo, string $dbName): array
     return admin_backup_progress($state);
 }
 
-function admin_backup_process(PDO $pdo, string $jobId, int $chunkSize = 700): array
+function admin_backup_process(PDO $pdo, string $jobId, int $chunkSize = 100): array
 {
+    admin_backup_set_large_packet($pdo);
     $statePath = admin_backup_state_path($jobId);
     $state = is_file($statePath) ? json_decode((string) file_get_contents($statePath), true) : null;
     if (!is_array($state)) {
@@ -2076,16 +2376,7 @@ function admin_backup_process(PDO $pdo, string $jobId, int $chunkSize = 700): ar
         $state['current_table'] = $tables[$tableIndex + 1] ?? '';
     } else {
         $columns = array_keys($rows[0]);
-        $columnSql = implode(', ', array_map('admin_sql_ident', $columns));
-        $lines = [];
-        foreach ($rows as $row) {
-            $values = [];
-            foreach ($columns as $column) {
-                $values[] = admin_sql_value($row[$column] ?? null);
-            }
-            $lines[] = '(' . implode(', ', $values) . ')';
-        }
-        admin_backup_write($filePath, 'INSERT INTO ' . admin_sql_ident($table) . ' (' . $columnSql . ") VALUES\n" . implode(",\n", $lines) . ";\n");
+        admin_backup_write_insert_rows($filePath, $table, $columns, $rows, admin_backup_packet_limit($pdo));
         $state['offset'] = $offset + count($rows);
         $state['done_rows'] = (int) ($state['done_rows'] ?? 0) + count($rows);
     }
@@ -2133,6 +2424,7 @@ function admin_restore_progress(array $state): array
 
 function admin_restore_process(PDO $pdo, string $jobId): array
 {
+    admin_backup_set_large_packet($pdo);
     $statePath = admin_backup_state_path($jobId);
     $state = is_file($statePath) ? json_decode((string) file_get_contents($statePath), true) : null;
     if (!is_array($state)) {
@@ -2215,7 +2507,7 @@ function admin_backup_ajax(PDO $pdo, string $dbName): void
         }
         throw new RuntimeException('Tác vụ backup không hợp lệ.');
     } catch (Throwable $e) {
-        admin_json_error($e->getMessage());
+        admin_json_error(admin_backup_error_message($e));
     }
 }
 
@@ -2244,6 +2536,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'ajax_
     admin_ajax_upload();
 }
 
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'ajax_delete_file') {
+    admin_ajax_delete_file();
+}
+
 if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages', 'users', 'api'], true)) {
     $error = 'Không thể kết nối database: ' . ($db_error ?? 'unknown error');
 } else {
@@ -2269,6 +2565,8 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages', 'users', '
             $dashboardMetrics['ebook'] = admin_cached_count_table($pdo, 'main_ebook', 'ebook');
             $dashboardMetrics['bank'] = admin_cached_count_table($pdo, 'main_bank', 'bank');
             $dashboardMetrics['sites'] = admin_cached_count_table($pdo, 'main_sites', 'sites');
+            admin_ensure_cloud_tables($pdo);
+            $dashboardMetrics['cloud'] = admin_cached_count_table($pdo, 'main_cloud', 'cloud');
             $dashboardMetrics['country'] = admin_cached_count_table($pdo, 'main_country', 'country');
             $overviewHomePdo = null;
             try {
@@ -2313,7 +2611,7 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages', 'users', '
             $backupItems = admin_backup_list_items();
         }
 
-        if (in_array($section, ['apps', 'music', 'pages', 'country'], true)) {
+        if (in_array($section, ['apps', 'music', 'pages', 'country', 'cloud'], true)) {
             $languageOptions = admin_fetch_language_options($pdo instanceof PDO ? $pdo : null);
         }
 
@@ -2344,7 +2642,15 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages', 'users', '
             admin_ensure_paypal_config_table($pdo);
         }
 
-        if ($section === 'ai_support' || in_array($_POST['action'] ?? '', ['save_ai_support_config', 'ajax_ai_translate_page', 'ajax_ai_translate_label', 'ajax_find_text_label_source', 'ajax_find_app_content_source', 'ajax_ai_translate_app_content', 'ajax_find_app_category_content_source', 'ajax_ai_translate_app_category_content', 'ajax_ai_request_app_category_content', 'ajax_ai_request_song_artist', 'ajax_ai_request_song_genre'], true)) {
+        if ($section === 'sites') {
+            admin_ensure_sites_table($pdo);
+        }
+
+        if ($section === 'cloud') {
+            admin_ensure_cloud_tables($pdo);
+        }
+
+        if ($section === 'ai_support' || in_array($_POST['action'] ?? '', ['save_ai_support_config', 'ajax_ai_translate_page', 'ajax_ai_translate_label', 'ajax_find_text_label_source', 'ajax_find_app_content_source', 'ajax_ai_translate_app_content', 'ajax_find_app_category_content_source', 'ajax_ai_translate_app_category_content', 'ajax_ai_request_app_category_content', 'ajax_ai_request_song_artist', 'ajax_ai_request_song_genre', 'ajax_ai_request_site_description'], true)) {
             admin_ensure_ai_support_table($pdo);
         }
 
@@ -2917,7 +3223,8 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages', 'users', '
                     }
 
                     $apiPdo = $homePdo instanceof PDO ? $homePdo : admin_home_pdo();
-                    $apiKey = admin_fetch_youtube_api_key($apiPdo, $pdo instanceof PDO ? $pdo : null);
+                    $musicSiteId = $pdo instanceof PDO ? admin_site_id_by_key($pdo, 'CarrotMusic', ['Music', 'music.carrot28.com']) : null;
+                    $apiKey = admin_fetch_youtube_api_key($apiPdo, $pdo instanceof PDO ? $pdo : null, $musicSiteId);
                     if (!function_exists('curl_init')) {
                         throw new RuntimeException('Server cần bật PHP cURL.');
                     }
@@ -3267,7 +3574,7 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages', 'users', '
             }
 
             if ($section === 'paypal' && $action === 'save_paypal_config') {
-                $site = in_array($_POST['site'] ?? '', ['home', 'ebook', 'coc', 'music'], true) ? (string) $_POST['site'] : 'home';
+                $site = in_array($_POST['site'] ?? '', ['home', 'ebook', 'coc', 'music', 'cloud'], true) ? (string) $_POST['site'] : 'home';
                 $enabled = isset($_POST['enabled']) ? 1 : 0;
                 $activeMode = ($_POST['active_mode'] ?? 'sandbox') === 'live' ? 'live' : 'sandbox';
                 $currency = strtoupper(trim($_POST['currency'] ?? 'USD')) ?: 'USD';
@@ -3337,6 +3644,104 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages', 'users', '
                 $stmt = $pdo->prepare('DELETE FROM ai_support WHERE id = ? AND provider = "gemini"');
                 $stmt->execute([(int) ($_POST['id'] ?? 0)]);
                 $message = 'Đã xóa tài khoản AI.';
+            }
+
+            if ($section === 'cloud' && $action === 'delete_cloud_plan') {
+                $stmt = $pdo->prepare('DELETE FROM cloud WHERE id = ?');
+                $stmt->execute([(int) ($_POST['id'] ?? 0)]);
+                $message = 'Đã xóa gói Cloud.';
+            }
+
+            if ($section === 'cloud' && $action === 'delete_cloud_lang') {
+                $stmt = $pdo->prepare('DELETE FROM cloud_lang WHERE id = ?');
+                $stmt->execute([(int) ($_POST['id'] ?? 0)]);
+                $message = 'Đã xóa bản dịch gói Cloud.';
+            }
+
+            if ($section === 'cloud' && $action === 'delete_cloud_subscription') {
+                $stmt = $pdo->prepare('DELETE FROM cloud_subscription WHERE id = ?');
+                $stmt->execute([(int) ($_POST['id'] ?? 0)]);
+                $message = 'Đã xóa quyền sử dụng Cloud.';
+            }
+
+            if ($section === 'cloud' && $action === 'save_cloud_plan') {
+                $id = (int) ($_POST['id'] ?? 0);
+                $name = trim($_POST['name'] ?? '');
+                $description = trim($_POST['description'] ?? '');
+                $limitGb = max(0, (float) ($_POST['limit_gb'] ?? 0));
+                $price = max(0, (float) ($_POST['price'] ?? 0));
+                $currency = strtoupper(trim($_POST['currency'] ?? 'USD')) ?: 'USD';
+                $user = trim($_POST['user'] ?? '');
+                $status = trim($_POST['status'] ?? 'active') === 'inactive' ? 'inactive' : 'active';
+                $sortOrder = (int) ($_POST['sort_order'] ?? 0);
+
+                if ($name === '' || $limitGb <= 0) {
+                    throw new RuntimeException('Vui lòng nhập tên gói và dung lượng giới hạn lớn hơn 0 GB.');
+                }
+
+                if ($id > 0) {
+                    $stmt = $pdo->prepare('UPDATE cloud SET name = ?, description = ?, limit_gb = ?, price = ?, currency = ?, user = ?, status = ?, sort_order = ? WHERE id = ?');
+                    $stmt->execute([$name, $description, $limitGb, $price, $currency, $user, $status, $sortOrder, $id]);
+                    $message = 'Đã cập nhật gói Cloud.';
+                } else {
+                    $stmt = $pdo->prepare('INSERT INTO cloud (name, description, limit_gb, price, currency, user, status, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
+                    $stmt->execute([$name, $description, $limitGb, $price, $currency, $user, $status, $sortOrder]);
+                    $message = 'Đã thêm gói Cloud.';
+                }
+            }
+
+            if ($section === 'cloud' && $action === 'save_cloud_lang') {
+                $id = (int) ($_POST['id'] ?? 0);
+                $cloudId = (int) ($_POST['cloud_id'] ?? 0);
+                $langKey = trim($_POST['lang_key'] ?? 'vi');
+                $name = trim($_POST['name'] ?? '');
+                $description = trim($_POST['description'] ?? '');
+
+                if ($cloudId <= 0 || $langKey === '' || $name === '') {
+                    throw new RuntimeException('Vui lòng chọn gói, lang key và nhập tên bản dịch.');
+                }
+
+                if ($languageOptions && !in_array($langKey, array_column($languageOptions, 'lang_key'), true)) {
+                    throw new RuntimeException('Lang key không có trong danh sách country.');
+                }
+
+                if ($id > 0) {
+                    $stmt = $pdo->prepare('UPDATE cloud_lang SET cloud_id = ?, lang_key = ?, name = ?, description = ? WHERE id = ?');
+                    $stmt->execute([$cloudId, $langKey, $name, $description, $id]);
+                    $message = 'Đã cập nhật bản dịch gói Cloud.';
+                } else {
+                    $stmt = $pdo->prepare('INSERT INTO cloud_lang (cloud_id, lang_key, name, description) VALUES (?, ?, ?, ?) ON DUPLICATE KEY UPDATE name = VALUES(name), description = VALUES(description)');
+                    $stmt->execute([$cloudId, $langKey, $name, $description]);
+                    $message = 'Đã lưu bản dịch gói Cloud.';
+                }
+            }
+
+            if ($section === 'cloud' && $action === 'save_cloud_subscription') {
+                $id = (int) ($_POST['id'] ?? 0);
+                $cloudId = (int) ($_POST['cloud_id'] ?? 0);
+                $user = trim($_POST['user'] ?? '');
+                $userId = trim($_POST['user_id'] ?? '') === '' ? null : (int) $_POST['user_id'];
+                $payerEmail = trim($_POST['payer_email'] ?? '');
+                $provider = trim($_POST['provider'] ?? '');
+                $providerOrderId = trim($_POST['provider_order_id'] ?? '');
+                $providerOrderId = $providerOrderId === '' ? null : $providerOrderId;
+                $status = in_array($_POST['status'] ?? 'active', ['active', 'pending', 'expired', 'cancelled'], true) ? $_POST['status'] : 'active';
+                $expiresAt = trim($_POST['expires_at'] ?? '');
+                $expiresAt = $expiresAt === '' ? null : str_replace('T', ' ', $expiresAt);
+
+                if ($cloudId <= 0 || $user === '') {
+                    throw new RuntimeException('Vui lòng chọn gói và nhập user email/id.');
+                }
+
+                if ($id > 0) {
+                    $stmt = $pdo->prepare('UPDATE cloud_subscription SET cloud_id = ?, user = ?, user_id = ?, payer_email = ?, provider = ?, provider_order_id = ?, status = ?, expires_at = ? WHERE id = ?');
+                    $stmt->execute([$cloudId, $user, $userId, $payerEmail, $provider, $providerOrderId, $status, $expiresAt, $id]);
+                    $message = 'Đã cập nhật quyền sử dụng Cloud.';
+                } else {
+                    $stmt = $pdo->prepare('INSERT INTO cloud_subscription (cloud_id, user, user_id, payer_email, provider, provider_order_id, status, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
+                    $stmt->execute([$cloudId, $user, $userId, $payerEmail, $provider, $providerOrderId, $status, $expiresAt]);
+                    $message = 'Đã cấp quyền sử dụng Cloud.';
+                }
             }
 
             if ($section === 'pages' && $action === 'delete_page') {
@@ -3543,9 +3948,38 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages', 'users', '
                 $message = 'Đã xóa API config.';
             }
 
+            if ($section === 'api' && $action === 'duplicate_api_config') {
+                $sourceId = (int) ($_POST['id'] ?? 0);
+                $sourceApi = admin_fetch_api_config($homePdo, $sourceId);
+                if (!$sourceApi) {
+                    throw new RuntimeException('Không tìm thấy API config cần nhân đôi.');
+                }
+
+                $stmt = $homePdo->prepare('
+                    INSERT INTO api_config (provider, site_id, name, enabled, client_id, client_secret, api_key, project_url, redirect_uri, scopes, config_json, note)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ');
+                $stmt->execute([
+                    (string) ($sourceApi['provider'] ?? 'custom'),
+                    !empty($sourceApi['site_id']) ? (int) $sourceApi['site_id'] : null,
+                    trim((string) ($sourceApi['name'] ?? 'API')) . ' (Copy)',
+                    (int) ($sourceApi['enabled'] ?? 0),
+                    (string) ($sourceApi['client_id'] ?? ''),
+                    (string) ($sourceApi['client_secret'] ?? ''),
+                    (string) ($sourceApi['api_key'] ?? ''),
+                    (string) ($sourceApi['project_url'] ?? ''),
+                    (string) ($sourceApi['redirect_uri'] ?? ''),
+                    (string) ($sourceApi['scopes'] ?? ''),
+                    (string) ($sourceApi['config_json'] ?? ''),
+                    (string) ($sourceApi['note'] ?? ''),
+                ]);
+                $message = 'Đã nhân đôi API config.';
+            }
+
             if ($section === 'api' && $action === 'save_api_config') {
                 $id = (int) ($_POST['id'] ?? 0);
                 $provider = trim($_POST['provider'] ?? 'custom');
+                $siteId = (int) ($_POST['site_id'] ?? 0);
                 $name = trim($_POST['name'] ?? '');
                 $enabled = isset($_POST['enabled']) ? 1 : 0;
                 $clientId = trim($_POST['client_id'] ?? '');
@@ -3565,6 +3999,10 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages', 'users', '
                     throw new RuntimeException('Provider chỉ dùng chữ, số, gạch ngang hoặc gạch dưới.');
                 }
 
+                if ($siteId > 0 && !admin_fetch_sites($pdo, $siteId)) {
+                    throw new RuntimeException('Site áp dụng API không tồn tại.');
+                }
+
                 if ($configJson !== '' && json_decode($configJson, true) === null && json_last_error() !== JSON_ERROR_NONE) {
                     throw new RuntimeException('Config JSON không hợp lệ.');
                 }
@@ -3572,17 +4010,17 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages', 'users', '
                 if ($id > 0) {
                     $stmt = $homePdo->prepare('
                         UPDATE api_config
-                        SET provider = ?, name = ?, enabled = ?, client_id = ?, client_secret = ?, api_key = ?, project_url = ?, redirect_uri = ?, scopes = ?, config_json = ?, note = ?
+                        SET provider = ?, site_id = ?, name = ?, enabled = ?, client_id = ?, client_secret = ?, api_key = ?, project_url = ?, redirect_uri = ?, scopes = ?, config_json = ?, note = ?
                         WHERE id = ?
                     ');
-                    $stmt->execute([$provider, $name, $enabled, $clientId, $clientSecret, $apiKey, $projectUrl, $redirectUri, $scopes, $configJson, $note, $id]);
+                    $stmt->execute([$provider, $siteId > 0 ? $siteId : null, $name, $enabled, $clientId, $clientSecret, $apiKey, $projectUrl, $redirectUri, $scopes, $configJson, $note, $id]);
                     $message = 'Đã cập nhật API config.';
                 } else {
                     $stmt = $homePdo->prepare('
-                        INSERT INTO api_config (provider, name, enabled, client_id, client_secret, api_key, project_url, redirect_uri, scopes, config_json, note)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        INSERT INTO api_config (provider, site_id, name, enabled, client_id, client_secret, api_key, project_url, redirect_uri, scopes, config_json, note)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     ');
-                    $stmt->execute([$provider, $name, $enabled, $clientId, $clientSecret, $apiKey, $projectUrl, $redirectUri, $scopes, $configJson, $note]);
+                    $stmt->execute([$provider, $siteId > 0 ? $siteId : null, $name, $enabled, $clientId, $clientSecret, $apiKey, $projectUrl, $redirectUri, $scopes, $configJson, $note]);
                     $message = 'Đã thêm API config.';
                 }
             }
@@ -3620,7 +4058,30 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages', 'users', '
             if ($section === 'sites' && $action === 'delete_sites') {
                 $stmt = $pdo->prepare('DELETE FROM sites WHERE id = ?');
                 $stmt->execute([(int) ($_POST['id'] ?? 0)]);
+                admin_clear_internal_cache('overview_count_main_sites');
+                admin_clear_carrothome_cache();
+                admin_clear_carrotmusic_cache();
                 $message = 'Đã xóa site.';
+            }
+
+            if ($section === 'sites' && $action === 'ajax_ai_request_site_description') {
+                try {
+                    $idea = trim($_POST['idea'] ?? '');
+                    $name = trim($_POST['name'] ?? '');
+                    $url = trim($_POST['url'] ?? '');
+                    $currentDescription = trim($_POST['description'] ?? '');
+
+                    if ($idea === '') {
+                        throw new RuntimeException('Vui lòng nhập yêu cầu cho AI.');
+                    }
+                    if ($name === '') {
+                        throw new RuntimeException('Vui lòng nhập tên site trước khi yêu cầu AI.');
+                    }
+
+                    admin_json_success(admin_gemini_generate_site_description($pdo, $idea, $name, $url, $currentDescription));
+                } catch (Throwable $e) {
+                    admin_json_error($e->getMessage());
+                }
             }
 
             if ($section === 'sites' && $action === 'save_sites') {
@@ -3629,6 +4090,7 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages', 'users', '
                 $url = trim($_POST['url'] ?? '');
                 $logo = trim($_POST['logo'] ?? '');
                 $description = trim($_POST['description'] ?? '');
+                $status = ($_POST['status'] ?? 'active') === 'hidden' ? 'hidden' : 'active';
                 $sortOrder = (int) ($_POST['sort_order'] ?? 0);
 
                 if ($name === '' || $url === '') {
@@ -3636,14 +4098,18 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages', 'users', '
                 }
 
                 if ($originalId > 0) {
-                    $stmt = $pdo->prepare('UPDATE sites SET name = ?, url = ?, logo = ?, description = ?, sort_order = ? WHERE id = ?');
-                    $stmt->execute([$name, $url, $logo, $description, $sortOrder, $originalId]);
+                    $stmt = $pdo->prepare('UPDATE sites SET name = ?, url = ?, logo = ?, description = ?, status = ?, sort_order = ? WHERE id = ?');
+                    $stmt->execute([$name, $url, $logo, $description, $status, $sortOrder, $originalId]);
                     $message = 'Đã cập nhật site.';
                 } else {
-                    $stmt = $pdo->prepare('INSERT INTO sites (name, url, logo, description, sort_order) VALUES (?, ?, ?, ?, ?)');
-                    $stmt->execute([$name, $url, $logo, $description, $sortOrder]);
+                    $stmt = $pdo->prepare('INSERT INTO sites (name, url, logo, description, status, sort_order) VALUES (?, ?, ?, ?, ?, ?)');
+                    $stmt->execute([$name, $url, $logo, $description, $status, $sortOrder]);
                     $message = 'Đã thêm site mới.';
                 }
+
+                admin_clear_internal_cache('overview_count_main_sites');
+                admin_clear_carrothome_cache();
+                admin_clear_carrotmusic_cache();
             }
 
             if ($section === 'country' && $action === 'delete_country') {
@@ -3756,13 +4222,36 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages', 'users', '
                 }
 
                 if ($id > 0) {
-                    $stmt = $pdo->prepare('UPDATE text_label SET `key` = ?, lang_key = ?, value = ? WHERE id = ?');
-                    $stmt->execute([$labelKey, $langKey, $value, $id]);
-                    $message = 'Đã cập nhật nhãn.';
+                    $existingStmt = $pdo->prepare('SELECT id FROM text_label WHERE `key` = ? AND lang_key = ? AND id <> ? LIMIT 1');
+                    $existingStmt->execute([$labelKey, $langKey, $id]);
+                    $existingId = (int) $existingStmt->fetchColumn();
+
+                    if ($existingId > 0) {
+                        $pdo->beginTransaction();
+                        try {
+                            $stmt = $pdo->prepare('UPDATE text_label SET value = ? WHERE id = ?');
+                            $stmt->execute([$value, $existingId]);
+                            $stmt = $pdo->prepare('DELETE FROM text_label WHERE id = ?');
+                            $stmt->execute([$id]);
+                            $pdo->commit();
+                        } catch (Throwable $e) {
+                            $pdo->rollBack();
+                            throw $e;
+                        }
+                        $message = 'Đã gộp và cập nhật nhãn đã tồn tại.';
+                    } else {
+                        $stmt = $pdo->prepare('UPDATE text_label SET `key` = ?, lang_key = ?, value = ? WHERE id = ?');
+                        $stmt->execute([$labelKey, $langKey, $value, $id]);
+                        $message = 'Đã cập nhật nhãn.';
+                    }
                 } else {
-                    $stmt = $pdo->prepare('INSERT INTO text_label (`key`, lang_key, value) VALUES (?, ?, ?)');
+                    $stmt = $pdo->prepare('
+                        INSERT INTO text_label (`key`, lang_key, value)
+                        VALUES (?, ?, ?)
+                        ON DUPLICATE KEY UPDATE value = VALUES(value)
+                    ');
                     $stmt->execute([$labelKey, $langKey, $value]);
-                    $message = 'Đã thêm nhãn mới.';
+                    $message = 'Đã lưu nhãn.';
                 }
             }
 
@@ -3882,6 +4371,18 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages', 'users', '
             $editingLabel = admin_fetch_text_label($pdo, $editId);
         }
 
+        if ($section === 'cloud' && $editId > 0) {
+            if ($cloudTab === 'langs') {
+                $editing = admin_fetch_cloud_lang($pdo, $editId);
+            } elseif ($cloudTab === 'subscriptions') {
+                $stmt = $pdo->prepare('SELECT * FROM cloud_subscription WHERE id = ?');
+                $stmt->execute([$editId]);
+                $editing = $stmt->fetch() ?: null;
+            } else {
+                $editing = admin_fetch_cloud_plan($pdo, $editId);
+            }
+        }
+
         $accountSortColumns = [
             'id' => 'id',
             'name' => 'name',
@@ -3946,11 +4447,12 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages', 'users', '
         [$userSort, $userDir] = admin_sort_state($userSortColumns, 'created_at', 'DESC');
 
         $apiSortColumns = [
-            'id' => 'id',
-            'provider' => 'provider',
-            'name' => 'name',
-            'enabled' => 'enabled',
-            'updated_at' => 'updated_at',
+            'id' => 'api_config.id',
+            'site_id' => 'api_config.site_id',
+            'provider' => 'api_config.provider',
+            'name' => 'api_config.name',
+            'enabled' => 'api_config.enabled',
+            'updated_at' => 'api_config.updated_at',
         ];
         [$apiSort, $apiDir] = admin_sort_state($apiSortColumns, 'updated_at', 'DESC');
 
@@ -3962,9 +4464,21 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages', 'users', '
         ];
         [$bankSort, $bankDir] = admin_sort_state($bankSortColumns, 'id', 'DESC');
 
+        $cloudSortColumns = [
+            'id' => 'id',
+            'name' => 'name',
+            'limit_gb' => 'limit_gb',
+            'price' => 'price',
+            'status' => 'status',
+            'sort_order' => 'sort_order',
+            'updated_at' => 'updated_at',
+        ];
+        [$cloudSort, $cloudDir] = admin_sort_state($cloudSortColumns, 'sort_order', 'ASC');
+
         $siteSortColumns = [
             'id' => 'id',
             'name' => 'name',
+            'status' => 'status',
             'sort_order' => 'sort_order',
         ];
         [$sitesSort, $sitesDir] = admin_sort_state($siteSortColumns, 'sort_order', 'ASC');
@@ -4183,8 +4697,14 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages', 'users', '
             ? $homePdo->query('SELECT * FROM users ORDER BY ' . admin_order_by($userSortColumns, $userSort, $userDir) . ', id DESC')->fetchAll()
             : [];
         $apiConfigs = $section === 'api'
-            ? $homePdo->query('SELECT * FROM api_config ORDER BY ' . admin_order_by($apiSortColumns, $apiSort, $apiDir) . ', id DESC')->fetchAll()
+            ? $homePdo->query('
+                SELECT api_config.*, sites.name AS site_name, sites.url AS site_url
+                FROM api_config
+                LEFT JOIN sites ON sites.id = api_config.site_id
+                ORDER BY ' . admin_order_by($apiSortColumns, $apiSort, $apiDir) . ', api_config.id DESC
+            ')->fetchAll()
             : [];
+        $apiSiteOptions = $section === 'api' ? admin_fetch_api_site_options($pdo) : [];
         if ($section === 'pages') {
             $pageSlugOptions = array_values(array_unique(array_filter(array_map(static fn(array $page): string => (string) ($page['slug'] ?? ''), $pages))));
             sort($pageSlugOptions, SORT_NATURAL | SORT_FLAG_CASE);
@@ -4194,6 +4714,26 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages', 'users', '
             : [];
         $sites = $section === 'sites'
             ? $pdo->query('SELECT * FROM sites ORDER BY ' . admin_order_by($siteSortColumns, $sitesSort, $sitesDir))->fetchAll()
+            : [];
+        $cloudPlans = $section === 'cloud'
+            ? $pdo->query('SELECT * FROM cloud ORDER BY ' . admin_order_by($cloudSortColumns, $cloudSort, $cloudDir) . ', id ASC')->fetchAll()
+            : [];
+        $cloudLangs = $section === 'cloud'
+            ? $pdo->query('
+                SELECT cl.*, c.name AS plan_name
+                FROM cloud_lang cl
+                JOIN cloud c ON c.id = cl.cloud_id
+                ORDER BY c.sort_order ASC, c.id ASC, cl.lang_key ASC
+            ')->fetchAll()
+            : [];
+        $cloudSubscriptions = $section === 'cloud'
+            ? $pdo->query('
+                SELECT cs.*, c.name AS plan_name, c.limit_gb
+                FROM cloud_subscription cs
+                JOIN cloud c ON c.id = cs.cloud_id
+                ORDER BY cs.updated_at DESC, cs.id DESC
+                LIMIT 200
+            ')->fetchAll()
             : [];
         $countries = $section === 'country'
             ? $pdo->query('SELECT * FROM country ORDER BY ' . admin_order_by($countrySortColumns, $countrySort, $countryDir))->fetchAll()
@@ -4303,8 +4843,8 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages', 'users', '
 
 $photoText = ($section === 'coc' && $editing) ? implode("\n", coc_decode_photos($editing['photos'])) : '';
 $pageTitle = ['overview' => 'Tổng quan', 'apps' => 'App', 'ebook' => 'Ebook', 'music' => 'Âm nhạc', 'pages' => 'Page', 'users' => 'Users', 'api' => 'API', 'bank' => 'Bank', 'sites' => 'Sites', 'coc' => 'Coc', 'country' => 'Country', 'paypal' => 'Paypal', 'ai_support' => 'AI Support', 'backup' => 'Sao Lưu'][$section] ?? 'Tổng quan';
-$sectionLabels = ['overview' => 'tổng quan', 'apps' => 'ứng dụng', 'ebook' => 'ebook', 'music' => 'âm nhạc', 'pages' => 'Page/SEO', 'users' => 'người dùng', 'api' => 'API key', 'bank' => 'ngân hàng', 'sites' => 'website', 'coc' => 'shop', 'country' => 'quốc gia hỗ trợ', 'paypal' => 'PayPal', 'ai_support' => 'AI Support', 'backup' => 'sao lưu dữ liệu'];
-$sectionTitles = ['overview' => 'Tổng quan', 'apps' => 'App Carrot Home', 'ebook' => 'CarrotEbook', 'music' => 'CarrotMusic', 'pages' => 'Page Carrot Home', 'users' => 'User Carrot Home', 'api' => 'API Config', 'bank' => 'Bank', 'sites' => 'Sites', 'coc' => 'Acc Clash of Clans', 'country' => 'Country', 'paypal' => 'Paypal Config', 'ai_support' => 'AI - Support', 'backup' => 'Sao Lưu Database'];
+$sectionLabels = ['overview' => 'tổng quan', 'apps' => 'ứng dụng', 'ebook' => 'ebook', 'music' => 'âm nhạc', 'pages' => 'Page/SEO', 'users' => 'người dùng', 'api' => 'API key', 'bank' => 'ngân hàng', 'sites' => 'website', 'coc' => 'shop', 'country' => 'quốc gia hỗ trợ', 'paypal' => 'PayPal', 'ai_support' => 'AI Support', 'cloud' => 'Cloud', 'backup' => 'sao lưu dữ liệu'];
+$sectionTitles = ['overview' => 'Tổng quan', 'apps' => 'App Carrot Home', 'ebook' => 'CarrotEbook', 'music' => 'CarrotMusic', 'pages' => 'Page Carrot Home', 'users' => 'User Carrot Home', 'api' => 'API Config', 'bank' => 'Bank', 'sites' => 'Sites', 'coc' => 'Acc Clash of Clans', 'country' => 'Country', 'paypal' => 'Paypal Config', 'ai_support' => 'AI - Support', 'cloud' => 'CarrotCloud', 'backup' => 'Sao Lưu Database'];
 $dashboardCards = [
     ['label' => 'App', 'value' => $dashboardMetrics['apps'], 'icon' => 'boxes'],
     ['label' => 'Page', 'value' => $dashboardMetrics['pages'], 'icon' => 'file-text'],
@@ -4314,6 +4854,7 @@ $dashboardCards = [
     ['label' => 'Ebook', 'value' => $dashboardMetrics['ebook'], 'icon' => 'book-open'],
     ['label' => 'Bank', 'value' => $dashboardMetrics['bank'], 'icon' => 'landmark'],
     ['label' => 'Sites', 'value' => $dashboardMetrics['sites'], 'icon' => 'globe'],
+    ['label' => 'Cloud', 'value' => $dashboardMetrics['cloud'], 'icon' => 'cloud'],
     ['label' => 'Country', 'value' => $dashboardMetrics['country'], 'icon' => 'globe-2'],
     ['label' => 'IP hôm nay', 'value' => $trafficMetrics['total']['today_unique'], 'icon' => 'wifi', 'class' => 'dashboard-card-live-ip'],
 ];
@@ -4324,7 +4865,19 @@ $trafficRows = [
     ['label' => 'CarrotMusic', 'url' => 'https://music.carrot28.com/', 'metrics' => $trafficMetrics['music']],
     ['label' => 'Tổng cộng', 'url' => '', 'metrics' => $trafficMetrics['total']],
 ];
-$useSelect2 = $section === 'overview' || $section === 'apps' || $section === 'ebook' || $section === 'music' || $section === 'pages' || ($section === 'country' && $countryTab === 'labels');
+$useSelect2 = $section === 'overview' || $section === 'apps' || $section === 'ebook' || $section === 'music' || $section === 'pages' || $section === 'cloud' || ($section === 'country' && $countryTab === 'labels');
+$sectionCreateUrls = [
+    'apps' => 'index.php?section=apps',
+    'ebook' => 'index.php?section=ebook&tab=' . urlencode($ebookTab),
+    'music' => 'index.php?section=music&tab=' . urlencode($musicTab),
+    'pages' => 'index.php?section=pages',
+    'users' => 'index.php?section=users',
+    'api' => 'index.php?section=api',
+    'bank' => 'index.php?section=bank',
+    'cloud' => 'index.php?section=cloud&tab=' . urlencode($cloudTab),
+    'country' => 'index.php?section=country',
+    'coc' => 'index.php?section=coc',
+];
 ?>
 <!doctype html>
 <html lang="vi">
@@ -4365,6 +4918,15 @@ $useSelect2 = $section === 'overview' || $section === 'apps' || $section === 'eb
         .dashboard-nav .list-group-item i{width:18px;height:18px;color:#64748b}
         .dashboard-nav .list-group-item.active{background:#172033;color:#fff}
         .dashboard-nav .list-group-item.active i{color:#fff}
+        @media (max-width:991.98px){
+            .dashboard-sidebar{position:relative;top:auto;min-height:0;margin:.75rem!important;padding:.75rem!important;overflow:hidden}
+            .dashboard-brand{padding:0 0 .75rem;margin-bottom:.75rem!important}
+            .dashboard-nav{flex-direction:row;flex-wrap:nowrap;gap:.5rem;margin:0 -.75rem;padding:0 .75rem .05rem;overflow-x:auto;overflow-y:hidden;scrollbar-width:none;-ms-overflow-style:none;-webkit-overflow-scrolling:touch;scroll-snap-type:x proximity;cursor:grab;touch-action:pan-x}
+            .dashboard-nav.is-dragging{cursor:grabbing;scroll-snap-type:none;user-select:none}
+            .dashboard-nav::-webkit-scrollbar{display:none}
+            .dashboard-nav .list-group-item{flex:0 0 auto;margin-bottom:0;white-space:nowrap;scroll-snap-align:start}
+            .dashboard-nav.is-dragging .list-group-item{pointer-events:none}
+        }
         .dashboard-main{min-width:0}
         .dashboard-topbar{border:1px solid rgba(15,23,42,.08);border-radius:8px;background:rgba(255,255,255,.94);box-shadow:0 18px 48px rgba(15,23,42,.07)}
         .dashboard-eyebrow{color:#64748b;font-size:.76rem;letter-spacing:0;text-transform:uppercase}
@@ -4456,6 +5018,7 @@ $useSelect2 = $section === 'overview' || $section === 'apps' || $section === 'eb
                 <a class="list-group-item list-group-item-action <?= $section === 'ebook' ? 'active' : '' ?>" href="index.php?section=ebook"><i data-lucide="book-open"></i><span>Ebook</span></a>
                 <a class="list-group-item list-group-item-action <?= $section === 'paypal' ? 'active' : '' ?>" href="index.php?section=paypal"><i data-lucide="credit-card"></i><span>Paypal</span></a>
                 <a class="list-group-item list-group-item-action <?= $section === 'ai_support' ? 'active' : '' ?>" href="index.php?section=ai_support"><i data-lucide="sparkles"></i><span>AI - Support</span></a>
+                <a class="list-group-item list-group-item-action <?= $section === 'cloud' ? 'active' : '' ?>" href="index.php?section=cloud"><i data-lucide="cloud"></i><span>Cloud</span></a>
                 <a class="list-group-item list-group-item-action <?= $section === 'bank' ? 'active' : '' ?>" href="index.php?section=bank"><i data-lucide="landmark"></i><span>Bank</span></a>
                 <a class="list-group-item list-group-item-action <?= $section === 'sites' ? 'active' : '' ?>" href="index.php?section=sites"><i data-lucide="globe"></i><span>Sites</span></a>
                 <a class="list-group-item list-group-item-action <?= $section === 'country' ? 'active' : '' ?>" href="index.php?section=country"><i data-lucide="globe-2"></i><span>Country</span></a>
@@ -4480,11 +5043,14 @@ $useSelect2 = $section === 'overview' || $section === 'apps' || $section === 'eb
                         <?php if ($section === 'music'): ?>
                             <a class="btn btn-success fw-bold" href="https://music.carrot28.com/" target="_blank" rel="noopener noreferrer"><i data-lucide="external-link" style="width:16px;height:16px"></i> CarrotMusic</a>
                         <?php endif; ?>
+                        <?php if ($section === 'cloud'): ?>
+                            <a class="btn btn-success fw-bold" href="https://cloud.carrot28.com/" target="_blank" rel="noopener noreferrer"><i data-lucide="external-link" style="width:16px;height:16px"></i> CarrotCloud</a>
+                        <?php endif; ?>
                         <?php if ($section === 'coc'): ?>
                             <a class="btn btn-secondary fw-bold" href="https://coc.carrot28.com/" target="_blank" rel="noopener noreferrer">Xem shop</a>
                         <?php endif; ?>
                         <?php if ($editing): ?>
-                            <a class="btn btn-success fw-bold" href="index.php<?= $section === 'apps' ? '?section=apps' : ($section === 'ebook' ? '?section=ebook&tab=' . urlencode($ebookTab) : ($section === 'music' ? '?section=music&tab=' . urlencode($musicTab) : ($section === 'pages' ? '?section=pages' : ($section === 'users' ? '?section=users' : ($section === 'api' ? '?section=api' : ($section === 'bank' ? '?section=bank' : ($section === 'country' ? '?section=country' : '?section=coc'))))))) ?>">Thêm mới</a>
+                            <a class="btn btn-success fw-bold" href="<?= htmlspecialchars($sectionCreateUrls[$section] ?? 'index.php') ?>">Thêm mới</a>
                         <?php endif; ?>
                         <a class="btn btn-danger fw-bold" href="index.php?logout=1" title="Đăng xuất">
                             <span class="d-inline-flex align-items-center gap-2"><i data-lucide="log-out" style="width:16px;height:16px"></i><?= htmlspecialchars($_SESSION['admin_user']) ?></span>
@@ -4506,18 +5072,125 @@ document.querySelectorAll('.js-delete').forEach((form) => {
         event.preventDefault();
 
         const result = await Swal.fire({
-            icon: 'warning',
-            title: 'Xác nhận xóa',
+            icon: form.dataset.confirmIcon || 'warning',
+            title: form.dataset.confirmTitle || 'Xác nhận xóa',
             text: form.dataset.confirm || 'Bạn chắc chắn muốn xóa mục này?',
             showCancelButton: true,
-            confirmButtonText: 'Xóa',
+            confirmButtonText: form.dataset.confirmButton || 'Xóa',
             cancelButtonText: 'Hủy',
-            confirmButtonColor: '#dc3545',
+            confirmButtonColor: form.dataset.confirmColor || '#dc3545',
         });
 
         if (result.isConfirmed) {
             form.submit();
         }
+    });
+});
+
+function adminCreateFileDeleteButton(uploadButton) {
+    const deleteButton = document.createElement('button');
+    deleteButton.className = 'btn btn-outline-danger js-delete-file';
+    deleteButton.type = 'button';
+    deleteButton.dataset.target = uploadButton.dataset.target || '';
+    deleteButton.dataset.typeMedia = uploadButton.dataset.typeMedia || '';
+    deleteButton.dataset.mode = uploadButton.dataset.mode || 'replace';
+    deleteButton.title = 'Delete file';
+    deleteButton.setAttribute('aria-label', 'Delete file');
+    deleteButton.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16" aria-hidden="true"><path d="M5.5 5.5A.5.5 0 0 1 6 6v6a.5.5 0 0 1-1 0V6a.5.5 0 0 1 .5-.5Zm2.5 0a.5.5 0 0 1 .5.5v6a.5.5 0 0 1-1 0V6a.5.5 0 0 1 .5-.5Zm3 .5a.5.5 0 0 0-1 0v6a.5.5 0 0 0 1 0V6Z"/><path d="M14.5 3a1 1 0 0 1-1 1H13v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V4h-.5a1 1 0 0 1 0-2H5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1h2.5a1 1 0 0 1 1 1ZM4.118 4 4 4.059V13a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1V4.059L11.882 4H4.118ZM2.5 3h11V2h-11v1Z"/></svg>';
+    uploadButton.insertAdjacentElement('afterend', deleteButton);
+    return deleteButton;
+}
+
+document.querySelectorAll('.js-upload').forEach((button) => {
+    if (!button.parentElement || !button.parentElement.querySelector(`.js-delete-file[data-target="${button.dataset.target}"]`)) {
+        adminCreateFileDeleteButton(button);
+    }
+});
+
+document.querySelectorAll('.js-delete-file').forEach((button) => {
+    button.addEventListener('click', async () => {
+        const target = document.getElementById(button.dataset.target);
+        if (!target) {
+            return;
+        }
+
+        const values = target.value.split(/\r?\n/).map((item) => item.trim()).filter(Boolean);
+        if (!values.length) {
+            await Swal.fire({icon: 'info', title: 'Chưa có file', text: 'Field này chưa có URL file để xóa.'});
+            return;
+        }
+
+        let fileUrl = values[0];
+        if (values.length > 1) {
+            const options = {};
+            values.forEach((value) => {
+                options[value] = value;
+            });
+            const pick = await Swal.fire({
+                icon: 'question',
+                title: 'Chọn file cần xóa',
+                input: 'select',
+                inputOptions: options,
+                inputValue: fileUrl,
+                showCancelButton: true,
+                confirmButtonText: 'Tiếp tục',
+                cancelButtonText: 'Hủy',
+            });
+            if (!pick.isConfirmed || !pick.value) {
+                return;
+            }
+            fileUrl = pick.value;
+        }
+
+        const confirm = await Swal.fire({
+            icon: 'warning',
+            title: 'Xác nhận xóa file',
+            text: fileUrl,
+            showCancelButton: true,
+            confirmButtonText: 'Xóa file',
+            cancelButtonText: 'Hủy',
+            confirmButtonColor: '#dc3545',
+            showLoaderOnConfirm: true,
+            preConfirm: async () => {
+                const formData = new FormData();
+                formData.append('action', 'ajax_delete_file');
+                formData.append('type_media', button.dataset.typeMedia || '');
+                formData.append('image_url', fileUrl);
+
+                try {
+                    const response = await fetch('index.php', {
+                        method: 'POST',
+                        body: formData,
+                    });
+                    const payload = await response.json();
+                    if (!response.ok || payload.status !== 'success') {
+                        throw new Error(payload.message || 'Xóa file thất bại.');
+                    }
+                    return payload;
+                } catch (error) {
+                    Swal.showValidationMessage(error.message);
+                    return false;
+                }
+            },
+            allowOutsideClick: () => !Swal.isLoading(),
+        });
+
+        if (!confirm.isConfirmed || !confirm.value) {
+            return;
+        }
+
+        if (values.length > 1 || button.dataset.mode === 'append') {
+            target.value = values.filter((value) => value !== fileUrl).join('\n');
+        } else {
+            target.value = '';
+        }
+
+        Swal.fire({
+            icon: 'success',
+            title: 'Đã xóa file',
+            timer: 1400,
+            showConfirmButton: false,
+        });
     });
 });
 
@@ -4586,6 +5259,80 @@ document.querySelectorAll('.js-upload').forEach((button) => {
         });
     });
 });
+
+const siteNameInput = document.getElementById('sites_name');
+const siteUrlInput = document.getElementById('sites_url');
+const siteDescriptionInput = document.getElementById('sites_description');
+const aiSiteDescriptionButton = document.querySelector('.js-ai-site-description-request');
+if (siteNameInput && siteDescriptionInput && aiSiteDescriptionButton) {
+    aiSiteDescriptionButton.addEventListener('click', async () => {
+        const siteName = siteNameInput.value.trim();
+        const siteUrl = siteUrlInput ? siteUrlInput.value.trim() : '';
+        if (!siteName) {
+            await Swal.fire({icon: 'warning', title: 'Thiếu tên site', text: 'Vui lòng nhập tên site trước khi yêu cầu AI.'});
+            return;
+        }
+
+        const requestResult = await Swal.fire({
+            title: 'Yêu cầu AI',
+            input: 'textarea',
+            inputLabel: 'Bạn muốn AI viết hoặc chỉnh mô tả site này như thế nào?',
+            inputPlaceholder: 'Ví dụ: Viết mô tả ngắn gọn, thân thiện, nêu rõ nội dung chính của site...',
+            inputAttributes: {
+                'aria-label': 'Yêu cầu mô tả Site cho AI',
+            },
+            inputAutoTrim: true,
+            showCancelButton: true,
+            confirmButtonText: 'Tạo nội dung',
+            cancelButtonText: 'Hủy',
+            preConfirm: (value) => {
+                if (!value || !value.trim()) {
+                    Swal.showValidationMessage('Vui lòng nhập yêu cầu cho AI.');
+                    return false;
+                }
+                return value.trim();
+            },
+        });
+
+        if (!requestResult.isConfirmed) {
+            return;
+        }
+
+        aiSiteDescriptionButton.disabled = true;
+        const originalHtml = aiSiteDescriptionButton.innerHTML;
+        aiSiteDescriptionButton.innerHTML = '<span class="d-inline-flex align-items-center gap-2"><span class="spinner-border spinner-border-sm" aria-hidden="true"></span>Đang viết</span>';
+
+        const formData = new FormData();
+        formData.append('action', 'ajax_ai_request_site_description');
+        formData.append('idea', requestResult.value);
+        formData.append('name', siteName);
+        formData.append('url', siteUrl);
+        formData.append('description', siteDescriptionInput.value.trim());
+
+        try {
+            const response = await fetch('index.php?section=sites', {
+                method: 'POST',
+                body: formData,
+            });
+            const payload = await response.json();
+            if (!response.ok || payload.status !== 'success') {
+                throw new Error(payload.message || 'Không tạo được mô tả Site theo yêu cầu AI.');
+            }
+            if (typeof payload.description === 'string' && payload.description !== '') {
+                siteDescriptionInput.value = payload.description;
+            }
+            await Swal.fire({icon: 'success', title: 'Đã tạo nội dung', text: 'AI đã chèn mô tả vào form.'});
+        } catch (error) {
+            await Swal.fire({icon: 'warning', title: 'AI lỗi', text: error.message});
+        } finally {
+            aiSiteDescriptionButton.disabled = false;
+            aiSiteDescriptionButton.innerHTML = originalHtml;
+            if (window.lucide) {
+                lucide.createIcons();
+            }
+        }
+    });
+}
 
 document.querySelectorAll('.js-traffic-toggle').forEach((button) => {
     button.addEventListener('click', () => {
@@ -5138,6 +5885,12 @@ if (window.jQuery && jQuery.fn.select2) {
         theme: 'bootstrap-5',
         width: '100%',
         placeholder: 'Chọn lang',
+    });
+
+    jQuery('.js-api-site-select').select2({
+        theme: 'bootstrap-5',
+        width: '100%',
+        placeholder: 'Chọn site áp dụng',
     });
 
     jQuery('.js-label-key-select').select2({
@@ -6262,6 +7015,72 @@ if (serverUptime) {
     refreshUptime();
     window.setInterval(refreshUptime, 1000);
 }
+
+document.querySelectorAll('.dashboard-nav').forEach((nav) => {
+    let isPointerDown = false;
+    let startX = 0;
+    let startScrollLeft = 0;
+    let moved = false;
+
+    const canScroll = () => nav.scrollWidth > nav.clientWidth + 1;
+
+    nav.addEventListener('wheel', (event) => {
+        if (!canScroll()) {
+            return;
+        }
+        const delta = Math.abs(event.deltaX) > Math.abs(event.deltaY) ? event.deltaX : event.deltaY;
+        if (delta === 0) {
+            return;
+        }
+        event.preventDefault();
+        nav.scrollLeft += delta;
+    }, {passive: false});
+
+    nav.addEventListener('pointerdown', (event) => {
+        if (!canScroll() || event.button > 0) {
+            return;
+        }
+        isPointerDown = true;
+        moved = false;
+        startX = event.clientX;
+        startScrollLeft = nav.scrollLeft;
+        nav.classList.add('is-dragging');
+        nav.setPointerCapture(event.pointerId);
+    });
+
+    nav.addEventListener('pointermove', (event) => {
+        if (!isPointerDown) {
+            return;
+        }
+        const deltaX = event.clientX - startX;
+        if (Math.abs(deltaX) > 4) {
+            moved = true;
+        }
+        nav.scrollLeft = startScrollLeft - deltaX;
+    });
+
+    const stopDrag = (event) => {
+        if (!isPointerDown) {
+            return;
+        }
+        isPointerDown = false;
+        nav.classList.remove('is-dragging');
+        if (nav.hasPointerCapture(event.pointerId)) {
+            nav.releasePointerCapture(event.pointerId);
+        }
+    };
+
+    nav.addEventListener('pointerup', stopDrag);
+    nav.addEventListener('pointercancel', stopDrag);
+    nav.addEventListener('click', (event) => {
+        if (!moved) {
+            return;
+        }
+        event.preventDefault();
+        event.stopPropagation();
+        moved = false;
+    }, true);
+});
 
 if (window.lucide) {
     lucide.createIcons();

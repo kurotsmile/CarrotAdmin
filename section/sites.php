@@ -25,13 +25,28 @@
                         </div>
 
                         <div class="mb-3">
-                            <label class="form-label" for="sites_description">Mô tả</label>
+                            <div class="d-flex align-items-center justify-content-between gap-2 mb-2">
+                                <label class="form-label mb-0" for="sites_description">Mô tả</label>
+                                <button class="btn btn-sm btn-outline-success fw-bold js-ai-site-description-request" type="button">
+                                    <i data-lucide="sparkles" style="width:15px;height:15px"></i> Yêu cầu AI
+                                </button>
+                            </div>
                             <textarea class="form-control" id="sites_description" name="description" rows="3"><?= htmlspecialchars($editing['description'] ?? '') ?></textarea>
                         </div>
 
-                        <div>
-                            <label class="form-label" for="sites_sort_order">Vị trí sắp xếp</label>
-                            <input class="form-control" id="sites_sort_order" name="sort_order" type="number" value="<?= (int) ($editing['sort_order'] ?? 0) ?>">
+                        <div class="row g-3">
+                            <div class="col-sm-6">
+                                <label class="form-label" for="sites_status">Trạng thái</label>
+                                <?php $siteStatus = ($editing['status'] ?? 'active') === 'hidden' ? 'hidden' : 'active'; ?>
+                                <select class="form-select" id="sites_status" name="status">
+                                    <option value="active" <?= $siteStatus === 'active' ? 'selected' : '' ?>>Hiện</option>
+                                    <option value="hidden" <?= $siteStatus === 'hidden' ? 'selected' : '' ?>>Ẩn</option>
+                                </select>
+                            </div>
+                            <div class="col-sm-6">
+                                <label class="form-label" for="sites_sort_order">Vị trí sắp xếp</label>
+                                <input class="form-control" id="sites_sort_order" name="sort_order" type="number" value="<?= (int) ($editing['sort_order'] ?? 0) ?>">
+                            </div>
                         </div>
 
                         <button class="btn <?= $editing ? 'btn-warning' : 'btn-success' ?> fw-bold w-100 mt-3" type="submit"><?= $editing ? 'Lưu cập nhật' : 'Thêm site mới' ?></button>
@@ -47,6 +62,7 @@
                                 <tr>
                                     <th><?= admin_sort_link('id', 'ID', $sitesSort, $sitesDir) ?></th>
                                     <th><?= admin_sort_link('name', 'Tên site', $sitesSort, $sitesDir) ?></th>
+                                    <th><?= admin_sort_link('status', 'Trạng thái', $sitesSort, $sitesDir) ?></th>
                                     <th class="text-end"></th>
                                 </tr>
                                 </thead>
@@ -65,9 +81,13 @@
                                                 <?php endif; ?>
                                                 <div>
                                                     <strong><?= htmlspecialchars($site['name']) ?></strong>
-                                                    <div class="muted-text small text-break"><a href="<?php echo $site['url'];?>" target="_blank"><?= htmlspecialchars(admin_excerpt($site['url'] ?? '', 40)) ?></a></div>
+                                                    <div class="muted-text small text-break"><a href="<?= htmlspecialchars($site['url'] ?? '') ?>" target="_blank" rel="noopener noreferrer"><?= htmlspecialchars(admin_excerpt($site['url'] ?? '', 40)) ?></a></div>
                                                 </div>
                                             </div>
+                                        </td>
+                                        <td>
+                                            <?php $rowStatus = ($site['status'] ?? 'active') === 'hidden' ? 'hidden' : 'active'; ?>
+                                            <span class="badge <?= $rowStatus === 'active' ? 'text-bg-success' : 'text-bg-secondary' ?>"><?= $rowStatus === 'active' ? 'Hiện' : 'Ẩn' ?></span>
                                         </td>
                                         <td class="text-end">
                                             <div class="d-inline-flex align-items-center justify-content-end gap-2 flex-nowrap">
@@ -86,7 +106,7 @@
                                     </tr>
                                 <?php endforeach; ?>
                                 <?php if (!$sites): ?>
-                                    <tr><td colspan="3" class="text-center muted-text py-4">Chưa có dữ liệu.</td></tr>
+                                    <tr><td colspan="4" class="text-center muted-text py-4">Chưa có dữ liệu.</td></tr>
                                 <?php endif; ?>
                                 </tbody>
                             </table>
