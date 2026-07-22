@@ -22,6 +22,10 @@
                             <div class="col-md-6"><label class="form-label" for="ebook_category">Chuyên mục</label><select class="form-control js-ebook-category-select" id="ebook_category" name="category_id"><option value="">Không chọn</option><?php foreach ($ebookCategoryOptions as $category): ?><option value="<?= htmlspecialchars($category['id']) ?>" <?= (($editing['category_id'] ?? '') === $category['id']) ? 'selected' : '' ?>><?= htmlspecialchars($category['name'] . ' (' . $category['id'] . ')') ?></option><?php endforeach; ?></select></div>
                         </div>
                         <div class="row g-3 mt-0">
+                            <div class="col-md-8"><label class="form-label" for="ebook_user_id">User viết</label><select class="form-control js-user-select" id="ebook_user_id" name="user_id"><option value="">Không chọn</option><?php foreach ($ebookUserOptions as $userOption): ?><option value="<?= (int) $userOption['id'] ?>" <?= ((int) ($editing['user_id'] ?? 0) === (int) $userOption['id']) ? 'selected' : '' ?>><?= htmlspecialchars(trim((string) ($userOption['name'] ?? '')) . ' · ' . ($userOption['email'] ?? '') . ' (#' . (int) $userOption['id'] . ')') ?></option><?php endforeach; ?></select></div>
+                            <div class="col-md-4"><label class="form-label" for="ebook_user">User field</label><input class="form-control" id="ebook_user" name="user" value="<?= htmlspecialchars($editing['user'] ?? '') ?>" placeholder="ID/email legacy"></div>
+                        </div>
+                        <div class="row g-3 mt-0">
                             <div class="col-md-3"><label class="form-label" for="ebook_lang">Lang</label><input class="form-control" id="ebook_lang" name="lang" value="<?= htmlspecialchars($editing['lang'] ?? 'en') ?>"></div>
                             <div class="col-md-3"><label class="form-label" for="ebook_price">Giá</label><input class="form-control" id="ebook_price" name="price" type="number" min="0" step="0.01" value="<?= htmlspecialchars((string) ($editing['price'] ?? '0.00')) ?>"></div>
                             <div class="col-md-3"><label class="form-label" for="ebook_currency">Tiền</label><input class="form-control" id="ebook_currency" name="currency" value="<?= htmlspecialchars($editing['currency'] ?? 'USD') ?>"></div>
@@ -49,18 +53,19 @@
                         <h2 class="h5 mb-3">Danh sách ebook</h2>
                         <div class="table-responsive-sm">
                             <table class="table table-striped table-hover table-sm align-middle">
-                                <thead><tr><th>Sách</th><th>Chuyên mục</th><th>Giá</th><th>Status</th><th></th></tr></thead>
+                                <thead><tr><th>Sách</th><th>Chuyên mục</th><th>User</th><th>Giá</th><th>Status</th><th></th></tr></thead>
                                 <tbody>
                                 <?php foreach ($ebooks as $book): ?>
                                     <tr>
                                         <td><div class="d-flex align-items-center gap-2"><?php if (!empty($book['cover'])): ?><img src="<?= htmlspecialchars($book['cover']) ?>" alt="" style="width:42px;height:58px;object-fit:cover;border-radius:6px"><?php endif; ?><div><strong><?= htmlspecialchars($book['name'] ?? $book['id']) ?></strong><div class="small text-muted"><?= htmlspecialchars(($book['author'] ?? '') . ' · ' . ($book['id'] ?? '')) ?></div></div></div></td>
                                         <td><?= htmlspecialchars($book['category_name'] ?? $book['category_id'] ?? '') ?></td>
+                                        <td><?= htmlspecialchars($book['user_name'] ?? ($book['user'] ?? '-')) ?><div class="small text-muted"><?= htmlspecialchars($book['user_email'] ?? (!empty($book['user_id']) ? '#' . (int) $book['user_id'] : '')) ?></div></td>
                                         <td><?= !empty($book['is_free']) ? '<span class="badge text-bg-success">Free</span>' : htmlspecialchars(number_format((float) ($book['price'] ?? 0), 2) . ' ' . ($book['currency'] ?? 'USD')) ?></td>
                                         <td><span class="badge text-bg-secondary"><?= htmlspecialchars($book['status'] ?? '') ?></span></td>
                                         <td class="text-end"><a class="btn btn-sm btn-warning" href="index.php?section=ebook&tab=books&edit=<?= urlencode($book['id']) ?>"><i data-lucide="pencil" style="width:15px;height:15px"></i></a> <form class="d-inline js-delete" method="post"><input type="hidden" name="action" value="delete_ebook"><input type="hidden" name="id" value="<?= htmlspecialchars($book['id']) ?>"><button class="btn btn-sm btn-danger" type="submit"><i data-lucide="trash-2" style="width:15px;height:15px"></i></button></form></td>
                                     </tr>
                                 <?php endforeach; ?>
-                                <?php if (!$ebooks): ?><tr><td colspan="5" class="text-center text-muted py-4">Chưa có ebook.</td></tr><?php endif; ?>
+                                <?php if (!$ebooks): ?><tr><td colspan="6" class="text-center text-muted py-4">Chưa có ebook.</td></tr><?php endif; ?>
                                 </tbody>
                             </table>
                         </div>

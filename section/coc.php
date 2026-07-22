@@ -45,6 +45,12 @@
                 $accounts = $cocStmt->fetchAll();
             }
             ?>
+            <?php
+            $cocFormPhotos = array_values(array_filter(array_map('trim', preg_split('/\r?\n/', $photoText))));
+            if (!$cocFormPhotos) {
+                $cocFormPhotos = [''];
+            }
+            ?>
             <div class="row g-4">
                 <div class="col-xl-5">
                     <form class="glass-panel p-4" method="post" enctype="multipart/form-data">
@@ -87,11 +93,36 @@
                             </div>
                         </div>
 
-                        <div class="mb-3 mt-3">
-                            <label class="form-label" for="photos">Photos URL, mỗi dòng một ảnh</label>
-                            <div class="input-group">
-                                <textarea class="form-control" id="photos" name="photos" rows="4"><?= htmlspecialchars($photoText) ?></textarea>
-                                <button class="btn btn-secondary js-upload" type="button" data-target="photos" data-type-media="coc_images" data-mode="append" data-accept="image/*">Upload</button>
+                        <div class="mb-3 mt-3 js-coc-photos-field">
+                            <div class="d-flex align-items-center justify-content-between gap-2 mb-2">
+                                <label class="form-label mb-0" for="photos">Photos</label>
+                                <button class="btn btn-sm btn-secondary js-coc-photo-add" type="button">
+                                    <i data-lucide="plus" style="width:16px;height:16px"></i>
+                                    Thêm ảnh
+                                </button>
+                            </div>
+                            <textarea class="visually-hidden js-coc-photos-source" id="photos" name="photos"><?= htmlspecialchars($photoText) ?></textarea>
+                            <div class="vstack gap-2 js-coc-photos-list">
+                                <?php foreach ($cocFormPhotos as $photoUrl): ?>
+                                    <div class="coc-photo-item js-coc-photo-item">
+                                        <div class="coc-photo-preview">
+                                            <?php if ($photoUrl !== ''): ?>
+                                                <img src="<?= htmlspecialchars($photoUrl) ?>" alt="">
+                                            <?php else: ?>
+                                                <i data-lucide="image" style="width:22px;height:22px"></i>
+                                            <?php endif; ?>
+                                        </div>
+                                        <div class="input-group">
+                                            <input class="form-control js-coc-photo-url" value="<?= htmlspecialchars($photoUrl) ?>" placeholder="Image URL">
+                                            <button class="btn btn-secondary js-coc-photo-upload" type="button" data-type-media="coc_images" data-accept="image/*" title="Upload ảnh" aria-label="Upload ảnh">
+                                                <i data-lucide="upload" style="width:16px;height:16px"></i>
+                                            </button>
+                                            <button class="btn btn-outline-danger js-coc-photo-remove" type="button" title="Xóa item ảnh" aria-label="Xóa item ảnh">
+                                                <i data-lucide="trash-2" style="width:16px;height:16px"></i>
+                                            </button>
+                                        </div>
+                                    </div>
+                                <?php endforeach; ?>
                             </div>
                         </div>
 
@@ -152,8 +183,9 @@
                                 <tbody>
                                 <?php foreach ($accounts as $account):
                                     $th = coc_account_hall($account);
+                                    $isEditingAccount = $editing && (int) $editing['id'] === (int) $account['id'];
                                     ?>
-                                    <tr>
+                                    <tr class="<?= $isEditingAccount ? 'coc-account-row-editing' : '' ?>">
                                         <td><?= (int) $account['id'] ?></td>
                                         <td>
                                             <div class="d-flex align-items-center gap-3">

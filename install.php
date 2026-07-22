@@ -189,6 +189,8 @@ $results[] = install_run_step('CarrotCoc visit daily IP table', static function 
     }
 
     admin_ensure_visit_daily_ip_table($cocPdo, 'coc');
+    admin_ensure_visit_hourly_ip_table($cocPdo, 'coc');
+    admin_ensure_visit_traffic_report_table($cocPdo);
 });
 
 $results[] = install_run_step('CarrotMusic visit daily IP table', static function () use ($cocPdo, $cocError): void {
@@ -197,6 +199,8 @@ $results[] = install_run_step('CarrotMusic visit daily IP table', static functio
     }
 
     admin_ensure_visit_daily_ip_table($cocPdo, 'music');
+    admin_ensure_visit_hourly_ip_table($cocPdo, 'music');
+    admin_ensure_visit_traffic_report_table($cocPdo);
 });
 
 $results[] = install_run_step('CarrotEbook visit daily IP table', static function () use ($cocPdo, $cocError): void {
@@ -205,6 +209,8 @@ $results[] = install_run_step('CarrotEbook visit daily IP table', static functio
     }
 
     admin_ensure_visit_daily_ip_table($cocPdo, 'ebook');
+    admin_ensure_visit_hourly_ip_table($cocPdo, 'ebook');
+    admin_ensure_visit_traffic_report_table($cocPdo);
 });
 
 $results[] = install_run_step('CarrotCoc bank table', static function () use ($cocPdo, $cocError): void {
@@ -221,6 +227,15 @@ $results[] = install_run_step('CarrotCoc sites table', static function () use ($
     }
 
     admin_ensure_sites_table($cocPdo);
+});
+
+$results[] = install_run_step('CarrotCoc sites Google Search verification table', static function () use ($cocPdo, $cocError): void {
+    if (!$cocPdo instanceof PDO) {
+        throw new RuntimeException($cocError ?? 'Không thể kết nối CarrotCoc database.');
+    }
+
+    admin_ensure_sites_table($cocPdo);
+    admin_ensure_sites_google_search_verification_table($cocPdo);
 });
 
 $results[] = install_run_step('CarrotHome page table', static function (): void {
@@ -240,7 +255,10 @@ $results[] = install_run_step('CarrotHome PayPal config table', static function 
 });
 
 $results[] = install_run_step('CarrotHome visit daily IP table', static function (): void {
-    admin_ensure_visit_daily_ip_table(install_carrot_home_pdo(), 'home');
+    $homePdo = install_carrot_home_pdo();
+    admin_ensure_visit_daily_ip_table($homePdo, 'home');
+    admin_ensure_visit_hourly_ip_table($homePdo, 'home');
+    admin_ensure_visit_traffic_report_table($homePdo);
 });
 
 $hasError = array_reduce($results, static fn(bool $carry, array $result): bool => $carry || $result['status'] !== 'success', false);

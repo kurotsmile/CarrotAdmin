@@ -5,6 +5,24 @@
                 ? array_values(array_filter(array_map('trim', preg_split('/\s*,\s*/', (string) ($editing['genre'] ?? '')) ?: [])))
                 : [];
             $editingGenreId = (string) ($editing['genre_id'] ?? '');
+            $musicPublicBase = 'https://heartbeatplay.com';
+            $musicAdminSlug = static function ($value): string {
+                $value = trim(rawurldecode((string) $value));
+                $value = str_replace(['_', '+'], '-', $value);
+                if (function_exists('iconv')) {
+                    $ascii = @iconv('UTF-8', 'ASCII//TRANSLIT//IGNORE', $value);
+                    if (is_string($ascii) && trim($ascii) !== '') {
+                        $value = $ascii;
+                    }
+                }
+                $value = strtolower($value);
+                $value = preg_replace('/[^a-z0-9]+/', '-', $value);
+                $value = trim((string) $value, '-');
+                return $value !== '' ? $value : 'music';
+            };
+            $musicPublicSongUrl = static fn($songId): string => $musicPublicBase . '/' . rawurlencode($musicAdminSlug($songId));
+            $musicPublicArtistUrl = static fn($artistId, $artistName = ''): string => $musicPublicBase . '/artist/' . rawurlencode(trim((string) $artistName) !== '' ? $musicAdminSlug($artistName) : (string) $artistId);
+            $musicPublicGenreUrl = static fn($genreId, $genreTitle = ''): string => $musicPublicBase . '/genre/' . rawurlencode(trim((string) $genreTitle) !== '' ? $musicAdminSlug($genreTitle) : $musicAdminSlug($genreId));
             ?>
             <ul class="nav nav-tabs mb-4">
                 <li class="nav-item"><a class="nav-link <?= $musicTab === 'songs' ? 'active' : '' ?>" href="index.php?section=music&tab=songs">Bài hát</a></li>
@@ -192,7 +210,7 @@
                                         <td class="music-song-cell">
                                             <div class="d-flex align-items-center gap-2">
                                                 <?php if (!empty($song['avatar'])): ?>
-                                                    <a href="https://music.carrot28.com/song.php?id=<?php echo $song['id'];?>" target="_blank">
+                                                    <a href="<?= htmlspecialchars($musicPublicSongUrl($song['id'])) ?>" target="_blank">
                                                         <img src="<?= htmlspecialchars($song['avatar']) ?>" alt="" style="width:42px;height:42px;object-fit:cover;border-radius:8px">
                                                     </a>
                                                 <?php endif; ?>
@@ -208,7 +226,7 @@
                                                     <?php foreach ($songArtistNames as $artistIndex => $artistName): ?>
                                                         <?php $linkedArtistId = (int) ($songArtistIds[$artistIndex] ?? 0); ?>
                                                         <?php if ($linkedArtistId > 0): ?>
-                                                            <a class="badge text-bg-light border text-decoration-none" href="https://music.carrot28.com/artist.php?id=<?= $linkedArtistId ?>" target="_blank" rel="noopener noreferrer"><?= htmlspecialchars($artistName) ?></a>
+                                                            <a class="badge text-bg-light border text-decoration-none" href="<?= htmlspecialchars($musicPublicArtistUrl($linkedArtistId, $artistName)) ?>" target="_blank" rel="noopener noreferrer"><?= htmlspecialchars($artistName) ?></a>
                                                             <a class="badge text-bg-light border text-decoration-none" target="_blank" href="https://www.google.com/search?tbm=vid&q=<?= htmlspecialchars($artistName) ?>"><i data-lucide="user-round-search" style="width:15px;height:15px"></i></a>
                                                         <?php else: ?>
                                                             <span class="badge text-bg-light border"><?= htmlspecialchars($artistName) ?></span>
@@ -320,7 +338,7 @@
                                         <td>
                                             <div class="d-flex align-items-center gap-2">
                                                 <?php if (!empty($artistRow['avatar'])): ?>
-                                                    <a href="https://music.carrot28.com/artist.php?id=<?php echo $artistRow['id'];?>" target="_blank">
+                                                    <a href="<?= htmlspecialchars($musicPublicArtistUrl($artistRow['id'], $artistRow['name'])) ?>" target="_blank">
                                                         <img src="<?= htmlspecialchars($artistRow['avatar']) ?>" alt="" style="width:42px;height:42px;object-fit:cover;border-radius:50%">
                                                     </a>
                                                 <?php endif; ?>
@@ -406,7 +424,7 @@
                                 <?php foreach ($songGenres as $genreRow): ?>
                                     <tr>
                                         <td>
-                                            <a class="fw-bold text-decoration-none" href="https://music.carrot28.com/genre.php?id=<?= urlencode($genreRow['genre_id']) ?>" target="_blank" rel="noopener noreferrer">
+                                            <a class="fw-bold text-decoration-none" href="<?= htmlspecialchars($musicPublicGenreUrl($genreRow['genre_id'], $genreRow['title'] ?: $genreRow['genre_id'])) ?>" target="_blank" rel="noopener noreferrer">
                                                 <?= htmlspecialchars($genreRow['title'] ?: $genreRow['genre_id']) ?>
                                             </a>
                                             <div class="small text-muted"><?= htmlspecialchars($genreRow['genre_id']) ?></div>
@@ -487,7 +505,7 @@
                 <div class="d-flex flex-wrap align-items-center justify-content-between gap-3 mb-3">
                     <div>
                         <h2 class="h5 mb-1">Lịch sử tìm kiếm bài hát</h2>
-                        <div class="muted-text small">Ghi lại lượt tìm kiếm từ thanh search header CarrotMusic.</div>
+                        <div class="muted-text small">Ghi lại lượt tìm kiếm từ thanh search header Heart Beat Play.</div>
                     </div>
                     <div class="d-flex flex-wrap align-items-center gap-2">
                         <span class="badge text-bg-secondary"><?= number_format((int) ($songSearchLogStats['total_rows'] ?? 0)) ?> lượt</span>
@@ -530,7 +548,7 @@
                         <?php foreach ($songSearchLogs as $log): ?>
                             <tr>
                                 <td>
-                                    <a class="fw-bold text-decoration-none" href="https://music.carrot28.com/index.php?q=<?= urlencode($log['query'] ?? '') ?>" target="_blank" rel="noopener noreferrer">
+                                    <a class="fw-bold text-decoration-none" href="<?= htmlspecialchars($musicPublicBase . '/?q=' . urlencode($log['query'] ?? '')) ?>" target="_blank" rel="noopener noreferrer">
                                         <?= htmlspecialchars($log['query'] ?? '') ?>
                                     </a>
                                     <div class="small text-muted text-truncate" style="max-width:360px" title="<?= htmlspecialchars($log['request_path'] ?? '') ?>"><?= htmlspecialchars($log['request_path'] ?? '') ?></div>

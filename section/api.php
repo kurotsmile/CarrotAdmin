@@ -86,7 +86,7 @@
 
                         <div class="mb-3">
                             <label class="form-label" for="api_redirect_uri">Redirect URI</label>
-                            <input class="form-control" id="api_redirect_uri" name="redirect_uri" value="<?= htmlspecialchars($editing['redirect_uri'] ?? '') ?>" placeholder="https://music.carrot28.com/oauth-callback.php">
+                            <input class="form-control" id="api_redirect_uri" name="redirect_uri" value="<?= htmlspecialchars($editing['redirect_uri'] ?? '') ?>" placeholder="https://heartbeatplay.com/oauth-callback.php">
                         </div>
 
                         <div class="mb-3">

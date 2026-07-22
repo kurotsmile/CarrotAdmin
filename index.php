@@ -1,5 +1,6 @@
 <?php
 session_start();
+date_default_timezone_set('Asia/Ho_Chi_Minh');
 require __DIR__ . '/config/account.php';
 
 if (isset($_GET['logout'])) {
@@ -72,10 +73,11 @@ endif;
 require __DIR__ . '/../CarrotCoc/config/database.php';
 require __DIR__ . '/../CarrotCoc/includes/coc_helpers.php';
 require __DIR__ . '/includes/schema.php';
+require __DIR__ . '/includes/traffic_report.php';
 
 $message = '';
 $error = '';
-$allowedSections = ['overview', 'apps', 'ebook', 'music', 'pages', 'users', 'api', 'bank', 'sites', 'coc', 'country', 'paypal', 'ai_support', 'cloud', 'backup'];
+$allowedSections = ['overview', 'apps', 'ebook', 'music', 'pages', 'users', 'api', 'bank', 'sites', 'coc', 'order', 'country', 'paypal', 'ai_support', 'cloud', 'backup'];
 $section = in_array($_GET['section'] ?? 'overview', $allowedSections, true) ? ($_GET['section'] ?? 'overview') : 'overview';
 $editKey = trim($_GET['edit'] ?? '');
 $editId = isset($_GET['edit']) ? (int) $_GET['edit'] : 0;
@@ -86,8 +88,10 @@ $musicTab = in_array($_GET['tab'] ?? 'songs', ['songs', 'artists', 'genres', 'or
 $countryTab = ($_GET['tab'] ?? 'countries') === 'labels' ? 'labels' : 'countries';
 $paypalTab = in_array($_GET['tab'] ?? 'home', ['home', 'ebook', 'coc', 'music', 'cloud'], true) ? ($_GET['tab'] ?? 'home') : 'home';
 $cloudTab = in_array($_GET['tab'] ?? 'plans', ['plans', 'langs', 'subscriptions'], true) ? ($_GET['tab'] ?? 'plans') : 'plans';
+$sitesTab = in_array($_GET['tab'] ?? 'main', ['main', 'google_search'], true) ? ($_GET['tab'] ?? 'main') : 'main';
 $editing = null;
 $editingLabel = null;
+$editingGoogleSearchVerification = null;
 $accounts = [];
 $apps = [];
 $songs = [];
@@ -103,6 +107,7 @@ $apiConfigs = [];
 $apiSiteOptions = [];
 $banks = [];
 $sites = [];
+$siteGoogleSearchVerifications = [];
 $cloudPlans = [];
 $cloudLangs = [];
 $cloudSubscriptions = [];
@@ -114,11 +119,17 @@ $pageSlugOptions = [];
 $textLabels = [];
 $orders = [];
 $appOrders = [];
+$systemOrderRows = [];
+$systemOrderStats = ['total' => 0, 'paid' => 0, 'pending' => 0];
+$systemOrderIncome = [];
+$orderSourceFilter = in_array($_GET['source'] ?? 'all', ['all', 'app', 'music', 'ebook', 'cloud', 'coc'], true) ? ($_GET['source'] ?? 'all') : 'all';
+$orderStatusFilter = in_array($_GET['order_status'] ?? 'all', ['all', 'paid', 'pending'], true) ? ($_GET['order_status'] ?? 'all') : 'all';
 $ebooks = [];
 $ebookCategories = [];
 $ebookStoreLinks = [];
 $ebookOrders = [];
 $ebookCategoryOptions = [];
+$ebookUserOptions = [];
 $dashboardMetrics = [
     'apps' => 0,
     'pages' => 0,
@@ -132,6 +143,7 @@ $dashboardMetrics = [
     'country' => 0,
 ];
 $trafficMetrics = [
+    'admin' => [],
     'coc' => [],
     'home' => [],
     'ebook' => [],
@@ -201,6 +213,7 @@ $songSearchLogTotalPages = 1;
 $artistSearch = trim($_GET['artist_q'] ?? '');
 $artistLangFilter = trim($_GET['artist_lang'] ?? '');
 $serverRuntime = null;
+$systemResources = [];
 
 if (($_GET['duplicate'] ?? '') === 'page') {
     $message = 'Page với slug và lang này đã tồn tại. Đã mở dữ liệu hiện có để chỉnh sửa.';
@@ -507,6 +520,20 @@ function admin_fetch_bank(PDO $pdo, int $id): ?array
 function admin_fetch_sites(PDO $pdo, int $id): ?array
 {
     $stmt = $pdo->prepare('SELECT * FROM sites WHERE id = ?');
+    $stmt->execute([$id]);
+    $row = $stmt->fetch();
+    return $row ?: null;
+}
+
+function admin_fetch_site_google_search_verification(PDO $pdo, int $id): ?array
+{
+    $stmt = $pdo->prepare('
+        SELECT sites_google_search_verifications.*, sites.name AS site_name, sites.url AS site_url
+        FROM sites_google_search_verifications
+        LEFT JOIN sites ON sites.id = sites_google_search_verifications.site_id
+        WHERE sites_google_search_verifications.id = ?
+        LIMIT 1
+    ');
     $stmt->execute([$id]);
     $row = $stmt->fetch();
     return $row ?: null;
@@ -1468,12 +1495,12 @@ function admin_site_id_by_key(PDO $pdo, string $siteKey, array $aliases = []): ?
         }
 
         $hostMap = [
-            'CarrotHome' => 'home.carrot28.com',
-            'CarrotMusic' => 'music.carrot28.com',
-            'CarrotCoc' => 'coc.carrot28.com',
+            'CarrotHome' => ['carrot28.com', 'home.carrot28.com'],
+            'CarrotMusic' => ['heartbeatplay.com', 'music.carrot28.com'],
+            'CarrotCoc' => ['coc.carrot28.com'],
+            'CarrotCloud' => ['cloud.carrot28.com'],
         ];
-        $host = $hostMap[$siteKey] ?? '';
-        if ($host !== '') {
+        foreach ($hostMap[$siteKey] ?? [] as $host) {
             $stmt = $pdo->prepare('SELECT id FROM sites WHERE LOWER(url) LIKE ? ORDER BY sort_order ASC, id ASC LIMIT 1');
             $stmt->execute(['%' . strtolower($host) . '%']);
             $siteId = (int) $stmt->fetchColumn();
@@ -1557,7 +1584,7 @@ function admin_page_url(array $params): string
 function admin_app_detail_url(string $appId): string
 {
     $slug = preg_replace('/\s+/u', '-', trim($appId));
-    return 'https://home.carrot28.com/' . rawurlencode($slug ?: $appId);
+    return 'https://carrot28.com/' . rawurlencode($slug ?: $appId);
 }
 
 function admin_pagination(array $params, string $pageKey, int $currentPage, int $totalPages, string $label, string $class = 'mt-3'): string
@@ -1639,6 +1666,95 @@ function admin_format_uptime(int $seconds): string
 function admin_count_table(PDO $pdo, string $table): int
 {
     return (int) $pdo->query('SELECT COUNT(*) FROM ' . $table)->fetchColumn();
+}
+
+function admin_visit_client_ip(): string
+{
+    $candidates = [
+        $_SERVER['HTTP_CF_CONNECTING_IP'] ?? '',
+        $_SERVER['HTTP_X_REAL_IP'] ?? '',
+        strtok((string) ($_SERVER['HTTP_X_FORWARDED_FOR'] ?? ''), ',') ?: '',
+        $_SERVER['REMOTE_ADDR'] ?? '',
+    ];
+
+    foreach ($candidates as $candidate) {
+        $ip = trim((string) $candidate);
+        if (filter_var($ip, FILTER_VALIDATE_IP)) {
+            return $ip;
+        }
+    }
+
+    return '';
+}
+
+function admin_visit_request_path(): string
+{
+    return substr((string) ($_SERVER['REQUEST_URI'] ?? ($_SERVER['SCRIPT_NAME'] ?? '')), 0, 1024);
+}
+
+function admin_track_daily_ip(?PDO $pdo): void
+{
+    if (!$pdo instanceof PDO || PHP_SAPI === 'cli') {
+        return;
+    }
+
+    $ip = admin_visit_client_ip();
+    if ($ip === '') {
+        return;
+    }
+
+    try {
+        admin_ensure_visit_daily_ip_table($pdo, 'admin');
+        admin_ensure_visit_hourly_ip_table($pdo, 'admin');
+        $visitDate = date('Y-m-d');
+        $seenAt = date('Y-m-d H:i:s');
+        $visitHour = (int) date('G');
+        $params = [
+            ':visit_date' => $visitDate,
+            ':first_seen_at' => $seenAt,
+            ':last_seen_at' => $seenAt,
+            ':ip' => $ip,
+            ':ip_text' => $ip,
+            ':user_agent' => substr((string) ($_SERVER['HTTP_USER_AGENT'] ?? ''), 0, 512) ?: null,
+            ':referer' => substr((string) ($_SERVER['HTTP_REFERER'] ?? ''), 0, 1024) ?: null,
+            ':request_path' => admin_visit_request_path(),
+        ];
+
+        $stmt = $pdo->prepare("
+            INSERT INTO visit_daily_ip (
+              site, visit_date, ip_address, ip_text, first_seen_at, last_seen_at,
+              hits, user_agent, referer, request_path
+            )
+            VALUES ('admin', :visit_date, INET6_ATON(:ip), :ip_text, :first_seen_at, :last_seen_at, 1, :user_agent, :referer, :request_path)
+            ON DUPLICATE KEY UPDATE
+              hits = hits + 1,
+              last_seen_at = VALUES(last_seen_at),
+              user_agent = VALUES(user_agent),
+              referer = VALUES(referer),
+              request_path = VALUES(request_path),
+              updated_at = CURRENT_TIMESTAMP
+        ");
+        $stmt->execute($params);
+
+        $hourlyStmt = $pdo->prepare("
+            INSERT INTO visit_hourly_ip (
+              site, visit_date, visit_hour, ip_address, ip_text, first_seen_at, last_seen_at,
+              hits, user_agent, referer, request_path
+            )
+            VALUES ('admin', :visit_date, :visit_hour, INET6_ATON(:ip), :ip_text, :first_seen_at, :last_seen_at, 1, :user_agent, :referer, :request_path)
+            ON DUPLICATE KEY UPDATE
+              hits = hits + 1,
+              last_seen_at = VALUES(last_seen_at),
+              user_agent = VALUES(user_agent),
+              referer = VALUES(referer),
+              request_path = VALUES(request_path),
+              updated_at = CURRENT_TIMESTAMP
+        ");
+        $params[':visit_hour'] = $visitHour;
+        $hourlyStmt->execute($params);
+    } catch (Throwable $e) {
+        error_log('admin_track_daily_ip failed: ' . $e->getMessage());
+    }
 }
 
 function admin_safe_count_table(?PDO $pdo, string $table): int
@@ -1735,6 +1851,19 @@ function admin_parse_traffic_date_range(): array
     ];
 }
 
+function admin_traffic_range_days(array $dateRange): int
+{
+    $fromDate = DateTime::createFromFormat('!Y-m-d', (string) ($dateRange['from'] ?? date('Y-m-d')));
+    $toDate = DateTime::createFromFormat('!Y-m-d', (string) ($dateRange['to'] ?? date('Y-m-d')));
+    if (!$fromDate || !$toDate) {
+        return 1;
+    }
+    if ($fromDate > $toDate) {
+        [$fromDate, $toDate] = [$toDate, $fromDate];
+    }
+    return max(1, ((int) $fromDate->diff($toDate)->days) + 1);
+}
+
 function admin_visit_metrics(?PDO $pdo, string $site, array $dateRange): array
 {
     if (!$pdo instanceof PDO) {
@@ -1742,21 +1871,42 @@ function admin_visit_metrics(?PDO $pdo, string $site, array $dateRange): array
     }
 
     try {
+        admin_ensure_visit_traffic_report_table($pdo);
+        $today = date('Y-m-d');
+        $weekFrom = date('Y-m-d', strtotime('-6 days'));
         $stmt = $pdo->prepare("
             SELECT
-              SUM(CASE WHEN visit_date = CURRENT_DATE THEN 1 ELSE 0 END) AS today_unique,
-              SUM(CASE WHEN visit_date = CURRENT_DATE THEN hits ELSE 0 END) AS today_hits,
-              SUM(CASE WHEN visit_date >= DATE_SUB(CURRENT_DATE, INTERVAL 6 DAY) THEN 1 ELSE 0 END) AS week_unique,
-              SUM(CASE WHEN visit_date >= DATE_SUB(CURRENT_DATE, INTERVAL 6 DAY) THEN hits ELSE 0 END) AS week_hits,
-              SUM(CASE WHEN visit_date BETWEEN :range_from_unique AND :range_to_unique THEN 1 ELSE 0 END) AS range_unique,
+              SUM(CASE WHEN visit_date = :today_unique_date THEN unique_count ELSE 0 END) AS today_unique,
+              SUM(CASE WHEN visit_date = :today_hits_date THEN hits ELSE 0 END) AS today_hits,
+              SUM(CASE WHEN visit_date >= :week_unique_from THEN unique_count ELSE 0 END) AS week_unique,
+              SUM(CASE WHEN visit_date >= :week_hits_from THEN hits ELSE 0 END) AS week_hits,
+              SUM(CASE WHEN visit_date BETWEEN :range_from_unique AND :range_to_unique THEN unique_count ELSE 0 END) AS range_unique,
               SUM(CASE WHEN visit_date BETWEEN :range_from_hits AND :range_to_hits THEN hits ELSE 0 END) AS range_hits,
-              COUNT(*) AS total_unique,
+              COALESCE(SUM(unique_count), 0) AS total_unique,
               COALESCE(SUM(hits), 0) AS total_hits
-            FROM visit_daily_ip
-            WHERE site = :site
+            FROM (
+              SELECT report_date AS visit_date, unique_count, hits
+              FROM visit_traffic_report
+              WHERE site = :report_site
+              UNION ALL
+              SELECT d.visit_date, COUNT(*) AS unique_count, COALESCE(SUM(d.hits), 0) AS hits
+              FROM visit_daily_ip d
+              WHERE d.site = :daily_site
+                AND NOT EXISTS (
+                  SELECT 1
+                  FROM visit_traffic_report r
+                  WHERE r.site = d.site AND r.report_date = d.visit_date
+                )
+              GROUP BY d.visit_date
+            ) traffic_days
         ");
         $stmt->execute([
-            ':site' => $site,
+            ':report_site' => $site,
+            ':daily_site' => $site,
+            ':today_unique_date' => $today,
+            ':today_hits_date' => $today,
+            ':week_unique_from' => $weekFrom,
+            ':week_hits_from' => $weekFrom,
             ':range_from_unique' => $dateRange['from'],
             ':range_to_unique' => $dateRange['to'],
             ':range_from_hits' => $dateRange['from'],
@@ -1791,6 +1941,63 @@ function admin_empty_visit_hourly(): array
 function admin_visit_chart_mode(array $dateRange): string
 {
     return ($dateRange['from'] ?? '') === ($dateRange['to'] ?? '') ? 'hourly' : 'daily';
+}
+
+function admin_backfill_visit_hourly_ip(?PDO $pdo, string $site, string $from, string $to): void
+{
+    if (!$pdo instanceof PDO) {
+        return;
+    }
+
+    try {
+        $stmt = $pdo->prepare("
+            INSERT INTO visit_hourly_ip (
+              site, visit_date, visit_hour, ip_address, ip_text, first_seen_at, last_seen_at,
+              hits, user_agent, referer, request_path
+            )
+            SELECT
+              d.site,
+              d.visit_date,
+              HOUR(d.last_seen_at) AS visit_hour,
+              d.ip_address,
+              d.ip_text,
+              d.first_seen_at,
+              d.last_seen_at,
+              GREATEST(d.hits - COALESCE(h.hourly_hits, 0), 0) AS missing_hits,
+              d.user_agent,
+              d.referer,
+              d.request_path
+            FROM visit_daily_ip d
+            LEFT JOIN (
+              SELECT site, visit_date, ip_address, COALESCE(SUM(hits), 0) AS hourly_hits
+              FROM visit_hourly_ip
+              WHERE site = :hourly_site
+                AND visit_date BETWEEN :hourly_from AND :hourly_to
+              GROUP BY site, visit_date, ip_address
+            ) h ON h.site = d.site
+              AND h.visit_date = d.visit_date
+              AND h.ip_address = d.ip_address
+            WHERE d.site = :site
+              AND d.visit_date BETWEEN :range_from AND :range_to
+              AND d.hits > COALESCE(h.hourly_hits, 0)
+            ON DUPLICATE KEY UPDATE
+              hits = visit_hourly_ip.hits + VALUES(hits),
+              last_seen_at = VALUES(last_seen_at),
+              user_agent = VALUES(user_agent),
+              referer = VALUES(referer),
+              request_path = VALUES(request_path),
+              updated_at = CURRENT_TIMESTAMP
+        ");
+        $stmt->execute([
+            ':hourly_site' => $site,
+            ':hourly_from' => $from,
+            ':hourly_to' => $to,
+            ':site' => $site,
+            ':range_from' => $from,
+            ':range_to' => $to,
+        ]);
+    } catch (Throwable $e) {
+    }
 }
 
 function admin_empty_visit_chart(array $dateRange): array
@@ -1836,13 +2043,29 @@ function admin_visit_chart(?PDO $pdo, string $site, array $dateRange): array
     }
 
     try {
+        admin_ensure_visit_traffic_report_table($pdo);
         if (($series['mode'] ?? '') === 'hourly') {
+            $reportStmt = $pdo->prepare('SELECT hourly_hits_json, hourly_unique_json FROM visit_traffic_report WHERE site = ? AND report_date = ? LIMIT 1');
+            $reportStmt->execute([$site, (string) $dateRange['from']]);
+            $reportRow = $reportStmt->fetch(PDO::FETCH_ASSOC) ?: null;
+            if ($reportRow) {
+                $hits = json_decode((string) ($reportRow['hourly_hits_json'] ?? '[]'), true);
+                $unique = json_decode((string) ($reportRow['hourly_unique_json'] ?? '[]'), true);
+                if (is_array($hits) && is_array($unique)) {
+                    for ($hour = 0; $hour < 24; $hour++) {
+                        $series['hits'][$hour] = (int) ($hits[$hour] ?? 0);
+                        $series['unique'][$hour] = (int) ($unique[$hour] ?? 0);
+                    }
+                    return $series;
+                }
+            }
+            admin_backfill_visit_hourly_ip($pdo, $site, (string) $dateRange['from'], (string) $dateRange['to']);
             $stmt = $pdo->prepare("
                 SELECT
-                  HOUR(last_seen_at) AS chart_key,
+                  visit_hour AS chart_key,
                   COALESCE(SUM(hits), 0) AS hits,
                   COUNT(*) AS unique_count
-                FROM visit_daily_ip
+                FROM visit_hourly_ip
                 WHERE site = :site
                   AND visit_date = :range_from
                 GROUP BY chart_key
@@ -1857,17 +2080,34 @@ function admin_visit_chart(?PDO $pdo, string $site, array $dateRange): array
                 SELECT
                   visit_date AS chart_key,
                   COALESCE(SUM(hits), 0) AS hits,
-                  COUNT(*) AS unique_count
-                FROM visit_daily_ip
-                WHERE site = :site
-                  AND visit_date BETWEEN :range_from AND :range_to
+                  COALESCE(SUM(unique_count), 0) AS unique_count
+                FROM (
+                  SELECT report_date AS visit_date, unique_count, hits
+                  FROM visit_traffic_report
+                  WHERE site = :report_site
+                    AND report_date BETWEEN :report_from AND :report_to
+                  UNION ALL
+                  SELECT d.visit_date, COUNT(*) AS unique_count, COALESCE(SUM(d.hits), 0) AS hits
+                  FROM visit_daily_ip d
+                  WHERE d.site = :daily_site
+                    AND d.visit_date BETWEEN :daily_from AND :daily_to
+                    AND NOT EXISTS (
+                      SELECT 1
+                      FROM visit_traffic_report r
+                      WHERE r.site = d.site AND r.report_date = d.visit_date
+                    )
+                  GROUP BY d.visit_date
+                ) traffic_days
                 GROUP BY visit_date
                 ORDER BY visit_date
             ");
             $stmt->execute([
-                ':site' => $site,
-                ':range_from' => $dateRange['from'],
-                ':range_to' => $dateRange['to'],
+                ':report_site' => $site,
+                ':report_from' => $dateRange['from'],
+                ':report_to' => $dateRange['to'],
+                ':daily_site' => $site,
+                ':daily_from' => $dateRange['from'],
+                ':daily_to' => $dateRange['to'],
             ]);
         }
         $rows = $stmt->fetchAll();
@@ -1900,25 +2140,29 @@ function admin_visit_hourly(?PDO $pdo, string $site): array
     }
 
     try {
+        $today = date('Y-m-d');
+        $yesterday = date('Y-m-d', strtotime('-1 day'));
         $stmt = $pdo->prepare("
             SELECT
               visit_date,
-              HOUR(last_seen_at) AS visit_hour,
+              visit_hour,
               COALESCE(SUM(hits), 0) AS hits
-            FROM visit_daily_ip
+            FROM visit_hourly_ip
             WHERE site = :site
-              AND visit_date IN (CURRENT_DATE, DATE_SUB(CURRENT_DATE, INTERVAL 1 DAY))
+              AND visit_date IN (:today, :yesterday)
             GROUP BY visit_date, visit_hour
             ORDER BY visit_date, visit_hour
         ");
-        $stmt->execute([':site' => $site]);
+        $stmt->execute([
+            ':site' => $site,
+            ':today' => $today,
+            ':yesterday' => $yesterday,
+        ]);
         $rows = $stmt->fetchAll();
     } catch (Throwable $e) {
         return $series;
     }
 
-    $today = date('Y-m-d');
-    $yesterday = date('Y-m-d', strtotime('-1 day'));
     foreach ($rows as $row) {
         $hour = max(0, min(23, (int) ($row['visit_hour'] ?? 0)));
         $hits = (int) ($row['hits'] ?? 0);
@@ -1967,9 +2211,221 @@ function admin_sum_visit_metrics(array $items): array
     return $total;
 }
 
+function admin_order_is_paid(string $source, string $status): bool
+{
+    $status = strtolower(trim($status));
+    if ($source === 'cloud') {
+        return in_array($status, ['active', 'completed', 'paid'], true);
+    }
+    return $status === 'completed';
+}
+
+function admin_order_money(float $amount, string $currency): string
+{
+    $currency = strtoupper(trim($currency)) ?: 'USD';
+    return number_format($amount, 2) . ' ' . $currency;
+}
+
+function admin_fetch_system_orders(PDO $pdo, string $sourceFilter = 'all', string $statusFilter = 'all'): array
+{
+    $rows = [];
+    $pushRows = static function (array $items) use (&$rows, $sourceFilter, $statusFilter): void {
+        foreach ($items as $item) {
+            $source = (string) ($item['source'] ?? '');
+            $status = (string) ($item['status'] ?? '');
+            $isPaid = admin_order_is_paid($source, $status);
+            if ($sourceFilter !== 'all' && $source !== $sourceFilter) {
+                continue;
+            }
+            if ($statusFilter === 'paid' && !$isPaid) {
+                continue;
+            }
+            if ($statusFilter === 'pending' && $isPaid) {
+                continue;
+            }
+            $item['is_paid'] = $isPaid;
+            $rows[] = $item;
+        }
+    };
+
+    try {
+        $pushRows($pdo->query('
+            SELECT
+              \'app\' AS source,
+              app_orders.id,
+              app_orders.paypal_order_id AS order_code,
+              app_orders.status,
+              app_orders.amount,
+              app_orders.currency,
+              app_orders.payer_email,
+              app_orders.created_at,
+              app_orders.paid_at,
+              app_orders.app_id AS item_id,
+              COALESCE(app.decription, app_orders.app_id) AS item_name,
+              users.name AS user_name,
+              users.email AS user_email
+            FROM app_orders
+            LEFT JOIN app ON app.id = app_orders.app_id
+            LEFT JOIN users ON users.id = app_orders.user_id
+        ')->fetchAll());
+    } catch (Throwable $e) {
+    }
+
+    try {
+        $pushRows($pdo->query('
+            SELECT
+              \'music\' AS source,
+              song_orders.id,
+              song_orders.paypal_order_id AS order_code,
+              song_orders.status,
+              song_orders.amount,
+              song_orders.currency,
+              song_orders.payer_email,
+              song_orders.created_at,
+              song_orders.paid_at,
+              song_orders.song_id AS item_id,
+              COALESCE(song.name, song_orders.song_id) AS item_name,
+              users.name AS user_name,
+              users.email AS user_email
+            FROM song_orders
+            LEFT JOIN song ON song.id = song_orders.song_id
+            LEFT JOIN users ON users.id = song_orders.user_id
+        ')->fetchAll());
+    } catch (Throwable $e) {
+    }
+
+    try {
+        $pushRows($pdo->query('
+            SELECT
+              \'ebook\' AS source,
+              ebook_orders.id,
+              ebook_orders.paypal_order_id AS order_code,
+              ebook_orders.status,
+              ebook_orders.amount,
+              ebook_orders.currency,
+              ebook_orders.payer_email,
+              ebook_orders.created_at,
+              ebook_orders.paid_at,
+              ebook_orders.ebook_id AS item_id,
+              COALESCE(ebook.name, ebook_orders.ebook_id) AS item_name,
+              users.name AS user_name,
+              users.email AS user_email
+            FROM ebook_orders
+            LEFT JOIN ebook ON ebook.id = ebook_orders.ebook_id
+            LEFT JOIN users ON users.id = ebook_orders.user_id
+        ')->fetchAll());
+    } catch (Throwable $e) {
+    }
+
+    try {
+        $pushRows($pdo->query('
+            SELECT
+              \'cloud\' AS source,
+              cloud_subscription.id,
+              cloud_subscription.provider_order_id AS order_code,
+              cloud_subscription.status,
+              cloud_subscription.amount,
+              cloud_subscription.currency,
+              cloud_subscription.payer_email,
+              cloud_subscription.created_at,
+              COALESCE(cloud_subscription.paid_at, cloud_subscription.started_at) AS paid_at,
+              CAST(cloud_subscription.cloud_id AS CHAR) AS item_id,
+              COALESCE(cloud.name, CAST(cloud_subscription.cloud_id AS CHAR)) AS item_name,
+              cloud_subscription.user AS user_name,
+              cloud_subscription.user AS user_email
+            FROM cloud_subscription
+            LEFT JOIN cloud ON cloud.id = cloud_subscription.cloud_id
+        ')->fetchAll());
+    } catch (Throwable $e) {
+    }
+
+    try {
+        $pushRows($pdo->query('
+            SELECT
+              \'coc\' AS source,
+              coc_orders.id,
+              coc_orders.paypal_order_id AS order_code,
+              coc_orders.status,
+              coc_orders.amount,
+              \'USD\' AS currency,
+              coc_orders.payer_email,
+              coc_orders.created_at,
+              coc_orders.paid_at,
+              CAST(coc_orders.coc_id AS CHAR) AS item_id,
+              COALESCE(coc.name, CAST(coc_orders.coc_id AS CHAR)) AS item_name,
+              coc.username AS user_name,
+              coc_orders.payer_email AS user_email
+            FROM coc_orders
+            LEFT JOIN coc ON coc.id = coc_orders.coc_id
+        ')->fetchAll());
+    } catch (Throwable $e) {
+    }
+
+    usort($rows, static function (array $a, array $b): int {
+        $aDate = (string) (($a['paid_at'] ?? '') ?: ($a['created_at'] ?? ''));
+        $bDate = (string) (($b['paid_at'] ?? '') ?: ($b['created_at'] ?? ''));
+        $dateCompare = strcmp($bDate, $aDate);
+        if ($dateCompare !== 0) {
+            return $dateCompare;
+        }
+        return (int) ($b['id'] ?? 0) <=> (int) ($a['id'] ?? 0);
+    });
+
+    return $rows;
+}
+
+function admin_system_order_summary(array $rows): array
+{
+    $stats = ['total' => count($rows), 'paid' => 0, 'pending' => 0];
+    $income = [];
+    foreach ($rows as $row) {
+        if (!empty($row['is_paid'])) {
+            $stats['paid']++;
+            $currency = strtoupper(trim((string) ($row['currency'] ?? 'USD'))) ?: 'USD';
+            $income[$currency] = ($income[$currency] ?? 0.0) + (float) ($row['amount'] ?? 0);
+        } else {
+            $stats['pending']++;
+        }
+    }
+    ksort($income);
+    return [$stats, $income];
+}
+
+function admin_delete_created_orders(PDO $pdo): array
+{
+    $targets = [
+        'app_orders' => 'App',
+        'song_orders' => 'Âm nhạc',
+        'ebook_orders' => 'Sách',
+        'cloud_subscription' => 'Cloud',
+        'coc_orders' => 'COC',
+    ];
+    $deleted = [];
+    $total = 0;
+
+    foreach ($targets as $table => $label) {
+        try {
+            $stmt = $pdo->prepare('DELETE FROM ' . admin_sql_ident($table) . ' WHERE status = ?');
+            $stmt->execute(['CREATED']);
+            $count = (int) $stmt->rowCount();
+            $deleted[$label] = $count;
+            $total += $count;
+        } catch (Throwable $e) {
+            $deleted[$label] = 0;
+        }
+    }
+
+    return ['total' => $total, 'items' => $deleted];
+}
+
 function admin_visit_ip_rows(?PDO $pdo, string $site, string $label, array $dateRange): array
 {
     if (!$pdo instanceof PDO) {
+        return [];
+    }
+
+    $today = date('Y-m-d');
+    if (($dateRange['from'] ?? '') > $today || ($dateRange['to'] ?? '') < $today) {
         return [];
     }
 
@@ -1977,10 +2433,7 @@ function admin_visit_ip_rows(?PDO $pdo, string $site, string $label, array $date
         $stmt = $pdo->prepare("
             SELECT
               range_rows.ip_text,
-              COALESCE(today_rows.today_hits, 0) AS today_hits,
-              COALESCE(week_rows.week_hits, 0) AS week_hits,
               range_rows.range_hits,
-              COALESCE(total_rows.total_hits, 0) AS total_hits,
               range_rows.visit_days,
               range_rows.last_seen_at,
               range_rows.request_path,
@@ -1995,39 +2448,15 @@ function admin_visit_ip_rows(?PDO $pdo, string $site, string $label, array $date
                 SUBSTRING_INDEX(GROUP_CONCAT(user_agent ORDER BY last_seen_at DESC SEPARATOR '\\n'), '\\n', 1) AS user_agent
               FROM visit_daily_ip
               WHERE site = :range_site
-                AND visit_date BETWEEN :range_from AND :range_to
+                AND visit_date = :today
               GROUP BY ip_text
             ) AS range_rows
-            LEFT JOIN (
-              SELECT ip_text, COALESCE(SUM(hits), 0) AS today_hits
-              FROM visit_daily_ip
-              WHERE site = :today_site
-                AND visit_date = CURRENT_DATE
-              GROUP BY ip_text
-            ) AS today_rows ON today_rows.ip_text = range_rows.ip_text
-            LEFT JOIN (
-              SELECT ip_text, COALESCE(SUM(hits), 0) AS week_hits
-              FROM visit_daily_ip
-              WHERE site = :week_site
-                AND visit_date >= DATE_SUB(CURRENT_DATE, INTERVAL 6 DAY)
-              GROUP BY ip_text
-            ) AS week_rows ON week_rows.ip_text = range_rows.ip_text
-            LEFT JOIN (
-              SELECT ip_text, COALESCE(SUM(hits), 0) AS total_hits
-              FROM visit_daily_ip
-              WHERE site = :total_site
-              GROUP BY ip_text
-            ) AS total_rows ON total_rows.ip_text = range_rows.ip_text
-            ORDER BY range_rows.range_hits DESC, total_rows.total_hits DESC, range_rows.last_seen_at DESC
+            ORDER BY range_rows.range_hits DESC, range_rows.last_seen_at DESC
             LIMIT 100
         ");
         $stmt->execute([
             ':range_site' => $site,
-            ':range_from' => $dateRange['from'],
-            ':range_to' => $dateRange['to'],
-            ':today_site' => $site,
-            ':week_site' => $site,
-            ':total_site' => $site,
+            ':today' => $today,
         ]);
         $rows = $stmt->fetchAll();
     } catch (Throwable $e) {
@@ -2265,6 +2694,27 @@ function admin_format_bytes(int $bytes): string
         $unitIndex++;
     }
     return ($unitIndex === 0 ? (string) $value : number_format($value, 2)) . ' ' . $units[$unitIndex];
+}
+
+function admin_system_resource_stats(): array
+{
+    $documentRoot = isset($_SERVER['DOCUMENT_ROOT']) ? realpath((string) $_SERVER['DOCUMENT_ROOT']) : false;
+    $xamppPath = $documentRoot && is_dir($documentRoot)
+        ? $documentRoot
+        : (is_dir('/Applications/XAMPP/xamppfiles') ? '/Applications/XAMPP/xamppfiles' : (realpath(__DIR__ . '/..') ?: __DIR__));
+    $diskTotal = (int) @disk_total_space($xamppPath);
+    $diskFree = (int) @disk_free_space($xamppPath);
+    $diskUsed = max(0, $diskTotal - $diskFree);
+
+    return [
+        'disk' => [
+            'path' => $xamppPath,
+            'total' => $diskTotal,
+            'used' => $diskUsed,
+            'free' => $diskFree,
+            'percent' => $diskTotal > 0 ? min(100, max(0, round(($diskUsed / $diskTotal) * 100, 1))) : null,
+        ],
+    ];
 }
 
 function admin_backup_progress(array $state): array
@@ -2553,12 +3003,15 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages', 'users', '
             $deletedAdminCacheFiles = admin_clear_internal_cache();
             $deletedHomeCacheFiles = admin_clear_carrothome_cache();
             $deletedMusicCacheFiles = admin_clear_carrotmusic_cache();
-            $message = 'Đã clear cache hệ thống: CarrotAdmin (' . number_format($deletedAdminCacheFiles) . ' file), CarrotHome (' . number_format($deletedHomeCacheFiles) . ' file), CarrotMusic (' . number_format($deletedMusicCacheFiles) . ' file).';
+            $message = 'Đã clear cache hệ thống: CarrotAdmin (' . number_format($deletedAdminCacheFiles) . ' file), CarrotHome (' . number_format($deletedHomeCacheFiles) . ' file), Heart Beat Play (' . number_format($deletedMusicCacheFiles) . ' file).';
         }
 
         if ($section === 'overview') {
             $trafficDateRange = admin_parse_traffic_date_range();
             $serverRuntime = admin_server_runtime();
+            $systemResources = admin_system_resource_stats();
+            admin_track_daily_ip($pdo);
+            admin_ensure_visit_hourly_ip_table($pdo, 'coc');
             $dashboardMetrics['apps'] = admin_cached_count_table($pdo, 'main_app', 'app');
             $dashboardMetrics['coc'] = admin_cached_count_table($pdo, 'main_coc', 'coc');
             $dashboardMetrics['songs'] = admin_cached_count_table($pdo, 'main_song', 'song');
@@ -2571,37 +3024,41 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages', 'users', '
             $overviewHomePdo = null;
             try {
                 $overviewHomePdo = admin_home_pdo();
+                admin_ensure_visit_hourly_ip_table($overviewHomePdo, 'home');
                 $dashboardMetrics['pages'] = admin_cached_count_table($overviewHomePdo, 'home_page', 'page');
                 $dashboardMetrics['users'] = admin_cached_count_table($overviewHomePdo, 'home_users', 'users');
             } catch (Throwable $e) {
                 $dashboardMetrics['pages'] = 0;
                 $dashboardMetrics['users'] = 0;
             }
+            $trafficMetrics['admin'] = admin_visit_metrics($pdo, 'admin', $trafficDateRange);
             $trafficMetrics['coc'] = admin_visit_metrics($pdo, 'coc', $trafficDateRange);
             $trafficMetrics['home'] = admin_visit_metrics($overviewHomePdo, 'home', $trafficDateRange);
             $trafficMetrics['ebook'] = admin_visit_metrics($pdo, 'ebook', $trafficDateRange);
             $trafficMetrics['music'] = admin_visit_metrics($pdo, 'music', $trafficDateRange);
-            $trafficMetrics['total'] = admin_sum_visit_metrics([$trafficMetrics['coc'], $trafficMetrics['home'], $trafficMetrics['ebook'], $trafficMetrics['music']]);
+            $trafficMetrics['total'] = admin_sum_visit_metrics([$trafficMetrics['admin'], $trafficMetrics['coc'], $trafficMetrics['home'], $trafficMetrics['ebook'], $trafficMetrics['music']]);
             $trafficChartData = admin_sum_visit_chart([
+                admin_visit_chart($pdo, 'admin', $trafficDateRange),
                 admin_visit_chart($pdo, 'coc', $trafficDateRange),
                 admin_visit_chart($overviewHomePdo, 'home', $trafficDateRange),
                 admin_visit_chart($pdo, 'ebook', $trafficDateRange),
                 admin_visit_chart($pdo, 'music', $trafficDateRange),
             ], $trafficDateRange);
             $trafficIpRows = array_merge(
+                admin_visit_ip_rows($pdo, 'admin', 'CarrotAdmin', $trafficDateRange),
                 admin_visit_ip_rows($pdo, 'coc', 'COC Shop', $trafficDateRange),
                 admin_visit_ip_rows($overviewHomePdo, 'home', 'CarrotHome', $trafficDateRange),
                 admin_visit_ip_rows($pdo, 'ebook', 'CarrotEbook', $trafficDateRange),
-                admin_visit_ip_rows($pdo, 'music', 'CarrotMusic', $trafficDateRange)
+                admin_visit_ip_rows($pdo, 'music', 'Heart Beat Play', $trafficDateRange)
             );
             usort($trafficIpRows, static function (array $a, array $b): int {
                 $rangeCompare = (int) ($b['range_hits'] ?? 0) <=> (int) ($a['range_hits'] ?? 0);
                 if ($rangeCompare !== 0) {
                     return $rangeCompare;
                 }
-                $hitsCompare = (int) ($b['total_hits'] ?? 0) <=> (int) ($a['total_hits'] ?? 0);
-                if ($hitsCompare !== 0) {
-                    return $hitsCompare;
+                $daysCompare = (int) ($b['visit_days'] ?? 0) <=> (int) ($a['visit_days'] ?? 0);
+                if ($daysCompare !== 0) {
+                    return $daysCompare;
                 }
                 return strcmp((string) ($b['last_seen_at'] ?? ''), (string) ($a['last_seen_at'] ?? ''));
             });
@@ -2644,9 +3101,17 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages', 'users', '
 
         if ($section === 'sites') {
             admin_ensure_sites_table($pdo);
+            admin_ensure_sites_google_search_verification_table($pdo);
         }
 
         if ($section === 'cloud') {
+            admin_ensure_cloud_tables($pdo);
+        }
+
+        if ($section === 'order') {
+            admin_ensure_app_order_table($pdo);
+            admin_ensure_music_tables($pdo);
+            admin_ensure_ebook_tables($pdo);
             admin_ensure_cloud_tables($pdo);
         }
 
@@ -2656,6 +3121,20 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages', 'users', '
 
         if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $action = $_POST['action'] ?? '';
+
+            if ($section === 'order' && $action === 'delete_created_orders') {
+                $deletedCreatedOrders = admin_delete_created_orders($pdo);
+                $deletedItems = [];
+                foreach ($deletedCreatedOrders['items'] as $label => $count) {
+                    if ($count > 0) {
+                        $deletedItems[] = $label . ': ' . number_format((int) $count);
+                    }
+                }
+                $message = 'Đã xóa ' . number_format((int) $deletedCreatedOrders['total']) . ' đơn CREATED.';
+                if ($deletedItems) {
+                    $message .= ' ' . implode(', ', $deletedItems) . '.';
+                }
+            }
 
             if ($section === 'coc' && $action === 'delete') {
                 $stmt = $pdo->prepare('DELETE FROM coc WHERE id = ?');
@@ -2848,6 +3327,8 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages', 'users', '
                 $previewFile = trim($_POST['preview_file'] ?? '');
                 $description = trim($_POST['description'] ?? '');
                 $publishedAt = trim($_POST['published_at'] ?? '');
+                $ownerUserId = (int) ($_POST['user_id'] ?? 0);
+                $ownerUser = $ownerUserId > 0 ? (string) $ownerUserId : trim((string) ($_POST['user'] ?? ''));
                 $now = gmdate('c');
 
                 if ($id === '' || $name === '') {
@@ -2861,17 +3342,17 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages', 'users', '
                 if ($originalId !== '') {
                     $stmt = $pdo->prepare('
                         UPDATE ebook
-                        SET id = ?, name = ?, author = ?, category_id = ?, lang = ?, price = ?, currency = ?, is_free = ?, status = ?, cover = ?, preview_file = ?, description = ?, published_at = ?, updated_at = ?
+                        SET id = ?, name = ?, author = ?, category_id = ?, lang = ?, price = ?, currency = ?, is_free = ?, status = ?, cover = ?, preview_file = ?, description = ?, published_at = ?, updated_at = ?, user_id = ?, `user` = ?
                         WHERE id = ?
                     ');
-                    $stmt->execute([$id, $name, $author, $categoryId, $lang, $price, $currency, $isFree, $status, $cover, $previewFile, $description, $publishedAt, $now, $originalId]);
+                    $stmt->execute([$id, $name, $author, $categoryId, $lang, $price, $currency, $isFree, $status, $cover, $previewFile, $description, $publishedAt, $now, $ownerUserId > 0 ? $ownerUserId : null, $ownerUser, $originalId]);
                     $message = 'Đã cập nhật ebook.';
                 } else {
                     $stmt = $pdo->prepare('
-                        INSERT INTO ebook (id, name, author, category_id, lang, price, currency, is_free, status, cover, preview_file, description, published_at, created_at, updated_at)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        INSERT INTO ebook (id, name, author, category_id, lang, price, currency, is_free, status, cover, preview_file, description, published_at, created_at, updated_at, user_id, `user`)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     ');
-                    $stmt->execute([$id, $name, $author, $categoryId, $lang, $price, $currency, $isFree, $status, $cover, $previewFile, $description, $publishedAt, $now, $now]);
+                    $stmt->execute([$id, $name, $author, $categoryId, $lang, $price, $currency, $isFree, $status, $cover, $previewFile, $description, $publishedAt, $now, $now, $ownerUserId > 0 ? $ownerUserId : null, $ownerUser]);
                     $message = 'Đã thêm ebook mới.';
                 }
             }
@@ -3223,7 +3704,7 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages', 'users', '
                     }
 
                     $apiPdo = $homePdo instanceof PDO ? $homePdo : admin_home_pdo();
-                    $musicSiteId = $pdo instanceof PDO ? admin_site_id_by_key($pdo, 'CarrotMusic', ['Music', 'music.carrot28.com']) : null;
+                    $musicSiteId = $pdo instanceof PDO ? admin_site_id_by_key($pdo, 'CarrotMusic', ['Music', 'Heart Beat Play', 'heartbeatplay.com', 'music.carrot28.com']) : null;
                     $apiKey = admin_fetch_youtube_api_key($apiPdo, $pdo instanceof PDO ? $pdo : null, $musicSiteId);
                     if (!function_exists('curl_init')) {
                         throw new RuntimeException('Server cần bật PHP cURL.');
@@ -4064,6 +4545,14 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages', 'users', '
                 $message = 'Đã xóa site.';
             }
 
+            if ($section === 'sites' && $action === 'delete_google_search_verification') {
+                $stmt = $pdo->prepare('DELETE FROM sites_google_search_verifications WHERE id = ?');
+                $stmt->execute([(int) ($_POST['id'] ?? 0)]);
+                admin_clear_carrothome_cache();
+                admin_clear_carrotmusic_cache();
+                $message = 'Đã xóa mã xác thực Google Search.';
+            }
+
             if ($section === 'sites' && $action === 'ajax_ai_request_site_description') {
                 try {
                     $idea = trim($_POST['idea'] ?? '');
@@ -4108,6 +4597,46 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages', 'users', '
                 }
 
                 admin_clear_internal_cache('overview_count_main_sites');
+                admin_clear_carrothome_cache();
+                admin_clear_carrotmusic_cache();
+            }
+
+            if ($section === 'sites' && $action === 'save_google_search_verification') {
+                $originalId = (int) ($_POST['original_id'] ?? 0);
+                $siteId = (int) ($_POST['site_id'] ?? 0);
+                $name = trim($_POST['name'] ?? '');
+                $verificationCode = trim($_POST['verification_code'] ?? '');
+                $status = ($_POST['status'] ?? 'active') === 'hidden' ? 'hidden' : 'active';
+                $sortOrder = (int) ($_POST['sort_order'] ?? 0);
+
+                if (preg_match('/content=["\']([^"\']+)["\']/i', $verificationCode, $matches)) {
+                    $verificationCode = trim($matches[1]);
+                }
+
+                if ($siteId <= 0 || $verificationCode === '') {
+                    throw new RuntimeException('Vui lòng chọn site và nhập mã xác thực Google Search.');
+                }
+
+                $stmt = $pdo->prepare('SELECT COUNT(*) FROM sites WHERE id = ?');
+                $stmt->execute([$siteId]);
+                if ((int) $stmt->fetchColumn() <= 0) {
+                    throw new RuntimeException('Site đã chọn không tồn tại.');
+                }
+
+                if ($name === '') {
+                    $name = 'Google Search Console';
+                }
+
+                if ($originalId > 0) {
+                    $stmt = $pdo->prepare('UPDATE sites_google_search_verifications SET site_id = ?, name = ?, verification_code = ?, status = ?, sort_order = ? WHERE id = ?');
+                    $stmt->execute([$siteId, $name, $verificationCode, $status, $sortOrder, $originalId]);
+                    $message = 'Đã cập nhật mã xác thực Google Search.';
+                } else {
+                    $stmt = $pdo->prepare('INSERT INTO sites_google_search_verifications (site_id, name, verification_code, status, sort_order) VALUES (?, ?, ?, ?, ?)');
+                    $stmt->execute([$siteId, $name, $verificationCode, $status, $sortOrder]);
+                    $message = 'Đã thêm mã xác thực Google Search.';
+                }
+
                 admin_clear_carrothome_cache();
                 admin_clear_carrotmusic_cache();
             }
@@ -4359,8 +4888,12 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages', 'users', '
             $editing = admin_fetch_bank($pdo, $editId);
         }
 
-        if ($section === 'sites' && $editId > 0) {
+        if ($section === 'sites' && $sitesTab === 'main' && $editId > 0) {
             $editing = admin_fetch_sites($pdo, $editId);
+        }
+
+        if ($section === 'sites' && $sitesTab === 'google_search' && $editId > 0) {
+            $editingGoogleSearchVerification = admin_fetch_site_google_search_verification($pdo, $editId);
         }
 
         if ($section === 'country' && $countryTab === 'countries' && $editId > 0) {
@@ -4522,10 +5055,12 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages', 'users', '
             : [];
         if ($section === 'ebook') {
             $ebookCategoryOptions = $pdo->query('SELECT id, name FROM ebook_categories ORDER BY name ASC, id ASC')->fetchAll();
+            $ebookUserOptions = $pdo->query('SELECT id, name, email FROM users ORDER BY name ASC, email ASC, id ASC LIMIT 500')->fetchAll();
             $ebooks = $pdo->query('
-                SELECT ebook.*, ebook_categories.name AS category_name
+                SELECT ebook.*, ebook_categories.name AS category_name, users.name AS user_name, users.email AS user_email
                 FROM ebook
                 LEFT JOIN ebook_categories ON ebook_categories.id = ebook.category_id
+                LEFT JOIN users ON users.id = ebook.user_id
                 ORDER BY ' . admin_order_by($ebookSortColumns, $ebookSort, $ebookDir) . ', ebook.id ASC
             ')->fetchAll();
             if ($ebookTab === 'categories') {
@@ -4715,6 +5250,14 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages', 'users', '
         $sites = $section === 'sites'
             ? $pdo->query('SELECT * FROM sites ORDER BY ' . admin_order_by($siteSortColumns, $sitesSort, $sitesDir))->fetchAll()
             : [];
+        $siteGoogleSearchVerifications = ($section === 'sites' && $sitesTab === 'google_search')
+            ? $pdo->query('
+                SELECT sites_google_search_verifications.*, sites.name AS site_name, sites.url AS site_url
+                FROM sites_google_search_verifications
+                LEFT JOIN sites ON sites.id = sites_google_search_verifications.site_id
+                ORDER BY sites.sort_order ASC, sites.name ASC, sites_google_search_verifications.sort_order ASC, sites_google_search_verifications.id DESC
+            ')->fetchAll()
+            : [];
         $cloudPlans = $section === 'cloud'
             ? $pdo->query('SELECT * FROM cloud ORDER BY ' . admin_order_by($cloudSortColumns, $cloudSort, $cloudDir) . ', id ASC')->fetchAll()
             : [];
@@ -4735,6 +5278,10 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages', 'users', '
                 LIMIT 200
             ')->fetchAll()
             : [];
+        if ($section === 'order') {
+            $systemOrderRows = admin_fetch_system_orders($pdo, $orderSourceFilter, $orderStatusFilter);
+            [$systemOrderStats, $systemOrderIncome] = admin_system_order_summary($systemOrderRows);
+        }
         $countries = $section === 'country'
             ? $pdo->query('SELECT * FROM country ORDER BY ' . admin_order_by($countrySortColumns, $countrySort, $countryDir))->fetchAll()
             : [];
@@ -4826,6 +5373,8 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages', 'users', '
         $users = [];
         $apiConfigs = [];
         $banks = [];
+        $sites = [];
+        $siteGoogleSearchVerifications = [];
         $countries = [];
         $languageOptions = [];
         $labelTranslationMap = [];
@@ -4836,15 +5385,19 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages', 'users', '
         $textLabelTotalPages = 1;
         $orders = [];
         $appOrders = [];
+        $systemOrderRows = [];
+        $systemOrderStats = ['total' => 0, 'paid' => 0, 'pending' => 0];
+        $systemOrderIncome = [];
         $trafficIpRows = [];
         $backupItems = [];
     }
 }
 
 $photoText = ($section === 'coc' && $editing) ? implode("\n", coc_decode_photos($editing['photos'])) : '';
-$pageTitle = ['overview' => 'Tổng quan', 'apps' => 'App', 'ebook' => 'Ebook', 'music' => 'Âm nhạc', 'pages' => 'Page', 'users' => 'Users', 'api' => 'API', 'bank' => 'Bank', 'sites' => 'Sites', 'coc' => 'Coc', 'country' => 'Country', 'paypal' => 'Paypal', 'ai_support' => 'AI Support', 'backup' => 'Sao Lưu'][$section] ?? 'Tổng quan';
-$sectionLabels = ['overview' => 'tổng quan', 'apps' => 'ứng dụng', 'ebook' => 'ebook', 'music' => 'âm nhạc', 'pages' => 'Page/SEO', 'users' => 'người dùng', 'api' => 'API key', 'bank' => 'ngân hàng', 'sites' => 'website', 'coc' => 'shop', 'country' => 'quốc gia hỗ trợ', 'paypal' => 'PayPal', 'ai_support' => 'AI Support', 'cloud' => 'Cloud', 'backup' => 'sao lưu dữ liệu'];
-$sectionTitles = ['overview' => 'Tổng quan', 'apps' => 'App Carrot Home', 'ebook' => 'CarrotEbook', 'music' => 'CarrotMusic', 'pages' => 'Page Carrot Home', 'users' => 'User Carrot Home', 'api' => 'API Config', 'bank' => 'Bank', 'sites' => 'Sites', 'coc' => 'Acc Clash of Clans', 'country' => 'Country', 'paypal' => 'Paypal Config', 'ai_support' => 'AI - Support', 'cloud' => 'CarrotCloud', 'backup' => 'Sao Lưu Database'];
+$pageTitle = ['overview' => 'Tổng quan', 'apps' => 'App', 'ebook' => 'Ebook', 'music' => 'Âm nhạc', 'pages' => 'Page', 'users' => 'Users', 'api' => 'API', 'bank' => 'Bank', 'sites' => 'Sites', 'coc' => 'Coc', 'order' => 'Order', 'country' => 'Country', 'paypal' => 'Paypal', 'ai_support' => 'AI Support', 'cloud' => 'Cloud', 'backup' => 'Sao Lưu'][$section] ?? 'Tổng quan';
+$sectionLabels = ['overview' => 'tổng quan', 'apps' => 'ứng dụng', 'ebook' => 'ebook', 'music' => 'âm nhạc', 'pages' => 'Page/SEO', 'users' => 'người dùng', 'api' => 'API key', 'bank' => 'ngân hàng', 'sites' => 'website', 'coc' => 'shop', 'order' => 'đơn hàng', 'country' => 'quốc gia hỗ trợ', 'paypal' => 'PayPal', 'ai_support' => 'AI Support', 'cloud' => 'Cloud', 'backup' => 'sao lưu dữ liệu'];
+$sectionTitles = ['overview' => 'Tổng quan', 'apps' => 'App Carrot Home', 'ebook' => 'CarrotEbook', 'music' => 'Heart Beat Play', 'pages' => 'Page Carrot Home', 'users' => 'User Carrot Home', 'api' => 'API Config', 'bank' => 'Bank', 'sites' => 'Sites', 'coc' => 'Acc Clash of Clans', 'order' => 'Order tổng hệ thống', 'country' => 'Country', 'paypal' => 'Paypal Config', 'ai_support' => 'AI - Support', 'cloud' => 'CarrotCloud', 'backup' => 'Sao Lưu Database'];
+$trafficRangeDays = admin_traffic_range_days($trafficDateRange);
 $dashboardCards = [
     ['label' => 'App', 'value' => $dashboardMetrics['apps'], 'icon' => 'boxes'],
     ['label' => 'Page', 'value' => $dashboardMetrics['pages'], 'icon' => 'file-text'],
@@ -4856,16 +5409,18 @@ $dashboardCards = [
     ['label' => 'Sites', 'value' => $dashboardMetrics['sites'], 'icon' => 'globe'],
     ['label' => 'Cloud', 'value' => $dashboardMetrics['cloud'], 'icon' => 'cloud'],
     ['label' => 'Country', 'value' => $dashboardMetrics['country'], 'icon' => 'globe-2'],
-    ['label' => 'IP hôm nay', 'value' => $trafficMetrics['total']['today_unique'], 'icon' => 'wifi', 'class' => 'dashboard-card-live-ip'],
+    ['label' => 'IP truy cập', 'value' => $trafficMetrics['total']['range_unique'], 'icon' => 'wifi', 'class' => 'dashboard-card-live-ip', 'key' => 'traffic-ip'],
 ];
 $trafficRows = [
+    ['label' => 'CarrotAdmin', 'url' => 'index.php', 'metrics' => $trafficMetrics['admin']],
     ['label' => 'COC Shop', 'url' => 'https://coc.carrot28.com/', 'metrics' => $trafficMetrics['coc']],
-    ['label' => 'CarrotHome', 'url' => 'https://home.carrot28.com/', 'metrics' => $trafficMetrics['home']],
+    ['label' => 'CarrotHome', 'url' => 'https://carrot28.com/', 'metrics' => $trafficMetrics['home']],
     ['label' => 'CarrotEbook', 'url' => 'https://ebook.carrot28.com/', 'metrics' => $trafficMetrics['ebook']],
-    ['label' => 'CarrotMusic', 'url' => 'https://music.carrot28.com/', 'metrics' => $trafficMetrics['music']],
+    ['label' => 'Heart Beat Play', 'url' => 'https://heartbeatplay.com/', 'metrics' => $trafficMetrics['music']],
     ['label' => 'Tổng cộng', 'url' => '', 'metrics' => $trafficMetrics['total']],
 ];
-$useSelect2 = $section === 'overview' || $section === 'apps' || $section === 'ebook' || $section === 'music' || $section === 'pages' || $section === 'cloud' || ($section === 'country' && $countryTab === 'labels');
+$useSelect2 = $section === 'overview' || $section === 'apps' || $section === 'ebook' || $section === 'music' || $section === 'pages' || $section === 'cloud' || ($section === 'country' && $countryTab === 'labels') || ($section === 'sites' && $sitesTab === 'google_search');
+$useJquery = $useSelect2 || $section === 'coc';
 $sectionCreateUrls = [
     'apps' => 'index.php?section=apps',
     'ebook' => 'index.php?section=ebook&tab=' . urlencode($ebookTab),
@@ -4874,6 +5429,7 @@ $sectionCreateUrls = [
     'users' => 'index.php?section=users',
     'api' => 'index.php?section=api',
     'bank' => 'index.php?section=bank',
+    'sites' => 'index.php?section=sites&tab=' . urlencode($sitesTab),
     'cloud' => 'index.php?section=cloud&tab=' . urlencode($cloudTab),
     'country' => 'index.php?section=country',
     'coc' => 'index.php?section=coc',
@@ -4895,8 +5451,10 @@ $sectionCreateUrls = [
     <link href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/select2-bootstrap-5-theme@1.3.0/dist/select2-bootstrap-5-theme.min.css" rel="stylesheet">
     <?php endif; ?>
-    <?php if ($useSelect2): ?>
+    <?php if ($useJquery): ?>
     <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+    <?php endif; ?>
+    <?php if ($useSelect2): ?>
     <script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
     <?php endif; ?>
     <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
@@ -4909,21 +5467,24 @@ $sectionCreateUrls = [
         .brand-mark{width:100%;height:36px;object-fit:contain}
         .muted-text{color:#64748b}
         .dashboard-layout{min-height:100vh;background:linear-gradient(180deg,#f8fafc 0,#eef2f7 42%,#e9edf4 100%)}
-        .dashboard-sidebar{position:sticky;top:16px;min-height:calc(100vh - 32px);border:1px solid rgba(15,23,42,.08);border-radius:8px;background:rgba(255,255,255,.92);box-shadow:0 18px 48px rgba(15,23,42,.08)}
+        .dashboard-sidebar{position:sticky;top:16px;max-height:calc(100vh - 32px);min-height:calc(100vh - 32px);display:flex;flex-direction:column;overflow:hidden;border:1px solid rgba(15,23,42,.08);border-radius:8px;background:rgba(255,255,255,.92);box-shadow:0 18px 48px rgba(15,23,42,.08)}
+        .dashboard-sidebar::after{content:"";position:absolute;left:1rem;right:1rem;bottom:.55rem;height:22px;border-radius:0 0 8px 8px;background:linear-gradient(180deg,rgba(255,255,255,0),rgba(255,255,255,.94));pointer-events:none}
         .dashboard-brand{padding:.25rem .25rem 1rem;border-bottom:1px solid rgba(15,23,42,.08)}
         .dashboard-brand-title{font-weight:800;line-height:1.1}
         .dashboard-brand-subtitle{font-size:.78rem;color:#64748b}
-        .dashboard-nav{gap:.35rem}
+        .dashboard-nav{position:relative;flex:1 1 auto;min-height:0;gap:.35rem;overflow-y:auto;overflow-x:hidden;scrollbar-width:none;-ms-overflow-style:none;overscroll-behavior:contain;scroll-behavior:smooth}
+        .dashboard-nav::-webkit-scrollbar{display:none}
         .dashboard-nav .list-group-item{display:flex;align-items:center;gap:.75rem;border:0;border-radius:8px;margin-bottom:.25rem;background:transparent;color:#334155;font-weight:700}
         .dashboard-nav .list-group-item i{width:18px;height:18px;color:#64748b}
         .dashboard-nav .list-group-item.active{background:#172033;color:#fff}
         .dashboard-nav .list-group-item.active i{color:#fff}
+        .dashboard-nav.is-edge-scrolling{scroll-behavior:auto}
         @media (max-width:991.98px){
-            .dashboard-sidebar{position:relative;top:auto;min-height:0;margin:.75rem!important;padding:.75rem!important;overflow:hidden}
+            .dashboard-sidebar{position:relative;top:auto;max-height:none;min-height:0;display:block;margin:.75rem!important;padding:.75rem!important;overflow:hidden}
+            .dashboard-sidebar::after{display:none}
             .dashboard-brand{padding:0 0 .75rem;margin-bottom:.75rem!important}
             .dashboard-nav{flex-direction:row;flex-wrap:nowrap;gap:.5rem;margin:0 -.75rem;padding:0 .75rem .05rem;overflow-x:auto;overflow-y:hidden;scrollbar-width:none;-ms-overflow-style:none;-webkit-overflow-scrolling:touch;scroll-snap-type:x proximity;cursor:grab;touch-action:pan-x}
             .dashboard-nav.is-dragging{cursor:grabbing;scroll-snap-type:none;user-select:none}
-            .dashboard-nav::-webkit-scrollbar{display:none}
             .dashboard-nav .list-group-item{flex:0 0 auto;margin-bottom:0;white-space:nowrap;scroll-snap-align:start}
             .dashboard-nav.is-dragging .list-group-item{pointer-events:none}
         }
@@ -4944,10 +5505,28 @@ $sectionCreateUrls = [
         @keyframes dashboardLiveBlink{0%,100%{opacity:1}50%{opacity:.28}}
         .dashboard-card-label{min-width:0;font-size:.72rem;color:#64748b;font-weight:800;text-transform:uppercase;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
         .dashboard-card-value{font-size:1.08rem;font-weight:850;line-height:1.05;white-space:nowrap}
-        .dashboard-uptime{background:#172033;color:#fff}
-        .dashboard-uptime .dashboard-card-label{color:#cbd5e1}
-        .dashboard-uptime .dashboard-card-icon{background:rgba(255,255,255,.12);color:#fff}
+        .dashboard-card-refresh{display:inline-flex;align-items:center;justify-content:center;flex:0 0 auto;margin-left:auto;padding:.12rem .36rem;border-radius:999px;background:#dcfce7;color:#16a34a;font-size:.68rem;font-weight:900;font-variant-numeric:tabular-nums;white-space:nowrap}
+        .dashboard-uptime{position:relative;display:flex;align-items:center;justify-content:center;min-height:154px;overflow:hidden;background:linear-gradient(135deg,#172033 0%,#0f172a 58%,#064e3b 100%);color:#fff}
+        .dashboard-uptime::before{content:"";position:absolute;inset:0;background:radial-gradient(circle at 50% 18%,rgba(34,197,94,.2),transparent 42%);pointer-events:none}
+        .dashboard-uptime-content{position:relative;z-index:1;width:100%;text-align:center}
+        .dashboard-uptime .dashboard-card-label{color:#cbd5e1;letter-spacing:0}
+        .dashboard-uptime-icon{position:absolute;top:.75rem;right:.75rem;display:inline-flex;align-items:center;justify-content:center;width:34px;height:34px;border-radius:8px;background:rgba(255,255,255,.12);color:#fff;border:1px solid rgba(255,255,255,.12)}
+        .dashboard-uptime-icon i,.dashboard-uptime-icon svg{width:17px;height:17px}
+        .dashboard-uptime-value{font-size:2.35rem;font-weight:900;line-height:1;letter-spacing:0;text-shadow:0 10px 28px rgba(0,0,0,.28);white-space:nowrap}
         .dashboard-uptime-start{font-size:.78rem;color:#cbd5e1}
+        .dashboard-uptime-timezone{font-size:.72rem;color:#94a3b8}
+        .dashboard-resource-title{font-size:.95rem;font-weight:850;color:#172033}
+        .dashboard-disk{display:flex;align-items:center;gap:1rem;min-width:0}
+        .dashboard-disk-chart{position:relative;flex:0 0 104px;width:104px;height:104px}
+        .dashboard-disk-chart canvas{display:block;width:104px!important;height:104px!important}
+        .dashboard-disk-center{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;pointer-events:none}
+        .dashboard-disk-center strong{font-size:1.05rem;line-height:1;color:#172033}
+        .dashboard-disk-center span{margin-top:.16rem;font-size:.66rem;font-weight:800;color:#64748b;text-transform:uppercase}
+        .dashboard-disk-meta{display:grid;gap:.42rem;min-width:0;flex:1}
+        .dashboard-disk-meta div{display:flex;align-items:center;justify-content:space-between;gap:.75rem;min-width:0;font-size:.8rem}
+        .dashboard-disk-meta span{color:#64748b;font-weight:800}
+        .dashboard-disk-meta strong{min-width:0;color:#172033;text-align:right;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+        .dashboard-resource-path{font-size:.74rem;color:#64748b;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
         .overview-panel-title{display:flex;align-items:center;gap:.6rem;font-weight:850}
         .overview-panel-title i{width:18px;height:18px}
         .traffic-site-link{font-weight:800;color:#172033;text-decoration:none}
@@ -4985,13 +5564,21 @@ $sectionCreateUrls = [
         .music-song-cell a{flex:0 0 auto}
         .music-song-text{min-width:0;max-width:100%}
         .music-song-name,.music-song-id{display:block;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+        .table tbody tr.coc-account-row-editing>*{--bs-table-bg:#fff7ed;--bs-table-striped-bg:#fff7ed;box-shadow:inset 0 1px 0 rgba(245,158,11,.32),inset 0 -1px 0 rgba(245,158,11,.32)}
+        .table tbody tr.coc-account-row-editing>td:first-child{border-left:4px solid #f59e0b;font-weight:900;color:#92400e}
+        .table tbody tr.coc-account-row-editing strong{color:#92400e}
+        .coc-photo-item{display:grid;grid-template-columns:76px minmax(0,1fr);gap:.65rem;align-items:center;border:1px solid rgba(15,23,42,.1);border-radius:8px;background:#f8fafc;padding:.55rem}
+        .coc-photo-preview{display:flex;align-items:center;justify-content:center;width:76px;height:56px;border:1px solid rgba(15,23,42,.1);border-radius:8px;background:#fff;color:#94a3b8;overflow:hidden}
+        .coc-photo-preview img{width:100%;height:100%;object-fit:cover}
+        .coc-photo-item .input-group{min-width:0}
+        .coc-photo-item .form-control{min-width:0}
         .api-config-name{display:flex;flex-wrap:wrap;align-items:baseline;gap:.45rem}
         .api-config-meta{display:grid;grid-template-columns:86px minmax(0,1fr);gap:.45rem;margin-top:.25rem;color:#64748b}
         .api-config-meta span{font-weight:800;text-transform:uppercase;font-size:.68rem}
         .api-config-meta code{white-space:normal;overflow-wrap:anywhere;word-break:break-word;color:#334155;background:transparent;padding:0}
         @media (max-width:1199px){.dashboard-grid{grid-template-columns:repeat(3,minmax(0,1fr))}}
         @media (max-width:991px){.dashboard-sidebar{position:static;min-height:auto}.dashboard-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
-        @media (max-width:575px){.dashboard-grid{grid-template-columns:1fr}.dashboard-card-value{font-size:1.05rem}.traffic-tools{width:100%;justify-content:stretch}.traffic-date-form{width:100%}.traffic-range-select{width:100%;min-width:0}.traffic-chart-legend{width:100%;justify-content:space-between}#traffic_compare_chart{height:260px!important;max-height:260px}}
+        @media (max-width:575px){.dashboard-grid{grid-template-columns:1fr}.dashboard-card-value{font-size:1.05rem}.dashboard-uptime{min-height:142px}.dashboard-uptime-value{font-size:1.82rem}.dashboard-disk{align-items:flex-start}.dashboard-disk-chart{flex-basis:96px;width:96px;height:96px}.dashboard-disk-chart canvas{width:96px!important;height:96px!important}.traffic-tools{width:100%;justify-content:stretch}.traffic-date-form{width:100%}.traffic-range-select{width:100%;min-width:0}.traffic-chart-legend{width:100%;justify-content:space-between}#traffic_compare_chart{height:260px!important;max-height:260px}.coc-photo-item{grid-template-columns:1fr}.coc-photo-preview{width:100%;height:120px}}
     </style>
     <style>
         .simple-editor-toolbar{display:flex;flex-wrap:wrap;gap:.35rem;padding:.5rem;border:1px solid rgba(0,0,0,.15);border-bottom:0;border-radius:.375rem .375rem 0 0;background:rgba(255,255,255,.7)}
@@ -5015,6 +5602,7 @@ $sectionCreateUrls = [
                 <a class="list-group-item list-group-item-action <?= $section === 'users' ? 'active' : '' ?>" href="index.php?section=users"><i data-lucide="users"></i><span>User</span></a>
                 <a class="list-group-item list-group-item-action <?= $section === 'api' ? 'active' : '' ?>" href="index.php?section=api"><i data-lucide="key-round"></i><span>API</span></a>
                 <a class="list-group-item list-group-item-action <?= $section === 'coc' ? 'active' : '' ?>" href="index.php?section=coc"><i data-lucide="shield"></i><span>Coc</span></a>
+                <a class="list-group-item list-group-item-action <?= $section === 'order' ? 'active' : '' ?>" href="index.php?section=order"><i data-lucide="receipt-text"></i><span>Order</span></a>
                 <a class="list-group-item list-group-item-action <?= $section === 'ebook' ? 'active' : '' ?>" href="index.php?section=ebook"><i data-lucide="book-open"></i><span>Ebook</span></a>
                 <a class="list-group-item list-group-item-action <?= $section === 'paypal' ? 'active' : '' ?>" href="index.php?section=paypal"><i data-lucide="credit-card"></i><span>Paypal</span></a>
                 <a class="list-group-item list-group-item-action <?= $section === 'ai_support' ? 'active' : '' ?>" href="index.php?section=ai_support"><i data-lucide="sparkles"></i><span>AI - Support</span></a>
@@ -5035,13 +5623,13 @@ $sectionCreateUrls = [
                     </div>
                     <div class="dashboard-actions d-flex flex-wrap gap-2">
                         <?php if ($section === 'apps'): ?>
-                            <a class="btn btn-success fw-bold" href="https://home.carrot28.com/" target="_blank" rel="noopener noreferrer"><i data-lucide="external-link" style="width:16px;height:16px"></i> Carrot Store</a>
+                            <a class="btn btn-success fw-bold" href="https://carrot28.com/" target="_blank" rel="noopener noreferrer"><i data-lucide="external-link" style="width:16px;height:16px"></i> Carrot Store</a>
                         <?php endif; ?>
                         <?php if ($section === 'ebook'): ?>
                             <a class="btn btn-success fw-bold" href="https://ebook.carrot28.com/" target="_blank" rel="noopener noreferrer"><i data-lucide="external-link" style="width:16px;height:16px"></i> CarrotEbook</a>
                         <?php endif; ?>
                         <?php if ($section === 'music'): ?>
-                            <a class="btn btn-success fw-bold" href="https://music.carrot28.com/" target="_blank" rel="noopener noreferrer"><i data-lucide="external-link" style="width:16px;height:16px"></i> CarrotMusic</a>
+                            <a class="btn btn-success fw-bold" href="https://heartbeatplay.com/" target="_blank" rel="noopener noreferrer"><i data-lucide="external-link" style="width:16px;height:16px"></i> Heart Beat Play</a>
                         <?php endif; ?>
                         <?php if ($section === 'cloud'): ?>
                             <a class="btn btn-success fw-bold" href="https://cloud.carrot28.com/" target="_blank" rel="noopener noreferrer"><i data-lucide="external-link" style="width:16px;height:16px"></i> CarrotCloud</a>
@@ -5049,7 +5637,7 @@ $sectionCreateUrls = [
                         <?php if ($section === 'coc'): ?>
                             <a class="btn btn-secondary fw-bold" href="https://coc.carrot28.com/" target="_blank" rel="noopener noreferrer">Xem shop</a>
                         <?php endif; ?>
-                        <?php if ($editing): ?>
+                        <?php if ($editing || $editingGoogleSearchVerification): ?>
                             <a class="btn btn-success fw-bold" href="<?= htmlspecialchars($sectionCreateUrls[$section] ?? 'index.php') ?>">Thêm mới</a>
                         <?php endif; ?>
                         <a class="btn btn-danger fw-bold" href="index.php?logout=1" title="Đăng xuất">
@@ -5184,6 +5772,8 @@ document.querySelectorAll('.js-delete-file').forEach((button) => {
         } else {
             target.value = '';
         }
+        target.dispatchEvent(new Event('input', {bubbles: true}));
+        target.dispatchEvent(new Event('change', {bubbles: true}));
 
         Swal.fire({
             icon: 'success',
@@ -5194,6 +5784,48 @@ document.querySelectorAll('.js-delete-file').forEach((button) => {
     });
 });
 
+async function adminOpenUploadDialog(button) {
+    const accept = button.dataset.accept || '';
+    const result = await Swal.fire({
+        title: 'Upload file',
+        html: `<input id="admin-upload-file" class="swal2-file" type="file" ${accept ? `accept="${accept}"` : ''}>`,
+        showCancelButton: true,
+        confirmButtonText: 'Upload',
+        cancelButtonText: 'Hủy',
+        focusConfirm: false,
+        preConfirm: async () => {
+            const fileInput = document.getElementById('admin-upload-file');
+            const file = fileInput && fileInput.files ? fileInput.files[0] : null;
+            if (!file) {
+                Swal.showValidationMessage('Vui lòng chọn file.');
+                return false;
+            }
+
+            const formData = new FormData();
+            formData.append('action', 'ajax_upload');
+            formData.append('type_media', button.dataset.typeMedia || 'coc_images');
+            formData.append('file', file);
+
+            try {
+                const response = await fetch('index.php', {
+                    method: 'POST',
+                    body: formData,
+                });
+                const payload = await response.json();
+                if (!response.ok || payload.status !== 'success') {
+                    throw new Error(payload.message || 'Upload thất bại.');
+                }
+                return payload.url;
+            } catch (error) {
+                Swal.showValidationMessage(error.message);
+                return false;
+            }
+        },
+    });
+
+    return result.isConfirmed && result.value ? result.value : '';
+}
+
 document.querySelectorAll('.js-upload').forEach((button) => {
     button.addEventListener('click', async () => {
         const target = document.getElementById(button.dataset.target);
@@ -5201,64 +5833,118 @@ document.querySelectorAll('.js-upload').forEach((button) => {
             return;
         }
 
-        const accept = button.dataset.accept || '';
-        const result = await Swal.fire({
-            title: 'Upload file',
-            html: `<input id="admin-upload-file" class="swal2-file" type="file" ${accept ? `accept="${accept}"` : ''}>`,
-            showCancelButton: true,
-            confirmButtonText: 'Upload',
-            cancelButtonText: 'Hủy',
-            focusConfirm: false,
-            preConfirm: async () => {
-                const fileInput = document.getElementById('admin-upload-file');
-                const file = fileInput && fileInput.files ? fileInput.files[0] : null;
-                if (!file) {
-                    Swal.showValidationMessage('Vui lòng chọn file.');
-                    return false;
-                }
-
-                const formData = new FormData();
-                formData.append('action', 'ajax_upload');
-                formData.append('type_media', button.dataset.typeMedia || 'coc_images');
-                formData.append('file', file);
-
-                try {
-                    const response = await fetch('index.php', {
-                        method: 'POST',
-                        body: formData,
-                    });
-                    const payload = await response.json();
-                    if (!response.ok || payload.status !== 'success') {
-                        throw new Error(payload.message || 'Upload thất bại.');
-                    }
-                    return payload.url;
-                } catch (error) {
-                    Swal.showValidationMessage(error.message);
-                    return false;
-                }
-            },
-        });
-
-        if (!result.isConfirmed || !result.value) {
+        const uploadedUrl = await adminOpenUploadDialog(button);
+        if (!uploadedUrl) {
             return;
         }
 
         if (button.dataset.mode === 'append') {
             const current = target.value.trim();
-            target.value = current ? `${current}\n${result.value}` : result.value;
+            target.value = current ? `${current}\n${uploadedUrl}` : uploadedUrl;
         } else {
-            target.value = result.value;
+            target.value = uploadedUrl;
         }
+        target.dispatchEvent(new Event('input', {bubbles: true}));
+        target.dispatchEvent(new Event('change', {bubbles: true}));
 
         Swal.fire({
             icon: 'success',
             title: 'Đã upload',
-            text: result.value,
+            text: uploadedUrl,
             timer: 1600,
             showConfirmButton: false,
         });
     });
 });
+
+if (window.jQuery) {
+    (($) => {
+        const refreshPreview = ($item) => {
+            const url = $.trim($item.find('.js-coc-photo-url').val() || '');
+            const $preview = $item.find('.coc-photo-preview');
+            if (url) {
+                $preview.html($('<img>', {src: url, alt: ''}));
+            } else {
+                $preview.html('<i data-lucide="image" style="width:22px;height:22px"></i>');
+                if (window.lucide) {
+                    lucide.createIcons();
+                }
+            }
+        };
+
+        const syncCocPhotos = ($field) => {
+            const urls = [];
+            $field.find('.js-coc-photo-url').each(function () {
+                const value = $.trim($(this).val() || '');
+                if (value) {
+                    urls.push(value);
+                }
+            });
+            $field.find('.js-coc-photos-source').val(urls.join('\n')).trigger('change');
+        };
+
+        const createCocPhotoItem = (url = '') => {
+            const $item = $(`
+                <div class="coc-photo-item js-coc-photo-item">
+                    <div class="coc-photo-preview"></div>
+                    <div class="input-group">
+                        <input class="form-control js-coc-photo-url" placeholder="Image URL">
+                        <button class="btn btn-secondary js-coc-photo-upload" type="button" data-type-media="coc_images" data-accept="image/*" title="Upload ảnh" aria-label="Upload ảnh"><i data-lucide="upload" style="width:16px;height:16px"></i></button>
+                        <button class="btn btn-outline-danger js-coc-photo-remove" type="button" title="Xóa item ảnh" aria-label="Xóa item ảnh"><i data-lucide="trash-2" style="width:16px;height:16px"></i></button>
+                    </div>
+                </div>
+            `);
+            $item.find('.js-coc-photo-url').val(url);
+            refreshPreview($item);
+            return $item;
+        };
+
+        $('.js-coc-photos-field').each(function () {
+            syncCocPhotos($(this));
+        });
+
+        $(document).on('input change', '.js-coc-photo-url', function () {
+            const $field = $(this).closest('.js-coc-photos-field');
+            refreshPreview($(this).closest('.js-coc-photo-item'));
+            syncCocPhotos($field);
+        });
+
+        $(document).on('click', '.js-coc-photo-add', function () {
+            const $field = $(this).closest('.js-coc-photos-field');
+            $field.find('.js-coc-photos-list').append(createCocPhotoItem(''));
+            if (window.lucide) {
+                lucide.createIcons();
+            }
+            syncCocPhotos($field);
+        });
+
+        $(document).on('click', '.js-coc-photo-remove', function () {
+            const $field = $(this).closest('.js-coc-photos-field');
+            const $items = $field.find('.js-coc-photo-item');
+            if ($items.length <= 1) {
+                $(this).closest('.js-coc-photo-item').find('.js-coc-photo-url').val('').trigger('input');
+                return;
+            }
+            $(this).closest('.js-coc-photo-item').remove();
+            syncCocPhotos($field);
+        });
+
+        $(document).on('click', '.js-coc-photo-upload', async function () {
+            const uploadedUrl = await adminOpenUploadDialog(this);
+            if (!uploadedUrl) {
+                return;
+            }
+            $(this).closest('.js-coc-photo-item').find('.js-coc-photo-url').val(uploadedUrl).trigger('input');
+            Swal.fire({
+                icon: 'success',
+                title: 'Đã upload',
+                text: uploadedUrl,
+                timer: 1600,
+                showConfirmButton: false,
+            });
+        });
+    })(jQuery);
+}
 
 const siteNameInput = document.getElementById('sites_name');
 const siteUrlInput = document.getElementById('sites_url');
@@ -5349,6 +6035,34 @@ document.querySelectorAll('.js-traffic-toggle').forEach((button) => {
     });
 });
 
+const xamppDiskCanvas = document.getElementById('xampp_disk_chart');
+const xamppDiskDataEl = document.getElementById('xampp_disk_data');
+if (xamppDiskCanvas && xamppDiskDataEl && window.Chart) {
+    const xamppDiskData = JSON.parse(xamppDiskDataEl.textContent || '{}');
+    const used = Math.max(0, Number(xamppDiskData.used || 0));
+    const free = Math.max(0, Number(xamppDiskData.free || 0));
+    new Chart(xamppDiskCanvas, {
+        type: 'doughnut',
+        data: {
+            labels: ['Đã dùng', 'Trống'],
+            datasets: [{
+                data: used + free > 0 ? [used, free] : [1, 0],
+                backgroundColor: ['#f59e0b', '#e2e8f0'],
+                borderWidth: 0,
+                hoverOffset: 2,
+            }],
+        },
+        options: {
+            responsive: false,
+            cutout: '72%',
+            plugins: {
+                legend: {display: false},
+                tooltip: {enabled: used + free > 0},
+            },
+        },
+    });
+}
+
 const trafficChartCanvas = document.getElementById('traffic_compare_chart');
 const trafficChartDataEl = document.getElementById('traffic_compare_data');
 if (trafficChartCanvas && trafficChartDataEl && window.Chart) {
@@ -5418,16 +6132,49 @@ if (trafficChartCanvas && trafficChartDataEl && window.Chart) {
             },
         },
     });
-    document.querySelectorAll('.traffic-legend-btn[data-traffic-dataset]').forEach((button) => {
-        button.addEventListener('click', () => {
+    const trafficLegendStorageKey = 'carrotadmin:overview:trafficLegend';
+    const trafficLegendButtons = Array.from(document.querySelectorAll('.traffic-legend-btn[data-traffic-dataset]'));
+    const readTrafficLegendState = () => {
+        try {
+            const parsed = JSON.parse(window.localStorage.getItem(trafficLegendStorageKey) || '{}');
+            return parsed && typeof parsed === 'object' ? parsed : {};
+        } catch (error) {
+            return {};
+        }
+    };
+    const writeTrafficLegendState = () => {
+        const state = {};
+        trafficLegendButtons.forEach((button) => {
             const datasetIndex = Number(button.dataset.trafficDataset || 0);
+            state[String(datasetIndex)] = trafficChart.isDatasetVisible(datasetIndex);
+        });
+        try {
+            window.localStorage.setItem(trafficLegendStorageKey, JSON.stringify(state));
+        } catch (error) {
+        }
+    };
+    const setTrafficLegendButton = (button, visible) => {
+        button.classList.toggle('is-active', visible);
+        button.setAttribute('aria-pressed', String(visible));
+    };
+    const savedTrafficLegendState = readTrafficLegendState();
+
+    trafficLegendButtons.forEach((button) => {
+        const datasetIndex = Number(button.dataset.trafficDataset || 0);
+        if (Object.prototype.hasOwnProperty.call(savedTrafficLegendState, String(datasetIndex))) {
+            const visible = savedTrafficLegendState[String(datasetIndex)] !== false;
+            trafficChart.setDatasetVisibility(datasetIndex, visible);
+            setTrafficLegendButton(button, visible);
+        }
+        button.addEventListener('click', () => {
             const isVisible = trafficChart.isDatasetVisible(datasetIndex);
             trafficChart.setDatasetVisibility(datasetIndex, !isVisible);
             trafficChart.update();
-            button.classList.toggle('is-active', !isVisible);
-            button.setAttribute('aria-pressed', String(!isVisible));
+            setTrafficLegendButton(button, !isVisible);
+            writeTrafficLegendState();
         });
     });
+    trafficChart.update();
 }
 
 const backupPost = async (data) => {
@@ -5891,6 +6638,13 @@ if (window.jQuery && jQuery.fn.select2) {
         theme: 'bootstrap-5',
         width: '100%',
         placeholder: 'Chọn site áp dụng',
+    });
+
+    jQuery('.js-user-select').select2({
+        theme: 'bootstrap-5',
+        width: '100%',
+        placeholder: 'Chọn user',
+        allowClear: true,
     });
 
     jQuery('.js-label-key-select').select2({
@@ -7016,28 +7770,146 @@ if (serverUptime) {
     window.setInterval(refreshUptime, 1000);
 }
 
+const trafficIpCard = document.querySelector('[data-dashboard-card="traffic-ip"]');
+if (trafficIpCard) {
+    const refreshIntervalSeconds = 300;
+    const countdownEl = trafficIpCard.querySelector('[data-refresh-countdown]');
+    let refreshRemainingSeconds = refreshIntervalSeconds;
+    let isRefreshingTrafficIpCard = false;
+    const formatRefreshCountdown = (seconds) => {
+        const safeSeconds = Math.max(0, Math.floor(seconds));
+        const minutes = Math.floor(safeSeconds / 60);
+        const restSeconds = safeSeconds % 60;
+        return `${String(minutes).padStart(2, '0')}:${String(restSeconds).padStart(2, '0')}`;
+    };
+    const renderRefreshCountdown = () => {
+        if (countdownEl) {
+            countdownEl.textContent = formatRefreshCountdown(refreshRemainingSeconds);
+        }
+    };
+    const refreshTrafficIpCard = async () => {
+        if (isRefreshingTrafficIpCard) {
+            return;
+        }
+        isRefreshingTrafficIpCard = true;
+        try {
+            const refreshUrl = new URL(window.location.href);
+            refreshUrl.searchParams.set('_dashboard_refresh', Date.now().toString());
+            const response = await fetch(refreshUrl.toString(), {
+                headers: {'X-Requested-With': 'fetch'},
+                cache: 'no-store',
+            });
+            if (!response.ok) {
+                return;
+            }
+            const html = await response.text();
+            const doc = new DOMParser().parseFromString(html, 'text/html');
+            const nextValue = doc.querySelector('[data-dashboard-card="traffic-ip"] .dashboard-card-value');
+            const currentValue = trafficIpCard.querySelector('.dashboard-card-value');
+            if (nextValue && currentValue) {
+                currentValue.textContent = nextValue.textContent.trim();
+            }
+        } catch (error) {
+        } finally {
+            refreshRemainingSeconds = refreshIntervalSeconds;
+            renderRefreshCountdown();
+            isRefreshingTrafficIpCard = false;
+        }
+    };
+
+    renderRefreshCountdown();
+    window.setInterval(() => {
+        refreshRemainingSeconds -= 1;
+        if (refreshRemainingSeconds <= 0) {
+            refreshTrafficIpCard();
+            return;
+        }
+        renderRefreshCountdown();
+    }, 1000);
+}
+
 document.querySelectorAll('.dashboard-nav').forEach((nav) => {
     let isPointerDown = false;
     let startX = 0;
     let startScrollLeft = 0;
     let moved = false;
+    let edgeScrollFrame = 0;
+    let edgeScrollSpeed = 0;
 
-    const canScroll = () => nav.scrollWidth > nav.clientWidth + 1;
-
-    nav.addEventListener('wheel', (event) => {
-        if (!canScroll()) {
+    const isMobileNav = () => window.matchMedia('(max-width: 991.98px)').matches;
+    const canScrollX = () => nav.scrollWidth > nav.clientWidth + 1;
+    const canScrollY = () => nav.scrollHeight > nav.clientHeight + 1;
+    const stopEdgeScroll = () => {
+        edgeScrollSpeed = 0;
+        nav.classList.remove('is-edge-scrolling');
+        if (edgeScrollFrame) {
+            window.cancelAnimationFrame(edgeScrollFrame);
+            edgeScrollFrame = 0;
+        }
+    };
+    const runEdgeScroll = () => {
+        if (!edgeScrollSpeed || isMobileNav() || !canScrollY()) {
+            stopEdgeScroll();
             return;
         }
-        const delta = Math.abs(event.deltaX) > Math.abs(event.deltaY) ? event.deltaX : event.deltaY;
+        nav.scrollTop += edgeScrollSpeed;
+        edgeScrollFrame = window.requestAnimationFrame(runEdgeScroll);
+    };
+    const updateEdgeScroll = (clientY) => {
+        if (isMobileNav() || !canScrollY()) {
+            stopEdgeScroll();
+            return;
+        }
+        const rect = nav.getBoundingClientRect();
+        const edgeSize = Math.min(92, Math.max(46, rect.height * .22));
+        let nextSpeed = 0;
+        if (clientY < rect.top + edgeSize) {
+            nextSpeed = -Math.ceil((1 - ((clientY - rect.top) / edgeSize)) * 11);
+        } else if (clientY > rect.bottom - edgeSize) {
+            nextSpeed = Math.ceil((1 - ((rect.bottom - clientY) / edgeSize)) * 11);
+        }
+        edgeScrollSpeed = nextSpeed;
+        if (edgeScrollSpeed && !edgeScrollFrame) {
+            nav.classList.add('is-edge-scrolling');
+            edgeScrollFrame = window.requestAnimationFrame(runEdgeScroll);
+        } else if (!edgeScrollSpeed) {
+            stopEdgeScroll();
+        }
+    };
+
+    const activeItem = nav.querySelector('.list-group-item.active');
+    if (activeItem) {
+        window.requestAnimationFrame(() => {
+            activeItem.scrollIntoView({block: 'nearest', inline: 'nearest'});
+        });
+    }
+
+    nav.addEventListener('wheel', (event) => {
+        if (isMobileNav()) {
+            if (!canScrollX()) {
+                return;
+            }
+            const delta = Math.abs(event.deltaX) > Math.abs(event.deltaY) ? event.deltaX : event.deltaY;
+            if (delta === 0) {
+                return;
+            }
+            event.preventDefault();
+            nav.scrollLeft += delta;
+            return;
+        }
+        if (!canScrollY()) {
+            return;
+        }
+        const delta = Math.abs(event.deltaY) >= Math.abs(event.deltaX) ? event.deltaY : event.deltaX;
         if (delta === 0) {
             return;
         }
         event.preventDefault();
-        nav.scrollLeft += delta;
+        nav.scrollTop += delta;
     }, {passive: false});
 
     nav.addEventListener('pointerdown', (event) => {
-        if (!canScroll() || event.button > 0) {
+        if (!isMobileNav() || !canScrollX() || event.button > 0) {
             return;
         }
         isPointerDown = true;
@@ -7049,6 +7921,7 @@ document.querySelectorAll('.dashboard-nav').forEach((nav) => {
     });
 
     nav.addEventListener('pointermove', (event) => {
+        updateEdgeScroll(event.clientY);
         if (!isPointerDown) {
             return;
         }
@@ -7072,6 +7945,8 @@ document.querySelectorAll('.dashboard-nav').forEach((nav) => {
 
     nav.addEventListener('pointerup', stopDrag);
     nav.addEventListener('pointercancel', stopDrag);
+    nav.addEventListener('pointerleave', stopEdgeScroll);
+    nav.addEventListener('blur', stopEdgeScroll, true);
     nav.addEventListener('click', (event) => {
         if (!moved) {
             return;
@@ -7080,6 +7955,7 @@ document.querySelectorAll('.dashboard-nav').forEach((nav) => {
         event.stopPropagation();
         moved = false;
     }, true);
+    window.addEventListener('resize', stopEdgeScroll);
 });
 
 if (window.lucide) {

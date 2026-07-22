@@ -4,7 +4,7 @@
                 'home' => 'CarrotHome',
                 'ebook' => 'CarrotEbook',
                 'coc' => 'Coc',
-                'music' => 'CarrotMusic',
+                'music' => 'Heart Beat Play',
                 'cloud' => 'CarrotCloud',
             ];
             $paypalRows = [];

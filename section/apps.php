@@ -412,7 +412,7 @@
                             <?php
                                 $orderAppId = (string) ($order['app_id'] ?? '');
                                 $paypalOrderId = (string) ($order['paypal_order_id'] ?? '');
-                                $paypalReturnUrl = 'https://home.carrot28.com/paypal-return.php?' . http_build_query([
+                                $paypalReturnUrl = 'https://carrot28.com/paypal-return.php?' . http_build_query([
                                     'slug' => $orderAppId,
                                     'token' => $paypalOrderId,
                                 ]);
@@ -422,7 +422,7 @@
                                 <td>
                                     <div class="d-flex align-items-center gap-3">
                                         <?php if (!empty($order['app_icon'])): ?>
-                                            <a href="https://home.carrot28.com/app.php?slug=<?php echo htmlspecialchars($orderAppId) ?>" target="_blank" rel="noopener noreferrer">
+                                            <a href="https://carrot28.com/app.php?slug=<?php echo htmlspecialchars($orderAppId) ?>" target="_blank" rel="noopener noreferrer">
                                                 <img src="<?= htmlspecialchars($order['app_icon']) ?>" alt="" width="42" height="42" class="rounded-2 object-fit-cover">
                                             </a>
                                         <?php endif; ?>
@@ -975,7 +975,7 @@
                                         <td>
                                             <div class="d-flex align-items-center gap-3">
                                                 <?php if (!empty($category['icon'])): ?>
-                                                    <a href="https://home.carrot28.com/category/<?php echo $category['category_id'];?>" target="_blank">
+                                                    <a href="https://carrot28.com/category/<?php echo $category['category_id'];?>" target="_blank">
                                                     <img src="<?= htmlspecialchars($category['icon']) ?>" alt="" width="44" height="44" class="rounded-2 object-fit-cover">
                                                     </a>
                                                 <?php endif; ?>

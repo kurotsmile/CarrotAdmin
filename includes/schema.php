@@ -716,15 +716,60 @@ function admin_ensure_ebook_tables(PDO $pdo): void
           published_at VARCHAR(64) DEFAULT NULL,
           created_at VARCHAR(64) NOT NULL DEFAULT '',
           updated_at VARCHAR(64) NOT NULL DEFAULT '',
+          user_id BIGINT UNSIGNED DEFAULT NULL,
+          `user` VARCHAR(255) DEFAULT NULL,
           PRIMARY KEY (id),
           KEY idx_ebook_status (status),
           KEY idx_ebook_category_id (category_id),
+          KEY idx_ebook_user_id (user_id),
+          KEY idx_ebook_user (`user`(191)),
           KEY idx_ebook_name (name(191)),
           KEY idx_ebook_author (author(191)),
           KEY idx_ebook_updated_at (updated_at),
           CONSTRAINT fk_ebook_category_id
             FOREIGN KEY (category_id) REFERENCES ebook_categories (id)
             ON DELETE SET NULL
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    ");
+
+    $columns = $pdo->query('SHOW COLUMNS FROM ebook')->fetchAll(PDO::FETCH_COLUMN);
+    $columnSql = [
+        'user_id' => 'BIGINT UNSIGNED DEFAULT NULL AFTER updated_at',
+        'user' => 'VARCHAR(255) DEFAULT NULL AFTER user_id',
+    ];
+    foreach ($columnSql as $column => $sql) {
+        if (!in_array($column, $columns, true)) {
+            $pdo->exec('ALTER TABLE ebook ADD `' . $column . '` ' . $sql);
+        }
+    }
+    $indexes = $pdo->query('SHOW INDEX FROM ebook')->fetchAll(PDO::FETCH_ASSOC);
+    $indexNames = array_values(array_unique(array_map(static fn(array $row): string => (string) ($row['Key_name'] ?? ''), $indexes)));
+    if (!in_array('idx_ebook_user_id', $indexNames, true)) {
+        $pdo->exec('ALTER TABLE ebook ADD KEY idx_ebook_user_id (user_id)');
+    }
+    if (!in_array('idx_ebook_user', $indexNames, true)) {
+        $pdo->exec('ALTER TABLE ebook ADD KEY idx_ebook_user (`user`(191))');
+    }
+
+    $pdo->exec("
+        CREATE TABLE IF NOT EXISTS ebook_user (
+          id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+          ebook_id VARCHAR(255) NOT NULL,
+          user_id BIGINT UNSIGNED NOT NULL,
+          page_number INT UNSIGNED NOT NULL DEFAULT 1,
+          title VARCHAR(255) DEFAULT NULL,
+          content LONGTEXT DEFAULT NULL,
+          status VARCHAR(32) NOT NULL DEFAULT 'draft',
+          created_at VARCHAR(64) NOT NULL DEFAULT '',
+          updated_at VARCHAR(64) NOT NULL DEFAULT '',
+          PRIMARY KEY (id),
+          UNIQUE KEY uq_ebook_user_page (ebook_id, user_id, page_number),
+          KEY idx_ebook_user_ebook_id (ebook_id),
+          KEY idx_ebook_user_user_id (user_id),
+          KEY idx_ebook_user_status (status),
+          CONSTRAINT fk_ebook_user_ebook_id
+            FOREIGN KEY (ebook_id) REFERENCES ebook (id)
+            ON DELETE CASCADE ON UPDATE CASCADE
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     ");
 
@@ -1109,6 +1154,54 @@ function admin_ensure_sites_table(PDO $pdo): void
     }
 }
 
+function admin_ensure_sites_google_search_verification_table(PDO $pdo): void
+{
+    $pdo->exec("
+        CREATE TABLE IF NOT EXISTS sites_google_search_verifications (
+          id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+          site_id BIGINT UNSIGNED NOT NULL,
+          name VARCHAR(160) NOT NULL,
+          verification_code VARCHAR(255) NOT NULL,
+          status VARCHAR(24) NOT NULL DEFAULT 'active',
+          sort_order INT NOT NULL DEFAULT 0,
+          created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+          PRIMARY KEY (id),
+          KEY idx_sites_gsv_site_status_sort (site_id, status, sort_order, id),
+          KEY idx_sites_gsv_status_sort (status, sort_order, id),
+          CONSTRAINT fk_sites_gsv_site
+            FOREIGN KEY (site_id) REFERENCES sites (id)
+            ON DELETE CASCADE ON UPDATE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    ");
+
+    $columns = $pdo->query('SHOW COLUMNS FROM sites_google_search_verifications')->fetchAll(PDO::FETCH_COLUMN);
+    $columnSql = [
+        'site_id' => 'BIGINT UNSIGNED NOT NULL',
+        'name' => 'VARCHAR(160) NOT NULL',
+        'verification_code' => 'VARCHAR(255) NOT NULL',
+        'status' => "VARCHAR(24) NOT NULL DEFAULT 'active'",
+        'sort_order' => 'INT NOT NULL DEFAULT 0',
+        'created_at' => 'TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP',
+        'updated_at' => 'TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP',
+    ];
+
+    foreach ($columnSql as $column => $sql) {
+        if (!in_array($column, $columns, true)) {
+            $pdo->exec('ALTER TABLE sites_google_search_verifications ADD `' . $column . '` ' . $sql);
+        }
+    }
+
+    $indexes = $pdo->query('SHOW INDEX FROM sites_google_search_verifications')->fetchAll(PDO::FETCH_ASSOC);
+    $indexNames = array_unique(array_column($indexes, 'Key_name'));
+    if (!in_array('idx_sites_gsv_site_status_sort', $indexNames, true)) {
+        $pdo->exec('ALTER TABLE sites_google_search_verifications ADD KEY idx_sites_gsv_site_status_sort (site_id, status, sort_order, id)');
+    }
+    if (!in_array('idx_sites_gsv_status_sort', $indexNames, true)) {
+        $pdo->exec('ALTER TABLE sites_google_search_verifications ADD KEY idx_sites_gsv_status_sort (status, sort_order, id)');
+    }
+}
+
 function admin_ensure_visit_daily_ip_table(PDO $pdo, string $defaultSite = 'web'): void
 {
     $defaultSite = preg_replace('/[^a-z0-9_-]/i', '', $defaultSite) ?: 'web';
@@ -1174,6 +1267,57 @@ function admin_ensure_visit_daily_ip_table(PDO $pdo, string $defaultSite = 'web'
     if (!$hasSiteDateIndex) {
         $pdo->exec('ALTER TABLE visit_daily_ip ADD KEY idx_visit_site_date (site, visit_date)');
     }
+}
+
+function admin_ensure_visit_hourly_ip_table(PDO $pdo, string $defaultSite = 'web'): void
+{
+    $defaultSite = preg_replace('/[^a-z0-9_-]/i', '', $defaultSite) ?: 'web';
+    $pdo->exec("
+        CREATE TABLE IF NOT EXISTS visit_hourly_ip (
+          id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+          site VARCHAR(32) NOT NULL DEFAULT '{$defaultSite}',
+          visit_date DATE NOT NULL,
+          visit_hour TINYINT UNSIGNED NOT NULL,
+          ip_address VARBINARY(16) NOT NULL,
+          ip_text VARCHAR(45) NOT NULL,
+          first_seen_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          last_seen_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          hits INT UNSIGNED NOT NULL DEFAULT 1,
+          user_agent VARCHAR(512) DEFAULT NULL,
+          referer VARCHAR(1024) DEFAULT NULL,
+          request_path VARCHAR(1024) DEFAULT NULL,
+          created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+          PRIMARY KEY (id),
+          UNIQUE KEY uq_visit_hourly_ip (site, visit_date, visit_hour, ip_address),
+          KEY idx_visit_hourly_site_date_hour (site, visit_date, visit_hour),
+          KEY idx_visit_hourly_date_hour (visit_date, visit_hour),
+          KEY idx_visit_hourly_last_seen_at (last_seen_at)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    ");
+}
+
+function admin_ensure_visit_traffic_report_table(PDO $pdo): void
+{
+    $pdo->exec("
+        CREATE TABLE IF NOT EXISTS visit_traffic_report (
+          id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+          site VARCHAR(32) NOT NULL,
+          report_date DATE NOT NULL,
+          unique_count INT UNSIGNED NOT NULL DEFAULT 0,
+          hits INT UNSIGNED NOT NULL DEFAULT 0,
+          hourly_hits_json JSON DEFAULT NULL,
+          hourly_unique_json JSON DEFAULT NULL,
+          first_seen_at DATETIME DEFAULT NULL,
+          last_seen_at DATETIME DEFAULT NULL,
+          created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+          PRIMARY KEY (id),
+          UNIQUE KEY uq_visit_traffic_report (site, report_date),
+          KEY idx_visit_traffic_report_date (report_date),
+          KEY idx_visit_traffic_report_site_date (site, report_date)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    ");
 }
 
 function admin_country_seed_rows(): array
