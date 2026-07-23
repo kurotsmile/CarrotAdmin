@@ -18,7 +18,7 @@
 
                         <div class="mb-3">
                             <label class="form-label" for="user_password">Password</label>
-                            <input class="form-control" id="user_password" name="password" type="password" autocomplete="new-password" placeholder="<?= $editing ? 'Để trống nếu không đổi' : '' ?>">
+                            <input class="form-control" id="user_password" name="password" value="<?= htmlspecialchars($editing['password'] ?? '') ?>" autocomplete="off">
                         </div>
 
                         <div class="row g-3">

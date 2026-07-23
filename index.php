@@ -721,6 +721,22 @@ function admin_extract_youtube_video_id(string $url): string
     return '';
 }
 
+function admin_music_slug(string $value): string
+{
+    $value = trim(rawurldecode($value));
+    $value = str_replace(['_', '+'], '-', $value);
+    if (function_exists('iconv')) {
+        $ascii = @iconv('UTF-8', 'ASCII//TRANSLIT//IGNORE', $value);
+        if (is_string($ascii) && trim($ascii) !== '') {
+            $value = $ascii;
+        }
+    }
+    $value = strtolower($value);
+    $value = preg_replace('/[^a-z0-9]+/', '-', $value) ?? '';
+    $value = trim($value, '-');
+    return $value !== '' ? $value : 'song-' . date('YmdHis');
+}
+
 function admin_find_song_by_youtube_video_id(PDO $pdo, string $videoId): ?array
 {
     if ($videoId === '') {
@@ -843,13 +859,8 @@ function admin_gemini_translate(PDO $pdo, string $sourceText, string $targetLang
             if ($statusCode >= 400 || !is_array($data)) {
                 $apiMessage = is_array($data) ? ($data['error']['message'] ?? 'unknown error') : trim($response);
                 $errors[] = $accountName . ' / ' . $model . ': ' . $apiMessage;
-                $retryable = in_array($statusCode, [401, 403, 404, 429, 503], true) || preg_match('/api key|permission|denied|high demand|overload|rate limit|quota|unavailable|try again|not found/i', $apiMessage);
-                if ($retryable) {
-                    usleep(300000);
-                    continue;
-                }
-
-                throw new RuntimeException('Gemini lỗi: ' . $apiMessage);
+                usleep(300000);
+                continue;
             }
 
             $parts = $data['candidates'][0]['content']['parts'] ?? [];
@@ -943,13 +954,8 @@ function admin_gemini_complete(PDO $pdo, string $prompt, float $temperature = 0.
             if ($statusCode >= 400 || !is_array($data)) {
                 $apiMessage = is_array($data) ? ($data['error']['message'] ?? 'unknown error') : trim($response);
                 $errors[] = $accountName . ' / ' . $model . ': ' . $apiMessage;
-                $retryable = in_array($statusCode, [401, 403, 404, 429, 503], true) || preg_match('/api key|permission|denied|high demand|overload|rate limit|quota|unavailable|try again|not found/i', $apiMessage);
-                if ($retryable) {
-                    usleep(300000);
-                    continue;
-                }
-
-                throw new RuntimeException('Gemini lỗi: ' . $apiMessage);
+                usleep(300000);
+                continue;
             }
 
             $parts = $data['candidates'][0]['content']['parts'] ?? [];
@@ -1148,6 +1154,241 @@ PROMPT;
     }
 
     return $result;
+}
+
+function admin_gemini_generate_random_song_keyword(PDO $pdo, string $lang): array
+{
+    $lang = trim($lang) !== '' ? trim($lang) : 'vi';
+    $seed = date('Y-m-d H:i:s') . ' #' . random_int(1000, 999999);
+    $prompt = <<<PROMPT
+You are helping a music CMS admin discover a random official music video on YouTube.
+Think of one fresh YouTube search keyword, not a specific fixed song title.
+
+Target language key: {$lang}
+Random seed: {$seed}
+
+Return only valid JSON with this exact shape:
+{
+  "keyword": "short YouTube search keyword",
+  "genre": "short genre id in lowercase ascii, such as pop, ballad, rap, rock, edm",
+  "lang": "{$lang}"
+}
+
+Rules:
+- The keyword must be broad enough to return many real official MV/music video results.
+- Do not use a direct lyrics, karaoke, vietsub, cover, remix, or audio-only keyword.
+- Prefer discovery phrases like genre, era, language, mood, country, or artist scene.
+- Keep every field non-empty.
+- Return JSON only, no markdown fences.
+PROMPT;
+
+    $text = admin_gemini_complete($pdo, $prompt, 0.95);
+    $text = trim(preg_replace('/^```(?:json)?\s*|\s*```$/i', '', $text) ?? $text);
+    $data = json_decode($text, true);
+    if (!is_array($data)) {
+        $start = strpos($text, '{');
+        $end = strrpos($text, '}');
+        if ($start !== false && $end !== false && $end > $start) {
+            $data = json_decode(substr($text, $start, $end - $start + 1), true);
+        }
+    }
+    if (!is_array($data)) {
+        throw new RuntimeException('AI không trả về JSON keyword hợp lệ.');
+    }
+
+    $keyword = trim((string) ($data['keyword'] ?? ''));
+    $genre = admin_music_slug((string) ($data['genre'] ?? 'pop'));
+
+    if ($keyword === '') {
+        throw new RuntimeException('AI chưa tạo keyword tìm kiếm.');
+    }
+
+    return [
+        'keyword' => $keyword,
+        'genre' => $genre !== '' ? $genre : 'pop',
+        'lang' => $lang,
+    ];
+}
+
+function admin_fallback_random_song_keyword(string $lang): array
+{
+    $lang = trim($lang) !== '' ? trim($lang) : 'vi';
+    $keywordMap = [
+        'vi' => [
+            ['keyword' => 'nhạc trẻ official music video', 'genre' => 'pop'],
+            ['keyword' => 'vpop ballad official mv', 'genre' => 'ballad'],
+            ['keyword' => 'rap việt official music video', 'genre' => 'rap'],
+            ['keyword' => 'indie việt official mv', 'genre' => 'indie'],
+        ],
+        'en' => [
+            ['keyword' => 'pop official music video', 'genre' => 'pop'],
+            ['keyword' => 'indie pop official music video', 'genre' => 'indie'],
+            ['keyword' => 'rock official music video', 'genre' => 'rock'],
+            ['keyword' => 'rnb official music video', 'genre' => 'rnb'],
+        ],
+        'ko' => [
+            ['keyword' => 'kpop official mv', 'genre' => 'kpop'],
+            ['keyword' => 'korean ballad official music video', 'genre' => 'ballad'],
+        ],
+        'ja' => [
+            ['keyword' => 'jpop official music video', 'genre' => 'jpop'],
+            ['keyword' => 'jrock official mv', 'genre' => 'rock'],
+        ],
+    ];
+    $fallbacks = $keywordMap[$lang] ?? $keywordMap['en'];
+    $choice = $fallbacks[array_rand($fallbacks)];
+
+    return [
+        'keyword' => (string) $choice['keyword'],
+        'genre' => (string) $choice['genre'],
+        'lang' => $lang,
+    ];
+}
+
+function admin_parse_song_title_from_youtube(string $videoTitle, string $channelTitle): array
+{
+    $title = html_entity_decode(trim($videoTitle), ENT_QUOTES | ENT_HTML5, 'UTF-8');
+    $title = preg_replace('/\[[^\]]*(official|music\s*video|mv|m\/v|video|4k|hd)[^\]]*\]/iu', '', $title) ?? $title;
+    $title = preg_replace('/\([^\)]*(official|music\s*video|mv|m\/v|video|4k|hd)[^\)]*\)/iu', '', $title) ?? $title;
+    $title = preg_replace('/\b(official\s+music\s+video|official\s+mv|official\s+video|music\s+video|video\s+official|m\/v|mv|4k|hd)\b/iu', '', $title) ?? $title;
+    $title = preg_replace('/\s+/', ' ', $title) ?? $title;
+    $title = trim($title, " \t\n\r\0\x0B-–—|:");
+
+    $artist = trim($channelTitle);
+    $name = $title;
+    if (preg_match('/^(.+?)\s+[-–—]\s+(.+)$/u', $title, $matches)) {
+        $artist = trim($matches[1]);
+        $name = trim($matches[2]);
+    }
+    $artist = preg_replace('/\b(official|vevo|records|music|entertainment|channel)\b/iu', '', $artist) ?? $artist;
+    $artist = trim(preg_replace('/\s+/', ' ', $artist) ?? $artist);
+
+    return [
+        'name' => $name !== '' ? $name : $videoTitle,
+        'artist' => $artist !== '' ? $artist : ($channelTitle !== '' ? $channelTitle : 'YouTube Artist'),
+    ];
+}
+
+function admin_gemini_extract_song_metadata_from_youtube(PDO $pdo, string $videoTitle, string $channelTitle, string $description, string $lang, string $fallbackGenre): array
+{
+    $fallback = admin_parse_song_title_from_youtube($videoTitle, $channelTitle);
+    $promptDescription = mb_substr($description, 0, 1600);
+    $prompt = <<<PROMPT
+Extract music metadata from this YouTube official MV candidate.
+
+Target language key: {$lang}
+Video title: {$videoTitle}
+Channel title: {$channelTitle}
+Description excerpt:
+{$promptDescription}
+
+Return only valid JSON with this exact shape:
+{
+  "name": "song title",
+  "artist": "primary artist name",
+  "album": "album, single, or source name",
+  "genre": "short genre id in lowercase ascii",
+  "year": "release year if known"
+}
+
+Rules:
+- Remove words like Official MV, Official Music Video, MV, M/V, HD, 4K from name.
+- Do not mark lyrics, karaoke, cover, remix, or audio-only videos as the song name.
+- If album is unknown, use "Single".
+- Keep every field non-empty.
+- Return JSON only, no markdown fences.
+PROMPT;
+
+    try {
+        $text = admin_gemini_complete($pdo, $prompt, 0.25);
+        $text = trim(preg_replace('/^```(?:json)?\s*|\s*```$/i', '', $text) ?? $text);
+        $data = json_decode($text, true);
+        if (!is_array($data)) {
+            $start = strpos($text, '{');
+            $end = strrpos($text, '}');
+            if ($start !== false && $end !== false && $end > $start) {
+                $data = json_decode(substr($text, $start, $end - $start + 1), true);
+            }
+        }
+        if (is_array($data)) {
+            $name = trim((string) ($data['name'] ?? ''));
+            $artist = trim((string) ($data['artist'] ?? ''));
+            if ($name !== '' && $artist !== '') {
+                return [
+                    'name' => $name,
+                    'artist' => $artist,
+                    'album' => trim((string) ($data['album'] ?? '')) ?: 'Single',
+                    'genre' => admin_music_slug((string) ($data['genre'] ?? $fallbackGenre)) ?: $fallbackGenre,
+                    'year' => trim((string) ($data['year'] ?? '')) ?: date('Y'),
+                ];
+            }
+        }
+    } catch (Throwable $e) {
+    }
+
+    return [
+        'name' => $fallback['name'],
+        'artist' => $fallback['artist'],
+        'album' => 'Single',
+        'genre' => $fallbackGenre !== '' ? $fallbackGenre : 'pop',
+        'year' => date('Y'),
+    ];
+}
+
+function admin_fetch_song_lyrics_from_web(string $name, string $artist): string
+{
+    $name = trim($name);
+    $artist = trim($artist);
+    if ($name === '' || $artist === '') {
+        return '';
+    }
+    if (!function_exists('curl_init')) {
+        return '';
+    }
+
+    $queries = [
+        ['track_name' => $name, 'artist_name' => $artist],
+        ['q' => trim($artist . ' ' . $name)],
+    ];
+
+    foreach ($queries as $query) {
+        $endpoint = 'https://lrclib.net/api/search?' . http_build_query($query);
+        $curl = curl_init($endpoint);
+        curl_setopt_array($curl, [
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_TIMEOUT => 18,
+            CURLOPT_HTTPHEADER => [
+                'Accept: application/json',
+                'User-Agent: CarrotAdmin/1.0 (https://heartbeatplay.com)',
+            ],
+        ]);
+        $response = curl_exec($curl);
+        $statusCode = (int) curl_getinfo($curl, CURLINFO_RESPONSE_CODE);
+        curl_close($curl);
+        if ($response === false || $statusCode >= 300) {
+            continue;
+        }
+
+        $payload = json_decode((string) $response, true);
+        if (!is_array($payload)) {
+            continue;
+        }
+
+        foreach ($payload as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+            $plainLyrics = trim((string) ($row['plainLyrics'] ?? ''));
+            $syncedLyrics = trim((string) ($row['syncedLyrics'] ?? ''));
+            $lyrics = $plainLyrics !== '' ? $plainLyrics : preg_replace('/^\s*\[[^\]]+\]\s*/m', '', $syncedLyrics);
+            $lyrics = trim((string) $lyrics);
+            if (strlen($lyrics) >= 180) {
+                return $lyrics;
+            }
+        }
+    }
+
+    return '';
 }
 
 function admin_gemini_generate_category_content(PDO $pdo, string $idea, string $categoryId, string $lang, string $currentTitle = '', string $currentDescription = ''): array
@@ -3115,7 +3356,7 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages', 'users', '
             admin_ensure_cloud_tables($pdo);
         }
 
-        if ($section === 'ai_support' || in_array($_POST['action'] ?? '', ['save_ai_support_config', 'ajax_ai_translate_page', 'ajax_ai_translate_label', 'ajax_find_text_label_source', 'ajax_find_app_content_source', 'ajax_ai_translate_app_content', 'ajax_find_app_category_content_source', 'ajax_ai_translate_app_category_content', 'ajax_ai_request_app_category_content', 'ajax_ai_request_song_artist', 'ajax_ai_request_song_genre', 'ajax_ai_request_site_description'], true)) {
+        if ($section === 'ai_support' || in_array($_POST['action'] ?? '', ['save_ai_support_config', 'ajax_ai_translate_page', 'ajax_ai_translate_label', 'ajax_find_text_label_source', 'ajax_find_app_content_source', 'ajax_ai_translate_app_content', 'ajax_find_app_category_content_source', 'ajax_ai_translate_app_category_content', 'ajax_ai_request_app_category_content', 'ajax_ai_request_song_artist', 'ajax_ai_request_song_genre', 'ajax_ai_random_song', 'ajax_ai_request_site_description'], true)) {
             admin_ensure_ai_support_table($pdo);
         }
 
@@ -3644,6 +3885,214 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages', 'users', '
                     }
 
                     admin_json_success(admin_gemini_generate_song_genre_description($pdo, $idea, $genreId, $title, $langKey, $currentDescription));
+                } catch (Throwable $e) {
+                    admin_json_error($e->getMessage());
+                }
+            }
+
+            if ($section === 'music' && $action === 'ajax_ai_random_song') {
+                try {
+                    $langKey = trim($_POST['lang'] ?? ($_SESSION['key_lang'] ?? 'vi')) ?: 'vi';
+                    $apiPdo = $homePdo instanceof PDO ? $homePdo : admin_home_pdo();
+                    $musicSiteId = $pdo instanceof PDO ? admin_site_id_by_key($pdo, 'CarrotMusic', ['Music', 'Heart Beat Play', 'heartbeatplay.com', 'music.carrot28.com']) : null;
+                    $apiKey = admin_fetch_youtube_api_key($apiPdo, $pdo instanceof PDO ? $pdo : null, $musicSiteId);
+                    if (!function_exists('curl_init')) {
+                        throw new RuntimeException('Server cần bật PHP cURL.');
+                    }
+
+                    $errors = [];
+                    $aiKeywordUnavailable = false;
+                    for ($attempt = 1; $attempt <= 6; $attempt++) {
+                        if ($aiKeywordUnavailable) {
+                            $keywordData = admin_fallback_random_song_keyword($langKey);
+                        } else {
+                            try {
+                                $keywordData = admin_gemini_generate_random_song_keyword($pdo, $langKey);
+                            } catch (Throwable $aiKeywordError) {
+                                $errors[] = 'AI keyword: ' . $aiKeywordError->getMessage();
+                                $aiKeywordUnavailable = true;
+                                $keywordData = admin_fallback_random_song_keyword($langKey);
+                            }
+                        }
+                        $query = $keywordData['keyword'];
+                        $searchEndpoint = 'https://www.googleapis.com/youtube/v3/search?' . http_build_query([
+                            'part' => 'snippet',
+                            'q' => $query,
+                            'type' => 'video',
+                            'maxResults' => 20,
+                            'videoEmbeddable' => 'true',
+                            'safeSearch' => 'none',
+                            'key' => $apiKey,
+                        ]);
+                        $curl = curl_init($searchEndpoint);
+                        curl_setopt_array($curl, [
+                            CURLOPT_RETURNTRANSFER => true,
+                            CURLOPT_TIMEOUT => 24,
+                        ]);
+                        $response = curl_exec($curl);
+                        $curlError = curl_error($curl);
+                        $statusCode = (int) curl_getinfo($curl, CURLINFO_RESPONSE_CODE);
+                        curl_close($curl);
+                        if ($response === false) {
+                            $errors[] = 'YouTube search: ' . ($curlError ?: 'cURL error');
+                            continue;
+                        }
+
+                        $searchPayload = json_decode((string) $response, true);
+                        if (!is_array($searchPayload)) {
+                            $errors[] = 'YouTube search trả về dữ liệu không hợp lệ.';
+                            continue;
+                        }
+                        if ($statusCode >= 300) {
+                            $errors[] = 'YouTube search lỗi: ' . trim((string) ($searchPayload['error']['message'] ?? 'HTTP ' . $statusCode));
+                            continue;
+                        }
+
+                        $videoIds = [];
+                        foreach (($searchPayload['items'] ?? []) as $item) {
+                            $videoId = trim((string) ($item['id']['videoId'] ?? ''));
+                            if ($videoId !== '' && !admin_find_song_by_youtube_video_id($pdo, $videoId)) {
+                                $videoIds[] = $videoId;
+                            }
+                        }
+                        $videoIds = array_values(array_unique($videoIds));
+                        if (!$videoIds) {
+                            continue;
+                        }
+                        shuffle($videoIds);
+
+                        $videosEndpoint = 'https://www.googleapis.com/youtube/v3/videos?' . http_build_query([
+                            'part' => 'snippet,contentDetails',
+                            'id' => implode(',', $videoIds),
+                            'key' => $apiKey,
+                        ]);
+                        $curl = curl_init($videosEndpoint);
+                        curl_setopt_array($curl, [
+                            CURLOPT_RETURNTRANSFER => true,
+                            CURLOPT_TIMEOUT => 24,
+                        ]);
+                        $videoResponse = curl_exec($curl);
+                        $videoCurlError = curl_error($curl);
+                        $videoStatusCode = (int) curl_getinfo($curl, CURLINFO_RESPONSE_CODE);
+                        curl_close($curl);
+                        if ($videoResponse === false) {
+                            $errors[] = 'YouTube videos: ' . ($videoCurlError ?: 'cURL error');
+                            continue;
+                        }
+
+                        $videoPayload = json_decode((string) $videoResponse, true);
+                        if (!is_array($videoPayload)) {
+                            $errors[] = 'YouTube videos trả về dữ liệu không hợp lệ.';
+                            continue;
+                        }
+                        if ($videoStatusCode >= 300) {
+                            $errors[] = 'YouTube videos lỗi: ' . trim((string) ($videoPayload['error']['message'] ?? 'HTTP ' . $videoStatusCode));
+                            continue;
+                        }
+
+                        $videosById = [];
+                        foreach (($videoPayload['items'] ?? []) as $video) {
+                            $videoId = trim((string) ($video['id'] ?? ''));
+                            if ($videoId !== '') {
+                                $videosById[$videoId] = $video;
+                            }
+                        }
+
+                        foreach ($videoIds as $videoId) {
+                            $video = $videosById[$videoId] ?? null;
+                            if (!is_array($video) || admin_find_song_by_youtube_video_id($pdo, $videoId)) {
+                                continue;
+                            }
+
+                            $snippet = $video['snippet'] ?? [];
+                            $videoTitle = trim((string) ($snippet['title'] ?? ''));
+                            $description = trim((string) ($snippet['description'] ?? ''));
+                            $channelTitle = trim((string) ($snippet['channelTitle'] ?? ''));
+                            $keywordText = $videoTitle . "\n" . $description;
+                            $isLyricVideo = preg_match('/lyrics?|lyric\s+video|official\s+lyric|lời\s*bài\s*hát|vietsub|karaoke|cover|remix|audio\s*only|official\s*audio/iu', $keywordText);
+                            $isMvVideo = preg_match('/\b(mv|m\/v)\b|music\s+video|official\s+video|official\s+mv|video\s+official/iu', $keywordText);
+                            if ($isLyricVideo || !$isMvVideo) {
+                                continue;
+                            }
+
+                            $publishedAt = (string) ($snippet['publishedAt'] ?? '');
+                            $publishedDate = date('Y-m-d');
+                            $publishedYear = date('Y');
+                            if (preg_match('/^(\d{4})-(\d{2})-(\d{2})/', $publishedAt, $dateMatches)) {
+                                $publishedYear = $dateMatches[1];
+                                $publishedDate = $dateMatches[1] . '-' . $dateMatches[2] . '-' . $dateMatches[3];
+                            }
+                            if ($publishedAt === '') {
+                                $publishedAt = $publishedDate . 'T00:00:00Z';
+                            }
+
+                            $thumbs = $snippet['thumbnails'] ?? [];
+                            $avatar = (string) ($thumbs['maxres']['url'] ?? $thumbs['high']['url'] ?? $thumbs['medium']['url'] ?? $thumbs['default']['url'] ?? '');
+                            if ($avatar === '') {
+                                $avatar = 'https://img.youtube.com/vi/' . rawurlencode($videoId) . '/hqdefault.jpg';
+                            }
+
+                            $metadata = admin_gemini_extract_song_metadata_from_youtube($pdo, $videoTitle, $channelTitle, $description, $langKey, (string) ($keywordData['genre'] ?? 'pop'));
+                            $name = trim((string) ($metadata['name'] ?? '')) ?: $videoTitle;
+                            $artist = trim((string) ($metadata['artist'] ?? '')) ?: ($channelTitle ?: 'YouTube Artist');
+                            $album = trim((string) ($metadata['album'] ?? '')) ?: 'Single';
+                            $genre = admin_music_slug((string) ($metadata['genre'] ?? ($keywordData['genre'] ?? 'pop'))) ?: 'pop';
+                            $publishedYear = trim((string) ($metadata['year'] ?? '')) ?: $publishedYear;
+                            $linkYtb = 'https://www.youtube.com/watch?v=' . $videoId;
+                            $lyrics = admin_fetch_song_lyrics_from_web($name, $artist);
+                            if ($lyrics === '') {
+                                $errors[] = 'Không tìm thấy lyrics ngoài web cho "' . $name . ' - ' . $artist . '".';
+                                continue;
+                            }
+                            $idBase = admin_music_slug($name . '-' . $artist);
+                            $songId = $idBase;
+                            $suffix = 2;
+                            $idStmt = $pdo->prepare('SELECT 1 FROM song WHERE id = ? LIMIT 1');
+                            while (true) {
+                                $idStmt->execute([$songId]);
+                                if (!$idStmt->fetchColumn()) {
+                                    break;
+                                }
+                                $songId = $idBase . '-' . $suffix;
+                                $suffix++;
+                            }
+
+                            $artistDescription = '<p>' . htmlspecialchars($artist . ' - artist profile generated from a YouTube lyric discovery for ' . $name . '.', ENT_QUOTES, 'UTF-8') . '</p>';
+                            $artistStmt = $pdo->prepare('
+                                    INSERT INTO song_artist (name, avatar, description, lang_key)
+                                    VALUES (?, ?, ?, ?)
+                                    ON DUPLICATE KEY UPDATE
+                                        id = LAST_INSERT_ID(id)
+                                ');
+                            $artistStmt->execute([$artist, $avatar, $artistDescription, $langKey]);
+                            $artistId = (int) $pdo->lastInsertId();
+
+                            admin_json_success([
+                                'id' => $songId,
+                                'name' => $name,
+                                'artist' => $artist,
+                                'artist_option' => [
+                                    'id' => $artistId,
+                                    'name' => $artist,
+                                ],
+                                'album' => $album,
+                                'genre' => $genre,
+                                'lang' => $langKey,
+                                'year' => $publishedYear,
+                                'date' => $publishedDate,
+                                'publishedAt' => $publishedAt,
+                                'link_ytb' => $linkYtb,
+                                'mp3' => $linkYtb,
+                                'avatar' => $avatar,
+                                'lyrics' => $lyrics,
+                                'youtube_title' => $videoTitle,
+                                'query' => $query,
+                                'attempt' => $attempt,
+                            ]);
+                        }
+                    }
+
+                    throw new RuntimeException('AI chưa tìm được MV YouTube mới có lyrics ngoài web sau nhiều lần thử. ' . implode(' | ', array_slice($errors, 0, 3)));
                 } catch (Throwable $e) {
                     admin_json_error($e->getMessage());
                 }
@@ -4392,10 +4841,6 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages', 'users', '
 
                 if ($createdAt === '') {
                     $createdAt = date('Y-m-d H:i:s');
-                }
-
-                if ($password !== '' && password_get_info($password)['algo'] === 0) {
-                    $password = password_hash($password, PASSWORD_DEFAULT);
                 }
 
                 if ($id > 0) {
@@ -5564,9 +6009,9 @@ $sectionCreateUrls = [
         .music-song-cell a{flex:0 0 auto}
         .music-song-text{min-width:0;max-width:100%}
         .music-song-name,.music-song-id{display:block;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-        .table tbody tr.coc-account-row-editing>*{--bs-table-bg:#fff7ed;--bs-table-striped-bg:#fff7ed;box-shadow:inset 0 1px 0 rgba(245,158,11,.32),inset 0 -1px 0 rgba(245,158,11,.32)}
-        .table tbody tr.coc-account-row-editing>td:first-child{border-left:4px solid #f59e0b;font-weight:900;color:#92400e}
-        .table tbody tr.coc-account-row-editing strong{color:#92400e}
+        .table tbody tr.admin-row-editing>*,.table tbody tr.coc-account-row-editing>*{--bs-table-bg:#fff7ed;--bs-table-striped-bg:#fff7ed;box-shadow:inset 0 1px 0 rgba(245,158,11,.32),inset 0 -1px 0 rgba(245,158,11,.32)}
+        .table tbody tr.admin-row-editing>td:first-child,.table tbody tr.coc-account-row-editing>td:first-child{border-left:4px solid #f59e0b;font-weight:900;color:#92400e}
+        .table tbody tr.admin-row-editing strong,.table tbody tr.coc-account-row-editing strong{color:#92400e}
         .coc-photo-item{display:grid;grid-template-columns:76px minmax(0,1fr);gap:.65rem;align-items:center;border:1px solid rgba(15,23,42,.1);border-radius:8px;background:#f8fafc;padding:.55rem}
         .coc-photo-preview{display:flex;align-items:center;justify-content:center;width:76px;height:56px;border:1px solid rgba(15,23,42,.1);border-radius:8px;background:#fff;color:#94a3b8;overflow:hidden}
         .coc-photo-preview img{width:100%;height:100%;object-fit:cover}
@@ -7956,6 +8401,92 @@ document.querySelectorAll('.dashboard-nav').forEach((nav) => {
         moved = false;
     }, true);
     window.addEventListener('resize', stopEdgeScroll);
+});
+
+document.addEventListener('click', async (event) => {
+    const button = event.target.closest('.js-copy-field');
+    if (!button) {
+        return;
+    }
+
+    const targetSelector = button.dataset.copyTarget || '';
+    const target = targetSelector ? document.querySelector(targetSelector) : null;
+    const value = target ? String(target.value ?? target.textContent ?? '').trim() : '';
+    if (!value) {
+        Swal.fire({icon: 'info', title: 'Không có nội dung', timer: 1200, showConfirmButton: false});
+        return;
+    }
+
+    const originalHtml = button.innerHTML;
+    const originalTitle = button.getAttribute('title') || '';
+    try {
+        if (navigator.clipboard && window.isSecureContext) {
+            await navigator.clipboard.writeText(value);
+        } else {
+            const textarea = document.createElement('textarea');
+            textarea.value = value;
+            textarea.setAttribute('readonly', '');
+            textarea.style.position = 'fixed';
+            textarea.style.left = '-9999px';
+            textarea.style.opacity = '0';
+            document.body.appendChild(textarea);
+            textarea.select();
+            document.execCommand('copy');
+            textarea.remove();
+        }
+
+        button.innerHTML = '<i data-lucide="check" style="width:16px;height:16px"></i>';
+        button.setAttribute('title', 'Đã copy');
+        button.classList.remove('btn-outline-secondary');
+        button.classList.add('btn-success');
+        if (window.lucide) {
+            lucide.createIcons();
+        }
+
+        window.setTimeout(() => {
+            button.innerHTML = originalHtml;
+            button.setAttribute('title', originalTitle);
+            button.classList.remove('btn-success');
+            button.classList.add('btn-outline-secondary');
+            if (window.lucide) {
+                lucide.createIcons();
+            }
+        }, 900);
+    } catch (error) {
+        Swal.fire({
+            icon: 'warning',
+            title: 'Không copy được',
+            text: error.message || 'Trình duyệt không cho phép copy.',
+        });
+    }
+});
+
+document.addEventListener('DOMContentLoaded', () => {
+    const currentUrl = new URL(window.location.href);
+    const editParams = Array.from(currentUrl.searchParams.entries()).filter(([name, value]) => (
+        value !== '' && (name === 'edit' || name.endsWith('_edit'))
+    ));
+
+    if (!editParams.length) {
+        return;
+    }
+
+    const currentSection = currentUrl.searchParams.get('section') || '';
+    const currentTab = currentUrl.searchParams.get('tab') || '';
+    document.querySelectorAll('table tbody tr').forEach((row) => {
+        const isEditedRow = Array.from(row.querySelectorAll('a[href]')).some((link) => {
+            const linkUrl = new URL(link.href, window.location.href);
+            if (linkUrl.searchParams.get('section') !== currentSection || linkUrl.searchParams.get('tab') !== currentTab) {
+                return false;
+            }
+
+            return editParams.some(([name, value]) => linkUrl.searchParams.get(name) === value);
+        });
+
+        if (isEditedRow) {
+            row.classList.add('admin-row-editing');
+        }
+    });
 });
 
 if (window.lucide) {

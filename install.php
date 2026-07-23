@@ -246,6 +246,12 @@ $results[] = install_run_step('CarrotHome users table', static function (): void
     admin_ensure_user_table(install_carrot_home_pdo());
 });
 
+$results[] = install_run_step('CarrotHome app rate table', static function (): void {
+    $homePdo = install_carrot_home_pdo();
+    admin_ensure_app_table($homePdo);
+    admin_ensure_app_rate_table($homePdo);
+});
+
 $results[] = install_run_step('CarrotHome API config table', static function (): void {
     admin_ensure_api_table(install_carrot_home_pdo());
 });

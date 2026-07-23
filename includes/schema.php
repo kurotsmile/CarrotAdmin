@@ -260,6 +260,36 @@ function admin_ensure_app_view_table(PDO $pdo): void
     }
 }
 
+function admin_ensure_app_rate_table(PDO $pdo): void
+{
+    $pdo->exec("
+        CREATE TABLE IF NOT EXISTS app_rate (
+          id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+          app_id VARCHAR(255) NOT NULL,
+          user_id BIGINT UNSIGNED DEFAULT NULL,
+          rate_key VARCHAR(128) NOT NULL,
+          rating TINYINT UNSIGNED NOT NULL,
+          review_title VARCHAR(160) DEFAULT NULL,
+          review_text TEXT DEFAULT NULL,
+          lang VARCHAR(24) DEFAULT NULL,
+          ip_address VARBINARY(16) DEFAULT NULL,
+          ip_text VARCHAR(45) DEFAULT NULL,
+          user_agent VARCHAR(512) DEFAULT NULL,
+          status VARCHAR(24) NOT NULL DEFAULT 'active',
+          created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+          PRIMARY KEY (id),
+          UNIQUE KEY uq_app_rate_key (app_id, rate_key),
+          KEY idx_app_rate_app_status (app_id, status),
+          KEY idx_app_rate_rating (app_id, rating),
+          KEY idx_app_rate_user (user_id),
+          CONSTRAINT fk_app_rate_app
+            FOREIGN KEY (app_id) REFERENCES app (id)
+            ON DELETE CASCADE ON UPDATE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    ");
+}
+
 function admin_ensure_song_view_table(PDO $pdo): void
 {
     $pdo->exec("

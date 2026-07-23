@@ -38,13 +38,23 @@
                     <form class="glass-panel p-4" method="post">
                         <input type="hidden" name="action" value="save_song">
                         <input type="hidden" name="original_id" value="<?= htmlspecialchars($editing['id'] ?? '') ?>">
-                        <h2 class="h5 mb-3"><?= $editing ? 'Cập nhật bài hát' : 'Thêm bài hát' ?></h2>
+                        <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-3">
+                            <h2 class="h5 mb-0"><?= $editing ? 'Cập nhật bài hát' : 'Thêm bài hát' ?></h2>
+                            <?php if (!$editing): ?>
+                                <button class="btn btn-sm btn-primary" id="song_ai_random" type="button">
+                                    <span class="d-inline-flex align-items-center gap-2"><i data-lucide="sparkles" style="width:16px;height:16px"></i>Thêm bằng AI</span>
+                                </button>
+                            <?php endif; ?>
+                        </div>
 
                         <div class="row g-3">
                             <div class="col-md-5">
                                 <label class="form-label" for="song_id">ID</label>
                                 <div class="input-group">
                                     <input class="form-control" id="song_id" name="id" value="<?= htmlspecialchars($editing['id'] ?? '') ?>" required>
+                                    <button class="btn btn-outline-secondary js-copy-field" type="button" data-copy-target="#song_id" title="Copy ID" aria-label="Copy ID">
+                                        <i data-lucide="copy" style="width:16px;height:16px"></i>
+                                    </button>
                                     <button class="btn btn-secondary" id="song_generate_id" type="button" title="Tạo ID từ tên bài hát và ca sĩ">
                                         <i data-lucide="wand-sparkles" style="width:16px;height:16px"></i>
                                     </button>
@@ -132,6 +142,9 @@
                             <label class="form-label" for="song_link_ytb">YouTube</label>
                             <div class="input-group">
                                 <input class="form-control" id="song_link_ytb" name="link_ytb" value="<?= htmlspecialchars($editing['link_ytb'] ?? '') ?>">
+                                <button class="btn btn-outline-secondary js-copy-field" type="button" data-copy-target="#song_link_ytb" title="Copy YouTube" aria-label="Copy YouTube">
+                                    <i data-lucide="copy" style="width:16px;height:16px"></i>
+                                </button>
                                 <button class="btn btn-secondary" id="song_load_youtube" type="button" title="Load data từ YouTube">
                                     <i data-lucide="refresh-cw" style="width:16px;height:16px"></i>
                                 </button>
@@ -226,8 +239,10 @@
                                                     <?php foreach ($songArtistNames as $artistIndex => $artistName): ?>
                                                         <?php $linkedArtistId = (int) ($songArtistIds[$artistIndex] ?? 0); ?>
                                                         <?php if ($linkedArtistId > 0): ?>
-                                                            <a class="badge text-bg-light border text-decoration-none" href="<?= htmlspecialchars($musicPublicArtistUrl($linkedArtistId, $artistName)) ?>" target="_blank" rel="noopener noreferrer"><?= htmlspecialchars($artistName) ?></a>
-                                                            <a class="badge text-bg-light border text-decoration-none" target="_blank" href="https://www.google.com/search?tbm=vid&q=<?= htmlspecialchars($artistName) ?>"><i data-lucide="user-round-search" style="width:15px;height:15px"></i></a>
+                                                            <div class="btn-group" role="group">
+                                                                <a class="btn btn-sm btn-info border d-flex align-items-center justify-content-cente text-nowrap" type="button" href="<?= htmlspecialchars($musicPublicArtistUrl($linkedArtistId, $artistName)) ?>" target="_blank" rel="noopener noreferrer"><?= htmlspecialchars($artistName) ?></a>
+                                                                <a class="btn btn-sm btn-secondary border d-flex align-items-center justify-content-cente" type="button" target="_blank" href="https://www.google.com/search?tbm=vid&q=<?= htmlspecialchars($artistName) ?>"><i data-lucide="user-round-search" style="width:15px;height:15px"></i></a>
+                                                            </div>
                                                         <?php else: ?>
                                                             <span class="badge text-bg-light border"><?= htmlspecialchars($artistName) ?></span>
                                                         <?php endif; ?>
@@ -339,14 +354,14 @@
                                             <div class="d-flex align-items-center gap-2">
                                                 <?php if (!empty($artistRow['avatar'])): ?>
                                                     <a href="<?= htmlspecialchars($musicPublicArtistUrl($artistRow['id'], $artistRow['name'])) ?>" target="_blank">
-                                                        <img src="<?= htmlspecialchars($artistRow['avatar']) ?>" alt="" style="width:42px;height:42px;object-fit:cover;border-radius:50%">
+                                                        <img src="<?= htmlspecialchars($artistRow['avatar']) ?>" alt="" style="width:32px;height:32px;object-fit:cover;border-radius:50%">
                                                     </a>
                                                 <?php endif; ?>
                                                 <strong><?= htmlspecialchars($artistRow['name']) ?></strong>
                                             </div>
                                         </td>
                                         <td><?= htmlspecialchars($artistRow['lang_key'] ?? '') ?></td>
-                                        <td><?= htmlspecialchars(admin_excerpt(strip_tags($artistRow['description']) ?? '', 50)) ?></td>
+                                        <td><?= htmlspecialchars(admin_excerpt(strip_tags($artistRow['description']) ?? '', 35)) ?></td>
                                         <td class="text-end">
                                             <a class="btn btn-sm btn-dark" target="_blank" href="https://www.google.com/search?tbm=vid&q=<?= $artistRow['name'] ?>"><i data-lucide="user-round-search" style="width:15px;height:15px"></i></a>
                                             <a class="btn btn-sm btn-warning" href="index.php?section=music&tab=artists&edit=<?= (int) $artistRow['id'] ?>"><i data-lucide="pencil" style="width:15px;height:15px"></i></a>
@@ -584,6 +599,7 @@
                 .replace(/[^a-z0-9]+/g, '-')
                 .replace(/^-+|-+$/g, '')
                 .replace(/-{2,}/g, '-');
+            const songEscapeHtml = (value) => String(value || '').replace(/[&<>"']/g, (char) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[char]));
 
             const songGenerateIdButton = document.getElementById('song_generate_id');
             if (songGenerateIdButton) {
@@ -605,6 +621,111 @@
                         .toLocaleLowerCase('vi-VN')
                         .replace(/(^|\s)(\S)/gu, (match, prefix, firstChar) => prefix + firstChar.toLocaleUpperCase('vi-VN'));
                     nameInput.focus();
+                });
+            }
+
+            const songFillFromPayload = (payload) => {
+                const fieldMap = {
+                    id: 'song_id',
+                    name: 'song_name',
+                    artist: 'song_artist',
+                    album: 'song_album',
+                    lang: 'song_lang',
+                    year: 'song_year',
+                    date: 'song_date',
+                    publishedAt: 'song_publishedAt',
+                    link_ytb: 'song_link_ytb',
+                    mp3: 'song_mp3',
+                    avatar: 'song_avatar',
+                    lyrics: 'song_lyrics',
+                };
+                Object.entries(fieldMap).forEach(([key, id]) => {
+                    const input = document.getElementById(id);
+                    if (input && typeof payload[key] !== 'undefined' && String(payload[key]).trim() !== '') {
+                        input.value = payload[key];
+                        input.dispatchEvent(new Event('change', {bubbles: true}));
+                    }
+                });
+
+                const genreSelect = document.getElementById('song_genre');
+                if (genreSelect && payload.genre) {
+                    const genreValue = String(payload.genre).trim();
+                    let option = Array.from(genreSelect.options).find((item) => item.value === genreValue);
+                    if (!option) {
+                        option = new Option(genreValue, genreValue, true, true);
+                        genreSelect.add(option);
+                    }
+                    option.selected = true;
+                    if (window.jQuery && jQuery.fn.select2) {
+                        jQuery(genreSelect).trigger('change');
+                    } else {
+                        genreSelect.dispatchEvent(new Event('change', {bubbles: true}));
+                    }
+                }
+
+                const artistSelect = document.getElementById('song_artist_ids');
+                if (artistSelect && payload.artist_option && payload.artist_option.id) {
+                    const artistId = String(payload.artist_option.id);
+                    const artistName = String(payload.artist_option.name || payload.artist || artistId);
+                    let option = Array.from(artistSelect.options).find((item) => item.value === artistId);
+                    if (!option) {
+                        option = new Option(artistName, artistId, true, true);
+                        artistSelect.add(option);
+                    }
+                    option.selected = true;
+                    if (window.jQuery && jQuery.fn.select2) {
+                        jQuery(artistSelect).trigger('change');
+                    } else {
+                        artistSelect.dispatchEvent(new Event('change', {bubbles: true}));
+                    }
+                }
+            };
+
+            const aiRandomSongButton = document.getElementById('song_ai_random');
+            if (aiRandomSongButton) {
+                aiRandomSongButton.addEventListener('click', async () => {
+                    const langInput = document.getElementById('song_lang');
+                    const formData = new FormData();
+                    formData.append('action', 'ajax_ai_random_song');
+                    formData.append('lang', langInput && langInput.value ? langInput.value : 'vi');
+
+                    const originalHtml = aiRandomSongButton.innerHTML;
+                    try {
+                        aiRandomSongButton.disabled = true;
+                        aiRandomSongButton.innerHTML = '<span class="spinner-border spinner-border-sm" aria-hidden="true"></span> AI đang tìm';
+                        Swal.fire({
+                            title: 'AI đang tìm bài hát',
+                            text: 'AI đang nghĩ keyword, lấy 20 kết quả YouTube, random MV, kiểm tra trùng link và lấy lyrics ngoài web...',
+                            allowOutsideClick: false,
+                            didOpen: () => Swal.showLoading(),
+                        });
+
+                        const response = await fetch('index.php?section=music&tab=songs', {
+                            method: 'POST',
+                            body: formData,
+                        });
+                        const payload = await response.json();
+                        if (!response.ok || payload.status !== 'success') {
+                            throw new Error(payload.message || 'AI chưa tìm được bài hát phù hợp.');
+                        }
+
+                        songFillFromPayload(payload);
+                        await Swal.fire({
+                            icon: 'success',
+                            title: 'Đã điền bài hát bằng AI',
+                            html: `<div class="text-start"><strong>${songEscapeHtml(payload.name)}</strong><br><span>${songEscapeHtml(payload.artist)}</span><br><small>${songEscapeHtml(payload.youtube_title || payload.link_ytb || '')}</small></div>`,
+                            confirmButtonText: 'Kiểm tra form',
+                        });
+                    } catch (error) {
+                        await Swal.fire({
+                            icon: 'warning',
+                            title: 'AI chưa thêm được bài hát',
+                            text: error.message,
+                        });
+                    } finally {
+                        aiRandomSongButton.disabled = false;
+                        aiRandomSongButton.innerHTML = originalHtml;
+                    }
                 });
             }
 
@@ -634,11 +755,7 @@
                             }
                         }
                         payload.album = payload.album || payload.artist;
-                        const fields = ['name', 'artist', 'album', 'year', 'date', 'publishedAt', 'avatar', 'lyrics'];
-                        fields.forEach((field) => {
-                            const input = document.getElementById('song_' + field);
-                            if (input && payload[field]) input.value = payload[field];
-                        });
+                        songFillFromPayload(payload);
                         Swal.fire({icon: 'success', title: 'Đã lấy dữ liệu YouTube', timer: 1300, showConfirmButton: false});
                     } catch (error) {
                         Swal.fire({
