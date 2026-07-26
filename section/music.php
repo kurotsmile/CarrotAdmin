@@ -344,11 +344,26 @@
                                     <button class="btn btn-secondary" type="submit">Lọc</button>
                                 </div>
                             </form>
+                            <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2">
+                                <div class="muted-text small"><?= number_format($artistTotal) ?> nghệ sĩ</div>
+                                <div class="muted-text small">Trang <?= number_format($artistPage) ?>/<?= number_format($artistTotalPages) ?></div>
+                            </div>
+                            <?php
+                            $artistPageParams = $_GET;
+                            unset($artistPageParams['edit']);
+                            $artistPageParams['section'] = 'music';
+                            $artistPageParams['tab'] = 'artists';
+                            ?>
+                            <?= admin_pagination($artistPageParams, 'artist_page', $artistPage, $artistTotalPages, 'Phân trang nghệ sĩ', 'mb-3') ?>
 	                        <div class="table-responsive-sm">
                             <table class="table table-striped table-hover table-sm align-middle">
                                 <thead><tr><th>Name</th><th>Lang</th><th>Mô tả</th><th></th></tr></thead>
                                 <tbody>
                                 <?php foreach ($songArtists as $artistRow): ?>
+                                    <?php
+                                    $artistEditParams = $artistPageParams;
+                                    $artistEditParams['edit'] = (string) $artistRow['id'];
+                                    ?>
                                     <tr>
                                         <td>
                                             <div class="d-flex align-items-center gap-2">
@@ -364,7 +379,7 @@
                                         <td><?= htmlspecialchars(admin_excerpt(strip_tags($artistRow['description']) ?? '', 35)) ?></td>
                                         <td class="text-end">
                                             <a class="btn btn-sm btn-dark" target="_blank" href="https://www.google.com/search?tbm=vid&q=<?= $artistRow['name'] ?>"><i data-lucide="user-round-search" style="width:15px;height:15px"></i></a>
-                                            <a class="btn btn-sm btn-warning" href="index.php?section=music&tab=artists&edit=<?= (int) $artistRow['id'] ?>"><i data-lucide="pencil" style="width:15px;height:15px"></i></a>
+                                            <a class="btn btn-sm btn-warning" href="index.php?<?= htmlspecialchars(http_build_query($artistEditParams)) ?>"><i data-lucide="pencil" style="width:15px;height:15px"></i></a>
                                             <form class="d-inline js-confirm-delete" method="post">
                                                 <input type="hidden" name="action" value="delete_song_artist">
                                                 <input type="hidden" name="id" value="<?= (int) $artistRow['id'] ?>">
@@ -377,6 +392,7 @@
                                 </tbody>
                             </table>
                         </div>
+                        <?= admin_pagination($artistPageParams, 'artist_page', $artistPage, $artistTotalPages, 'Phân trang nghệ sĩ') ?>
                     </div>
                 </div>
             </div>
@@ -650,33 +666,14 @@
                 const genreSelect = document.getElementById('song_genre');
                 if (genreSelect && payload.genre) {
                     const genreValue = String(payload.genre).trim();
-                    let option = Array.from(genreSelect.options).find((item) => item.value === genreValue);
-                    if (!option) {
-                        option = new Option(genreValue, genreValue, true, true);
-                        genreSelect.add(option);
-                    }
-                    option.selected = true;
-                    if (window.jQuery && jQuery.fn.select2) {
-                        jQuery(genreSelect).trigger('change');
-                    } else {
-                        genreSelect.dispatchEvent(new Event('change', {bubbles: true}));
-                    }
-                }
-
-                const artistSelect = document.getElementById('song_artist_ids');
-                if (artistSelect && payload.artist_option && payload.artist_option.id) {
-                    const artistId = String(payload.artist_option.id);
-                    const artistName = String(payload.artist_option.name || payload.artist || artistId);
-                    let option = Array.from(artistSelect.options).find((item) => item.value === artistId);
-                    if (!option) {
-                        option = new Option(artistName, artistId, true, true);
-                        artistSelect.add(option);
-                    }
-                    option.selected = true;
-                    if (window.jQuery && jQuery.fn.select2) {
-                        jQuery(artistSelect).trigger('change');
-                    } else {
-                        artistSelect.dispatchEvent(new Event('change', {bubbles: true}));
+                    const option = Array.from(genreSelect.options).find((item) => item.value === genreValue);
+                    if (option) {
+                        option.selected = true;
+                        if (window.jQuery && jQuery.fn.select2) {
+                            jQuery(genreSelect).trigger('change');
+                        } else {
+                            genreSelect.dispatchEvent(new Event('change', {bubbles: true}));
+                        }
                     }
                 }
             };

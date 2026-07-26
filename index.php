@@ -214,6 +214,10 @@ $songSearchLogTotal = 0;
 $songSearchLogTotalPages = 1;
 $artistSearch = trim($_GET['artist_q'] ?? '');
 $artistLangFilter = trim($_GET['artist_lang'] ?? '');
+$artistPage = max(1, (int) ($_GET['artist_page'] ?? 1));
+$artistPerPage = 25;
+$artistTotal = 0;
+$artistTotalPages = 1;
 $serverRuntime = null;
 $systemResources = [];
 
@@ -3943,9 +3947,6 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages', 'users', '
                     ');
                     $stmt->execute([$id, $name, $artist, $album, $genre, $lang, $year, $date, $publishedAt, $linkYtb, $mp3, $avatar, $lyrics, $originalId]);
                     admin_sync_song_artists($pdo, $id, $artistIds);
-                    foreach ($genreIds as $genreId) {
-                        $pdo->prepare('INSERT IGNORE INTO song_genre (genre_id, title) VALUES (?, ?)')->execute([$genreId, $genreId]);
-                    }
                     admin_clear_carrotmusic_cache();
                     $message = 'Đã cập nhật bài hát.';
                 } else {
@@ -3955,9 +3956,6 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages', 'users', '
                     ');
                     $stmt->execute([$id, $name, $artist, $album, $genre, $lang, $year, $date, $publishedAt, $linkYtb, $mp3, $avatar, $lyrics]);
                     admin_sync_song_artists($pdo, $id, $artistIds);
-                    foreach ($genreIds as $genreId) {
-                        $pdo->prepare('INSERT IGNORE INTO song_genre (genre_id, title) VALUES (?, ?)')->execute([$genreId, $genreId]);
-                    }
                     admin_clear_carrotmusic_cache();
                     $message = 'Đã thêm bài hát.';
                 }
@@ -4251,24 +4249,10 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages', 'users', '
                                 $suffix++;
                             }
 
-                            $artistDescription = '<p>' . htmlspecialchars($artist . ' - artist profile generated from a YouTube lyric discovery for ' . $name . '.', ENT_QUOTES, 'UTF-8') . '</p>';
-                            $artistStmt = $pdo->prepare('
-                                    INSERT INTO song_artist (name, avatar, description, lang_key)
-                                    VALUES (?, ?, ?, ?)
-                                    ON DUPLICATE KEY UPDATE
-                                        id = LAST_INSERT_ID(id)
-                                ');
-                            $artistStmt->execute([$artist, $avatar, $artistDescription, $langKey]);
-                            $artistId = (int) $pdo->lastInsertId();
-
                             admin_json_success([
                                 'id' => $songId,
                                 'name' => $name,
                                 'artist' => $artist,
-                                'artist_option' => [
-                                    'id' => $artistId,
-                                    'name' => $artist,
-                                ],
                                 'album' => $album,
                                 'genre' => $genre,
                                 'lang' => $langKey,
@@ -5794,8 +5778,20 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages', 'users', '
                 $artistWhere[] = 'lang_key = :artist_lang';
                 $artistParams[':artist_lang'] = $artistLangFilter;
             }
-            $artistStmt = $pdo->prepare('SELECT * FROM song_artist' . ($artistWhere ? ' WHERE ' . implode(' AND ', $artistWhere) : '') . ' ORDER BY name ASC, id DESC');
-            $artistStmt->execute($artistParams);
+            $artistWhereSql = $artistWhere ? ' WHERE ' . implode(' AND ', $artistWhere) : '';
+            $artistCountStmt = $pdo->prepare('SELECT COUNT(*) FROM song_artist' . $artistWhereSql);
+            $artistCountStmt->execute($artistParams);
+            $artistTotal = (int) $artistCountStmt->fetchColumn();
+            $artistTotalPages = max(1, (int) ceil($artistTotal / $artistPerPage));
+            $artistPage = min($artistPage, $artistTotalPages);
+            $artistOffset = ($artistPage - 1) * $artistPerPage;
+            $artistStmt = $pdo->prepare('SELECT * FROM song_artist' . $artistWhereSql . ' ORDER BY name ASC, id DESC LIMIT :limit OFFSET :offset');
+            foreach ($artistParams as $paramKey => $paramValue) {
+                $artistStmt->bindValue($paramKey, $paramValue);
+            }
+            $artistStmt->bindValue(':limit', $artistPerPage, PDO::PARAM_INT);
+            $artistStmt->bindValue(':offset', $artistOffset, PDO::PARAM_INT);
+            $artistStmt->execute();
             $songArtists = $artistStmt->fetchAll();
         } else {
             $songArtists = [];
@@ -6148,6 +6144,12 @@ $sectionCreateUrls = [
         @keyframes dashboardLivePulse{0%,100%{background:#dcfce7;color:#16a34a;box-shadow:0 0 0 0 rgba(34,197,94,.38)}50%{background:#22c55e;color:#fff;box-shadow:0 0 18px 4px rgba(34,197,94,.48)}}
         @keyframes dashboardLiveRing{0%{opacity:.75;transform:scale(.86)}100%{opacity:0;transform:scale(1.42)}}
         @keyframes dashboardLiveBlink{0%,100%{opacity:1}50%{opacity:.28}}
+        .dashboard-card-live-ip.is-dashboard-refreshing{border-color:rgba(37,99,235,.36);box-shadow:0 14px 34px rgba(37,99,235,.16)}
+        .dashboard-card-live-ip.is-dashboard-refreshing .dashboard-card-icon{background:#dbeafe;color:#2563eb;animation:dashboardReloadPulse 1s ease-in-out infinite;box-shadow:0 0 0 0 rgba(37,99,235,.5)}
+        .dashboard-card-live-ip.is-dashboard-refreshing .dashboard-card-icon::after{border-color:rgba(37,99,235,.5);animation:dashboardReloadRing 1s ease-out infinite}
+        .dashboard-card-live-ip.is-dashboard-refreshing .dashboard-card-refresh{background:#dbeafe;color:#2563eb}
+        @keyframes dashboardReloadPulse{0%,100%{background:#dbeafe;color:#2563eb;box-shadow:0 0 0 0 rgba(37,99,235,.36)}50%{background:#2563eb;color:#fff;box-shadow:0 0 20px 5px rgba(37,99,235,.46)}}
+        @keyframes dashboardReloadRing{0%{opacity:.78;transform:scale(.86)}100%{opacity:0;transform:scale(1.46)}}
         .dashboard-card-label{min-width:0;font-size:.72rem;color:#64748b;font-weight:800;text-transform:uppercase;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
         .dashboard-card-value{font-size:1.08rem;font-weight:850;line-height:1.05;white-space:nowrap}
         .dashboard-card-refresh{display:inline-flex;align-items:center;justify-content:center;flex:0 0 auto;margin-left:auto;padding:.12rem .36rem;border-radius:999px;background:#dcfce7;color:#16a34a;font-size:.68rem;font-weight:900;font-variant-numeric:tabular-nums;white-space:nowrap}
@@ -6193,6 +6195,8 @@ $sectionCreateUrls = [
         .traffic-toggle{border:1px solid rgba(15,23,42,.12);border-radius:8px;padding:.25rem;background:#f8fafc}
         .traffic-toggle .btn{border-radius:6px;font-weight:800}
         .traffic-chart-wrap{border:1px solid rgba(15,23,42,.08);border-radius:8px;background:#f8fafc;padding:1rem}
+        .traffic-chart-wrap,.traffic-country-card{transition:border-color .2s ease,box-shadow .2s ease,filter .2s ease}
+        .traffic-chart-wrap.is-refreshing,.traffic-country-card.is-refreshing{border-color:rgba(37,99,235,.38);box-shadow:0 14px 34px rgba(37,99,235,.14);filter:saturate(1.08)}
         .traffic-chart-title{font-size:1rem;font-weight:850;color:#172033}
         .traffic-chart-grid{display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:1rem;align-items:stretch}
         .traffic-country-card{display:flex;flex-direction:column;min-width:0;border:1px solid rgba(15,23,42,.08);border-radius:8px;background:#fff;padding:.85rem}
@@ -6725,9 +6729,10 @@ if (xamppDiskCanvas && xamppDiskDataEl && window.Chart) {
 
 const trafficChartCanvas = document.getElementById('traffic_compare_chart');
 const trafficChartDataEl = document.getElementById('traffic_compare_data');
+let overviewTrafficChart = null;
 if (trafficChartCanvas && trafficChartDataEl && window.Chart) {
     const trafficChartData = JSON.parse(trafficChartDataEl.textContent || '{}');
-    const trafficChart = new Chart(trafficChartCanvas, {
+    overviewTrafficChart = new Chart(trafficChartCanvas, {
         type: 'line',
         data: {
             labels: Array.isArray(trafficChartData.labels) ? trafficChartData.labels : [],
@@ -6806,7 +6811,7 @@ if (trafficChartCanvas && trafficChartDataEl && window.Chart) {
         const state = {};
         trafficLegendButtons.forEach((button) => {
             const datasetIndex = Number(button.dataset.trafficDataset || 0);
-            state[String(datasetIndex)] = trafficChart.isDatasetVisible(datasetIndex);
+            state[String(datasetIndex)] = overviewTrafficChart.isDatasetVisible(datasetIndex);
         });
         try {
             window.localStorage.setItem(trafficLegendStorageKey, JSON.stringify(state));
@@ -6823,22 +6828,23 @@ if (trafficChartCanvas && trafficChartDataEl && window.Chart) {
         const datasetIndex = Number(button.dataset.trafficDataset || 0);
         if (Object.prototype.hasOwnProperty.call(savedTrafficLegendState, String(datasetIndex))) {
             const visible = savedTrafficLegendState[String(datasetIndex)] !== false;
-            trafficChart.setDatasetVisibility(datasetIndex, visible);
+            overviewTrafficChart.setDatasetVisibility(datasetIndex, visible);
             setTrafficLegendButton(button, visible);
         }
         button.addEventListener('click', () => {
-            const isVisible = trafficChart.isDatasetVisible(datasetIndex);
-            trafficChart.setDatasetVisibility(datasetIndex, !isVisible);
-            trafficChart.update();
+            const isVisible = overviewTrafficChart.isDatasetVisible(datasetIndex);
+            overviewTrafficChart.setDatasetVisibility(datasetIndex, !isVisible);
+            overviewTrafficChart.update();
             setTrafficLegendButton(button, !isVisible);
             writeTrafficLegendState();
         });
     });
-    trafficChart.update();
+    overviewTrafficChart.update();
 }
 
 const trafficCountryCanvas = document.getElementById('traffic_country_chart');
 const trafficCountryDataEl = document.getElementById('traffic_country_data');
+let overviewTrafficCountryChart = null;
 if (trafficCountryCanvas && trafficCountryDataEl && window.Chart) {
     const trafficCountryData = JSON.parse(trafficCountryDataEl.textContent || '{}');
     const countryLabels = Array.isArray(trafficCountryData.labels) ? trafficCountryData.labels : [];
@@ -6846,7 +6852,7 @@ if (trafficCountryCanvas && trafficCountryDataEl && window.Chart) {
     const countryHits = Array.isArray(trafficCountryData.hits) ? trafficCountryData.hits.map(Number) : [];
     const countryPalette = ['#0f766e', '#f59e0b', '#2563eb', '#dc2626', '#7c3aed', '#16a34a', '#db2777', '#0891b2', '#ea580c', '#475569', '#84cc16', '#9333ea'];
 
-    new Chart(trafficCountryCanvas, {
+    overviewTrafficCountryChart = new Chart(trafficCountryCanvas, {
         type: 'doughnut',
         data: {
             labels: countryLabels,
@@ -6886,6 +6892,28 @@ if (trafficCountryCanvas && trafficCountryDataEl && window.Chart) {
         },
     });
 }
+
+const refreshOverviewTrafficCharts = (doc) => {
+    const nextTrafficDataEl = doc.querySelector('#traffic_compare_data');
+    if (overviewTrafficChart && nextTrafficDataEl) {
+        const nextTrafficData = JSON.parse(nextTrafficDataEl.textContent || '{}');
+        overviewTrafficChart.data.labels = Array.isArray(nextTrafficData.labels) ? nextTrafficData.labels : [];
+        overviewTrafficChart.data.datasets[0].data = Array.isArray(nextTrafficData.hits) ? nextTrafficData.hits.map(Number) : [];
+        overviewTrafficChart.data.datasets[1].data = Array.isArray(nextTrafficData.unique) ? nextTrafficData.unique.map(Number) : [];
+        overviewTrafficChart.options.scales.x.ticks.maxTicksLimit = (nextTrafficData.mode || 'daily') === 'hourly' ? 12 : 10;
+        overviewTrafficChart.update();
+    }
+
+    const nextCountryDataEl = doc.querySelector('#traffic_country_data');
+    if (overviewTrafficCountryChart && nextCountryDataEl) {
+        const nextCountryData = JSON.parse(nextCountryDataEl.textContent || '{}');
+        const countryLabels = Array.isArray(nextCountryData.labels) ? nextCountryData.labels : [];
+        const countryUnique = Array.isArray(nextCountryData.unique) ? nextCountryData.unique.map(Number) : [];
+        overviewTrafficCountryChart.data.labels = countryLabels;
+        overviewTrafficCountryChart.data.datasets[0].data = countryUnique;
+        overviewTrafficCountryChart.update();
+    }
+};
 
 const backupPost = async (data) => {
     const formData = new FormData();
@@ -8483,7 +8511,10 @@ if (serverUptime) {
 const trafficIpCard = document.querySelector('[data-dashboard-card="traffic-ip"]');
 if (trafficIpCard) {
     const refreshIntervalSeconds = 300;
+    const refreshAnimationSeconds = 5;
     const countdownEl = trafficIpCard.querySelector('[data-refresh-countdown]');
+    const trafficChartWrap = document.getElementById('traffic_compare_chart')?.closest('.traffic-chart-wrap');
+    const trafficCountryCard = document.getElementById('traffic_country_data')?.closest('.traffic-country-card');
     let refreshRemainingSeconds = refreshIntervalSeconds;
     let isRefreshingTrafficIpCard = false;
     const formatRefreshCountdown = (seconds) => {
@@ -8502,7 +8533,13 @@ if (trafficIpCard) {
             return;
         }
         isRefreshingTrafficIpCard = true;
+        trafficIpCard.classList.add('is-dashboard-refreshing');
+        trafficChartWrap?.classList.add('is-refreshing');
+        trafficCountryCard?.classList.add('is-refreshing');
+        refreshRemainingSeconds = 0;
+        renderRefreshCountdown();
         try {
+            await new Promise((resolve) => window.setTimeout(resolve, refreshAnimationSeconds * 1000));
             const refreshUrl = new URL(window.location.href);
             refreshUrl.searchParams.set('_dashboard_refresh', Date.now().toString());
             const response = await fetch(refreshUrl.toString(), {
@@ -8519,8 +8556,12 @@ if (trafficIpCard) {
             if (nextValue && currentValue) {
                 currentValue.textContent = nextValue.textContent.trim();
             }
+            refreshOverviewTrafficCharts(doc);
         } catch (error) {
         } finally {
+            trafficIpCard.classList.remove('is-dashboard-refreshing');
+            trafficChartWrap?.classList.remove('is-refreshing');
+            trafficCountryCard?.classList.remove('is-refreshing');
             refreshRemainingSeconds = refreshIntervalSeconds;
             renderRefreshCountdown();
             isRefreshingTrafficIpCard = false;
