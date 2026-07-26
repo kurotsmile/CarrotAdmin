@@ -148,6 +148,7 @@ $trafficMetrics = [
     'home' => [],
     'ebook' => [],
     'music' => [],
+    'cloud' => [],
     'total' => [
         'today_unique' => 0,
         'today_hits' => 0,
@@ -160,6 +161,7 @@ $trafficMetrics = [
     ],
 ];
 $trafficIpRows = [];
+$trafficCountryData = ['labels' => [], 'hits' => [], 'unique' => []];
 $trafficChartData = admin_empty_visit_chart([
     'from' => date('Y-m-d'),
     'to' => date('Y-m-d'),
@@ -1933,6 +1935,35 @@ function admin_visit_request_path(): string
     return substr((string) ($_SERVER['REQUEST_URI'] ?? ($_SERVER['SCRIPT_NAME'] ?? '')), 0, 1024);
 }
 
+function admin_visit_country_code(string $ip): string
+{
+    foreach (['HTTP_CF_IPCOUNTRY', 'HTTP_X_VERCEL_IP_COUNTRY', 'HTTP_CLOUDFRONT_VIEWER_COUNTRY', 'HTTP_X_APPENGINE_COUNTRY', 'GEOIP_COUNTRY_CODE'] as $key) {
+        $value = strtoupper(trim((string) ($_SERVER[$key] ?? '')));
+        if (preg_match('/^[A-Z]{2}$/', $value) && $value !== 'XX') {
+            return $value;
+        }
+    }
+    if (!filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE)) {
+        return '';
+    }
+    $url = 'https://ipapi.co/' . rawurlencode($ip) . '/country/';
+    $response = '';
+    if (function_exists('curl_init')) {
+        $ch = curl_init($url);
+        curl_setopt_array($ch, [CURLOPT_RETURNTRANSFER => true, CURLOPT_CONNECTTIMEOUT => 1, CURLOPT_TIMEOUT => 2, CURLOPT_USERAGENT => 'CarrotVisitTracker/1.0']);
+        $response = (string) curl_exec($ch);
+        $status = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        curl_close($ch);
+        if ($status >= 400) {
+            $response = '';
+        }
+    } elseif (ini_get('allow_url_fopen')) {
+        $response = (string) @file_get_contents($url, false, stream_context_create(['http' => ['timeout' => 2, 'header' => "User-Agent: CarrotVisitTracker/1.0\r\n"]]));
+    }
+    $countryCode = strtoupper(trim($response));
+    return preg_match('/^[A-Z]{2}$/', $countryCode) ? $countryCode : '';
+}
+
 function admin_track_daily_ip(?PDO $pdo): void
 {
     if (!$pdo instanceof PDO || PHP_SAPI === 'cli') {
@@ -1956,6 +1987,7 @@ function admin_track_daily_ip(?PDO $pdo): void
             ':last_seen_at' => $seenAt,
             ':ip' => $ip,
             ':ip_text' => $ip,
+            ':country_code' => ($countryCode = admin_visit_country_code($ip)) !== '' ? $countryCode : null,
             ':user_agent' => substr((string) ($_SERVER['HTTP_USER_AGENT'] ?? ''), 0, 512) ?: null,
             ':referer' => substr((string) ($_SERVER['HTTP_REFERER'] ?? ''), 0, 1024) ?: null,
             ':request_path' => admin_visit_request_path(),
@@ -1964,12 +1996,13 @@ function admin_track_daily_ip(?PDO $pdo): void
         $stmt = $pdo->prepare("
             INSERT INTO visit_daily_ip (
               site, visit_date, ip_address, ip_text, first_seen_at, last_seen_at,
-              hits, user_agent, referer, request_path
+              hits, country_code, user_agent, referer, request_path
             )
-            VALUES ('admin', :visit_date, INET6_ATON(:ip), :ip_text, :first_seen_at, :last_seen_at, 1, :user_agent, :referer, :request_path)
+            VALUES ('admin', :visit_date, INET6_ATON(:ip), :ip_text, :first_seen_at, :last_seen_at, 1, :country_code, :user_agent, :referer, :request_path)
             ON DUPLICATE KEY UPDATE
               hits = hits + 1,
               last_seen_at = VALUES(last_seen_at),
+              country_code = COALESCE(VALUES(country_code), country_code),
               user_agent = VALUES(user_agent),
               referer = VALUES(referer),
               request_path = VALUES(request_path),
@@ -1980,12 +2013,13 @@ function admin_track_daily_ip(?PDO $pdo): void
         $hourlyStmt = $pdo->prepare("
             INSERT INTO visit_hourly_ip (
               site, visit_date, visit_hour, ip_address, ip_text, first_seen_at, last_seen_at,
-              hits, user_agent, referer, request_path
+              hits, country_code, user_agent, referer, request_path
             )
-            VALUES ('admin', :visit_date, :visit_hour, INET6_ATON(:ip), :ip_text, :first_seen_at, :last_seen_at, 1, :user_agent, :referer, :request_path)
+            VALUES ('admin', :visit_date, :visit_hour, INET6_ATON(:ip), :ip_text, :first_seen_at, :last_seen_at, 1, :country_code, :user_agent, :referer, :request_path)
             ON DUPLICATE KEY UPDATE
               hits = hits + 1,
               last_seen_at = VALUES(last_seen_at),
+              country_code = COALESCE(VALUES(country_code), country_code),
               user_agent = VALUES(user_agent),
               referer = VALUES(referer),
               request_path = VALUES(request_path),
@@ -2194,7 +2228,7 @@ function admin_backfill_visit_hourly_ip(?PDO $pdo, string $site, string $from, s
         $stmt = $pdo->prepare("
             INSERT INTO visit_hourly_ip (
               site, visit_date, visit_hour, ip_address, ip_text, first_seen_at, last_seen_at,
-              hits, user_agent, referer, request_path
+              hits, country_code, user_agent, referer, request_path
             )
             SELECT
               d.site,
@@ -2205,6 +2239,7 @@ function admin_backfill_visit_hourly_ip(?PDO $pdo, string $site, string $from, s
               d.first_seen_at,
               d.last_seen_at,
               GREATEST(d.hits - COALESCE(h.hourly_hits, 0), 0) AS missing_hits,
+              d.country_code,
               d.user_agent,
               d.referer,
               d.request_path
@@ -2676,6 +2711,7 @@ function admin_visit_ip_rows(?PDO $pdo, string $site, string $label, array $date
               range_rows.ip_text,
               range_rows.range_hits,
               range_rows.visit_days,
+              range_rows.country_code,
               range_rows.last_seen_at,
               range_rows.request_path,
               range_rows.user_agent
@@ -2684,6 +2720,11 @@ function admin_visit_ip_rows(?PDO $pdo, string $site, string $label, array $date
                 ip_text,
                 COALESCE(SUM(hits), 0) AS range_hits,
                 COUNT(*) AS visit_days,
+                CASE
+                  WHEN SUBSTRING_INDEX(GROUP_CONCAT(country_code ORDER BY last_seen_at DESC SEPARATOR '\\n'), '\\n', 1) REGEXP '^[A-Za-z]{2}$'
+                  THEN UPPER(SUBSTRING_INDEX(GROUP_CONCAT(country_code ORDER BY last_seen_at DESC SEPARATOR '\\n'), '\\n', 1))
+                  ELSE ''
+                END AS country_code,
                 MAX(last_seen_at) AS last_seen_at,
                 SUBSTRING_INDEX(GROUP_CONCAT(request_path ORDER BY last_seen_at DESC SEPARATOR '\\n'), '\\n', 1) AS request_path,
                 SUBSTRING_INDEX(GROUP_CONCAT(user_agent ORDER BY last_seen_at DESC SEPARATOR '\\n'), '\\n', 1) AS user_agent
@@ -2710,6 +2751,146 @@ function admin_visit_ip_rows(?PDO $pdo, string $site, string $label, array $date
     unset($row);
 
     return $rows;
+}
+
+function admin_visit_country_rows(?PDO $pdo, string $site, string $label, array $dateRange): array
+{
+    if (!$pdo instanceof PDO) {
+        return [];
+    }
+
+    $countries = [];
+    $pushCountry = static function (string $code, int $hits, int $uniqueCount) use (&$countries): void {
+        $code = trim($code);
+        if (preg_match('/^[A-Za-z]{2}$/', $code)) {
+            $code = strtoupper($code);
+        } elseif ($code === '') {
+            $code = 'Không rõ';
+        }
+        if (!isset($countries[$code])) {
+            $countries[$code] = ['country_code' => $code, 'hits' => 0, 'unique_count' => 0];
+        }
+        $countries[$code]['hits'] += $hits;
+        $countries[$code]['unique_count'] += $uniqueCount;
+    };
+
+    try {
+        admin_ensure_visit_traffic_report_table($pdo);
+        $reportStmt = $pdo->prepare("
+            SELECT country_hits_json, country_unique_json
+            FROM visit_traffic_report
+            WHERE site = :site
+              AND report_date BETWEEN :range_from AND :range_to
+        ");
+        $reportStmt->execute([
+            ':site' => $site,
+            ':range_from' => $dateRange['from'],
+            ':range_to' => $dateRange['to'],
+        ]);
+        foreach ($reportStmt->fetchAll(PDO::FETCH_ASSOC) as $reportRow) {
+            $hitsMap = json_decode((string) ($reportRow['country_hits_json'] ?? '{}'), true);
+            $uniqueMap = json_decode((string) ($reportRow['country_unique_json'] ?? '{}'), true);
+            if (!is_array($hitsMap)) {
+                continue;
+            }
+            foreach ($hitsMap as $code => $hits) {
+                $pushCountry((string) $code, (int) $hits, (int) (is_array($uniqueMap) ? ($uniqueMap[$code] ?? 0) : 0));
+            }
+        }
+
+        $stmt = $pdo->prepare("
+            SELECT
+              CASE WHEN country_code REGEXP '^[A-Za-z]{2}$' THEN UPPER(country_code) ELSE 'Không rõ' END AS country_code,
+              COUNT(*) AS unique_count,
+              COALESCE(SUM(hits), 0) AS hits
+            FROM visit_daily_ip
+            WHERE site = :site
+              AND visit_date BETWEEN :range_from AND :range_to
+              AND NOT EXISTS (
+                SELECT 1
+                FROM visit_traffic_report r
+                WHERE r.site = visit_daily_ip.site AND r.report_date = visit_daily_ip.visit_date
+              )
+            GROUP BY country_code
+            ORDER BY hits DESC, unique_count DESC
+            LIMIT 60
+        ");
+        $stmt->execute([
+            ':site' => $site,
+            ':range_from' => $dateRange['from'],
+            ':range_to' => $dateRange['to'],
+        ]);
+        foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+            $pushCountry((string) ($row['country_code'] ?? ''), (int) ($row['hits'] ?? 0), (int) ($row['unique_count'] ?? 0));
+        }
+    } catch (Throwable $e) {
+        return [];
+    }
+
+    $rows = array_values($countries);
+    usort($rows, static function (array $a, array $b): int {
+        $hitsCompare = (int) ($b['hits'] ?? 0) <=> (int) ($a['hits'] ?? 0);
+        if ($hitsCompare !== 0) {
+            return $hitsCompare;
+        }
+        return strcmp((string) ($a['country_code'] ?? ''), (string) ($b['country_code'] ?? ''));
+    });
+    $rows = array_slice($rows, 0, 60);
+
+    foreach ($rows as &$row) {
+        $row['site_label'] = $label;
+    }
+    unset($row);
+
+    return $rows;
+}
+
+function admin_sum_visit_country_rows(array $siteRows): array
+{
+    $countries = [];
+    foreach ($siteRows as $rows) {
+        foreach ($rows as $row) {
+            $code = trim((string) ($row['country_code'] ?? ''));
+            if (preg_match('/^[A-Za-z]{2}$/', $code)) {
+                $code = strtoupper($code);
+            } elseif ($code === '') {
+                $code = 'Không rõ';
+            }
+            if (!isset($countries[$code])) {
+                $countries[$code] = ['country_code' => $code, 'hits' => 0, 'unique_count' => 0];
+            }
+            $countries[$code]['hits'] += (int) ($row['hits'] ?? 0);
+            $countries[$code]['unique_count'] += (int) ($row['unique_count'] ?? 0);
+        }
+    }
+
+    usort($countries, static function (array $a, array $b): int {
+        $hitsCompare = (int) ($b['hits'] ?? 0) <=> (int) ($a['hits'] ?? 0);
+        if ($hitsCompare !== 0) {
+            return $hitsCompare;
+        }
+        return strcmp((string) ($a['country_code'] ?? ''), (string) ($b['country_code'] ?? ''));
+    });
+
+    return array_slice($countries, 0, 12);
+}
+
+function admin_visit_country_chart(array $rows): array
+{
+    $labels = [];
+    $hits = [];
+    $unique = [];
+    foreach ($rows as $row) {
+        $code = trim((string) ($row['country_code'] ?? ''));
+        if (preg_match('/^[A-Za-z]{2}$/', $code)) {
+            $code = strtoupper($code);
+        }
+        $labels[] = $code !== '' ? $code : 'Không rõ';
+        $hits[] = (int) ($row['hits'] ?? 0);
+        $unique[] = (int) ($row['unique_count'] ?? 0);
+    }
+
+    return ['labels' => $labels, 'hits' => $hits, 'unique' => $unique];
 }
 
 function admin_backup_dir(): string
@@ -3266,6 +3447,8 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages', 'users', '
             try {
                 $overviewHomePdo = admin_home_pdo();
                 admin_ensure_visit_hourly_ip_table($overviewHomePdo, 'home');
+                admin_ensure_visit_daily_ip_table($overviewHomePdo, 'cloud');
+                admin_ensure_visit_hourly_ip_table($overviewHomePdo, 'cloud');
                 $dashboardMetrics['pages'] = admin_cached_count_table($overviewHomePdo, 'home_page', 'page');
                 $dashboardMetrics['users'] = admin_cached_count_table($overviewHomePdo, 'home_users', 'users');
             } catch (Throwable $e) {
@@ -3277,20 +3460,31 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages', 'users', '
             $trafficMetrics['home'] = admin_visit_metrics($overviewHomePdo, 'home', $trafficDateRange);
             $trafficMetrics['ebook'] = admin_visit_metrics($pdo, 'ebook', $trafficDateRange);
             $trafficMetrics['music'] = admin_visit_metrics($pdo, 'music', $trafficDateRange);
-            $trafficMetrics['total'] = admin_sum_visit_metrics([$trafficMetrics['admin'], $trafficMetrics['coc'], $trafficMetrics['home'], $trafficMetrics['ebook'], $trafficMetrics['music']]);
+            $trafficMetrics['cloud'] = admin_visit_metrics($overviewHomePdo, 'cloud', $trafficDateRange);
+            $trafficMetrics['total'] = admin_sum_visit_metrics([$trafficMetrics['admin'], $trafficMetrics['coc'], $trafficMetrics['home'], $trafficMetrics['ebook'], $trafficMetrics['music'], $trafficMetrics['cloud']]);
             $trafficChartData = admin_sum_visit_chart([
                 admin_visit_chart($pdo, 'admin', $trafficDateRange),
                 admin_visit_chart($pdo, 'coc', $trafficDateRange),
                 admin_visit_chart($overviewHomePdo, 'home', $trafficDateRange),
                 admin_visit_chart($pdo, 'ebook', $trafficDateRange),
                 admin_visit_chart($pdo, 'music', $trafficDateRange),
+                admin_visit_chart($overviewHomePdo, 'cloud', $trafficDateRange),
             ], $trafficDateRange);
+            $trafficCountryData = admin_visit_country_chart(admin_sum_visit_country_rows([
+                admin_visit_country_rows($pdo, 'admin', 'CarrotAdmin', $trafficDateRange),
+                admin_visit_country_rows($pdo, 'coc', 'COC Shop', $trafficDateRange),
+                admin_visit_country_rows($overviewHomePdo, 'home', 'CarrotHome', $trafficDateRange),
+                admin_visit_country_rows($pdo, 'ebook', 'CarrotEbook', $trafficDateRange),
+                admin_visit_country_rows($pdo, 'music', 'Heart Beat Play', $trafficDateRange),
+                admin_visit_country_rows($overviewHomePdo, 'cloud', 'CarrotCloud', $trafficDateRange),
+            ]));
             $trafficIpRows = array_merge(
                 admin_visit_ip_rows($pdo, 'admin', 'CarrotAdmin', $trafficDateRange),
                 admin_visit_ip_rows($pdo, 'coc', 'COC Shop', $trafficDateRange),
                 admin_visit_ip_rows($overviewHomePdo, 'home', 'CarrotHome', $trafficDateRange),
                 admin_visit_ip_rows($pdo, 'ebook', 'CarrotEbook', $trafficDateRange),
-                admin_visit_ip_rows($pdo, 'music', 'Heart Beat Play', $trafficDateRange)
+                admin_visit_ip_rows($pdo, 'music', 'Heart Beat Play', $trafficDateRange),
+                admin_visit_ip_rows($overviewHomePdo, 'cloud', 'CarrotCloud', $trafficDateRange)
             );
             usort($trafficIpRows, static function (array $a, array $b): int {
                 $rangeCompare = (int) ($b['range_hits'] ?? 0) <=> (int) ($a['range_hits'] ?? 0);
@@ -5862,6 +6056,7 @@ $trafficRows = [
     ['label' => 'CarrotHome', 'url' => 'https://carrot28.com/', 'metrics' => $trafficMetrics['home']],
     ['label' => 'CarrotEbook', 'url' => 'https://ebook.carrot28.com/', 'metrics' => $trafficMetrics['ebook']],
     ['label' => 'Heart Beat Play', 'url' => 'https://heartbeatplay.com/', 'metrics' => $trafficMetrics['music']],
+    ['label' => 'CarrotCloud', 'url' => 'https://cloud.carrot28.com/', 'metrics' => $trafficMetrics['cloud']],
     ['label' => 'Tổng cộng', 'url' => '', 'metrics' => $trafficMetrics['total']],
 ];
 $useSelect2 = $section === 'overview' || $section === 'apps' || $section === 'ebook' || $section === 'music' || $section === 'pages' || $section === 'cloud' || ($section === 'country' && $countryTab === 'labels') || ($section === 'sites' && $sitesTab === 'google_search');
@@ -5934,9 +6129,14 @@ $sectionCreateUrls = [
             .dashboard-nav.is-dragging .list-group-item{pointer-events:none}
         }
         .dashboard-main{min-width:0}
-        .dashboard-topbar{border:1px solid rgba(15,23,42,.08);border-radius:8px;background:rgba(255,255,255,.94);box-shadow:0 18px 48px rgba(15,23,42,.07)}
-        .dashboard-eyebrow{color:#64748b;font-size:.76rem;letter-spacing:0;text-transform:uppercase}
-        .dashboard-actions .btn{border-radius:8px}
+        .dashboard-topbar{border:1px solid rgba(15,23,42,.08);border-radius:8px;background:rgba(255,255,255,.94);box-shadow:0 12px 30px rgba(15,23,42,.055);padding:.72rem .9rem;margin-bottom:1rem}
+        .dashboard-topbar-inner{gap:.75rem}
+        .dashboard-title-block{min-width:0}
+        .dashboard-eyebrow{color:#64748b;font-size:.68rem;line-height:1.15;letter-spacing:0;text-transform:uppercase}
+        .dashboard-page-title{font-size:1.28rem;line-height:1.18}
+        .dashboard-actions{gap:.45rem}
+        .dashboard-actions .btn{display:inline-flex;align-items:center;gap:.35rem;border-radius:8px;padding:.34rem .62rem;font-size:.84rem;line-height:1.15}
+        .dashboard-actions .btn i,.dashboard-actions .btn svg{flex:0 0 auto}
         .dashboard-grid{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:.75rem}
         .dashboard-card{border:1px solid rgba(15,23,42,.08);border-radius:8px;background:#fff;box-shadow:0 10px 28px rgba(15,23,42,.05);padding:.62rem .75rem}
         .dashboard-card-line{display:flex;align-items:center;gap:.55rem;min-width:0}
@@ -5951,27 +6151,36 @@ $sectionCreateUrls = [
         .dashboard-card-label{min-width:0;font-size:.72rem;color:#64748b;font-weight:800;text-transform:uppercase;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
         .dashboard-card-value{font-size:1.08rem;font-weight:850;line-height:1.05;white-space:nowrap}
         .dashboard-card-refresh{display:inline-flex;align-items:center;justify-content:center;flex:0 0 auto;margin-left:auto;padding:.12rem .36rem;border-radius:999px;background:#dcfce7;color:#16a34a;font-size:.68rem;font-weight:900;font-variant-numeric:tabular-nums;white-space:nowrap}
-        .dashboard-uptime{position:relative;display:flex;align-items:center;justify-content:center;min-height:154px;overflow:hidden;background:linear-gradient(135deg,#172033 0%,#0f172a 58%,#064e3b 100%);color:#fff}
+        .dashboard-uptime{position:relative;display:flex;align-items:center;justify-content:center;min-height:88px;overflow:hidden;background:linear-gradient(135deg,#172033 0%,#0f172a 58%,#064e3b 100%);color:#fff}
         .dashboard-uptime::before{content:"";position:absolute;inset:0;background:radial-gradient(circle at 50% 18%,rgba(34,197,94,.2),transparent 42%);pointer-events:none}
         .dashboard-uptime-content{position:relative;z-index:1;width:100%;text-align:center}
         .dashboard-uptime .dashboard-card-label{color:#cbd5e1;letter-spacing:0}
-        .dashboard-uptime-icon{position:absolute;top:.75rem;right:.75rem;display:inline-flex;align-items:center;justify-content:center;width:34px;height:34px;border-radius:8px;background:rgba(255,255,255,.12);color:#fff;border:1px solid rgba(255,255,255,.12)}
-        .dashboard-uptime-icon i,.dashboard-uptime-icon svg{width:17px;height:17px}
-        .dashboard-uptime-value{font-size:2.35rem;font-weight:900;line-height:1;letter-spacing:0;text-shadow:0 10px 28px rgba(0,0,0,.28);white-space:nowrap}
-        .dashboard-uptime-start{font-size:.78rem;color:#cbd5e1}
-        .dashboard-uptime-timezone{font-size:.72rem;color:#94a3b8}
-        .dashboard-resource-title{font-size:.95rem;font-weight:850;color:#172033}
-        .dashboard-disk{display:flex;align-items:center;gap:1rem;min-width:0}
-        .dashboard-disk-chart{position:relative;flex:0 0 104px;width:104px;height:104px}
-        .dashboard-disk-chart canvas{display:block;width:104px!important;height:104px!important}
+        .dashboard-uptime-icon{position:absolute;top:.42rem;right:.42rem;display:inline-flex;align-items:center;justify-content:center;width:32px;height:32px;border-radius:8px;background:rgba(255,255,255,.12);color:#fff;border:1px solid rgba(255,255,255,.12)}
+        .dashboard-uptime-icon i,.dashboard-uptime-icon svg{width:13px;height:13px}
+        .dashboard-uptime-value{font-size:1.80rem;font-weight:900;line-height:1;letter-spacing:0;text-shadow:0 10px 28px rgba(0,0,0,.28);white-space:nowrap}
+        .dashboard-uptime-start{font-size:.62rem;color:#cbd5e1}
+        .dashboard-uptime-timezone{font-size:.6rem;color:#94a3b8}
+        .dashboard-resource{padding:.48rem .62rem}
+        .dashboard-resource-title{font-size:.78rem;font-weight:850;color:#172033}
+        .dashboard-disk{display:flex;align-items:center;gap:.55rem;min-width:0}
+        .dashboard-disk-chart{position:relative;flex:0 0 68px;width:68px;height:68px}
+        .dashboard-disk-chart canvas{display:block;width:68px!important;height:68px!important}
         .dashboard-disk-center{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;pointer-events:none}
-        .dashboard-disk-center strong{font-size:1.05rem;line-height:1;color:#172033}
-        .dashboard-disk-center span{margin-top:.16rem;font-size:.66rem;font-weight:800;color:#64748b;text-transform:uppercase}
-        .dashboard-disk-meta{display:grid;gap:.42rem;min-width:0;flex:1}
-        .dashboard-disk-meta div{display:flex;align-items:center;justify-content:space-between;gap:.75rem;min-width:0;font-size:.8rem}
+        .dashboard-disk-center strong{font-size:.74rem;line-height:1;color:#172033}
+        .dashboard-disk-center span{margin-top:.08rem;font-size:.5rem;font-weight:800;color:#64748b;text-transform:uppercase}
+        .dashboard-disk-meta{display:grid;gap:.16rem;min-width:0;flex:1}
+        .dashboard-disk-meta div{display:flex;align-items:center;justify-content:space-between;gap:.45rem;min-width:0;font-size:.68rem}
         .dashboard-disk-meta span{color:#64748b;font-weight:800}
         .dashboard-disk-meta strong{min-width:0;color:#172033;text-align:right;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-        .dashboard-resource-path{font-size:.74rem;color:#64748b;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+        .dashboard-resource-path{font-size:.6rem;color:#64748b;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+        .dashboard-compact .dashboard-card-label{font-size:.64rem}
+        .dashboard-compact .dashboard-card-icon{width:24px;height:24px}
+        .dashboard-compact .dashboard-card-icon i,.dashboard-compact .dashboard-card-icon svg{width:13px;height:13px}
+        .dashboard-cache-panel{padding:.55rem .65rem}
+        .dashboard-cache-panel>div{min-height:88px}
+        .dashboard-cache-panel .muted-text{font-size:.7rem;line-height:1.25;max-width:330px}
+        .dashboard-cache-panel .btn{padding:.3rem .52rem;font-size:.76rem;line-height:1.1;white-space:nowrap}
+        .dashboard-cache-panel .overview-panel-title{font-size:.86rem}
         .overview-panel-title{display:flex;align-items:center;gap:.6rem;font-weight:850}
         .overview-panel-title i{width:18px;height:18px}
         .traffic-site-link{font-weight:800;color:#172033;text-decoration:none}
@@ -5985,6 +6194,11 @@ $sectionCreateUrls = [
         .traffic-toggle .btn{border-radius:6px;font-weight:800}
         .traffic-chart-wrap{border:1px solid rgba(15,23,42,.08);border-radius:8px;background:#f8fafc;padding:1rem}
         .traffic-chart-title{font-size:1rem;font-weight:850;color:#172033}
+        .traffic-chart-grid{display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:1rem;align-items:stretch}
+        .traffic-country-card{display:flex;flex-direction:column;min-width:0;border:1px solid rgba(15,23,42,.08);border-radius:8px;background:#fff;padding:.85rem}
+        .traffic-country-chart{position:relative;min-height:200px}
+        #traffic_country_chart{display:block;width:100%;height:200px!important;max-height:200px}
+        .traffic-country-empty{display:grid;place-items:center;min-height:200px;color:#64748b;font-weight:800;text-align:center}
         .traffic-chart-legend{display:flex;align-items:center;gap:.5rem;color:#475569;font-size:.82rem;font-weight:800}
         .traffic-legend-btn{display:inline-flex;align-items:center;gap:.35rem;white-space:nowrap;border:1px solid rgba(15,23,42,.12);border-radius:999px;background:#fff;color:#475569;padding:.28rem .62rem;font:inherit;cursor:pointer;transition:opacity .15s ease,background .15s ease,border-color .15s ease}
         .traffic-legend-btn:hover{border-color:rgba(15,23,42,.24);background:#f8fafc}
@@ -5992,7 +6206,7 @@ $sectionCreateUrls = [
         .traffic-dot{display:inline-block;width:10px;height:10px;border-radius:999px}
         .traffic-dot-today{background:#0f766e}
         .traffic-dot-yesterday{background:#f59e0b}
-        #traffic_compare_chart{display:block;width:100%;height:350px!important;max-height:350px}
+        #traffic_compare_chart{display:block;width:100%;height:300px!important;max-height:300px}
         .backup-action-card{border:1px solid rgba(15,23,42,.08);border-radius:8px;background:#fff;padding:1rem;height:100%}
         .backup-progress{height:10px;border-radius:999px;background:#e2e8f0;overflow:hidden}
         .backup-progress-bar{height:100%;width:0;background:#198754;transition:width .25s ease}
@@ -6023,7 +6237,8 @@ $sectionCreateUrls = [
         .api-config-meta code{white-space:normal;overflow-wrap:anywhere;word-break:break-word;color:#334155;background:transparent;padding:0}
         @media (max-width:1199px){.dashboard-grid{grid-template-columns:repeat(3,minmax(0,1fr))}}
         @media (max-width:991px){.dashboard-sidebar{position:static;min-height:auto}.dashboard-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
-        @media (max-width:575px){.dashboard-grid{grid-template-columns:1fr}.dashboard-card-value{font-size:1.05rem}.dashboard-uptime{min-height:142px}.dashboard-uptime-value{font-size:1.82rem}.dashboard-disk{align-items:flex-start}.dashboard-disk-chart{flex-basis:96px;width:96px;height:96px}.dashboard-disk-chart canvas{width:96px!important;height:96px!important}.traffic-tools{width:100%;justify-content:stretch}.traffic-date-form{width:100%}.traffic-range-select{width:100%;min-width:0}.traffic-chart-legend{width:100%;justify-content:space-between}#traffic_compare_chart{height:260px!important;max-height:260px}.coc-photo-item{grid-template-columns:1fr}.coc-photo-preview{width:100%;height:120px}}
+        @media (max-width:991px){.traffic-chart-grid{grid-template-columns:1fr}}
+        @media (max-width:575px){.dashboard-topbar{padding:.65rem .72rem}.dashboard-page-title{font-size:1.08rem}.dashboard-actions{width:100%}.dashboard-actions .btn{flex:1 1 auto;justify-content:center}.dashboard-grid{grid-template-columns:1fr}.dashboard-card-value{font-size:1.05rem}.dashboard-uptime{min-height:86px}.dashboard-uptime-value{font-size:1.32rem}.dashboard-disk{align-items:center}.dashboard-disk-chart{flex-basis:64px;width:64px;height:64px}.dashboard-disk-chart canvas{width:64px!important;height:64px!important}.dashboard-cache-panel>div{min-height:80px}.traffic-tools{width:100%;justify-content:stretch}.traffic-date-form{width:100%}.traffic-range-select{width:100%;min-width:0}.traffic-chart-legend{width:100%;justify-content:space-between}#traffic_compare_chart{height:230px!important;max-height:230px}.traffic-country-chart,#traffic_country_chart,.traffic-country-empty{min-height:190px;height:190px!important;max-height:190px}.coc-photo-item{grid-template-columns:1fr}.coc-photo-preview{width:100%;height:120px}}
     </style>
     <style>
         .simple-editor-toolbar{display:flex;flex-wrap:wrap;gap:.35rem;padding:.5rem;border:1px solid rgba(0,0,0,.15);border-bottom:0;border-radius:.375rem .375rem 0 0;background:rgba(255,255,255,.7)}
@@ -6060,13 +6275,13 @@ $sectionCreateUrls = [
         </aside>
 
         <main class="col dashboard-main p-3 p-lg-4">
-            <div class="dashboard-topbar p-4 mb-4">
-                <div class="d-flex flex-wrap justify-content-between align-items-center gap-3">
-                    <div>
+            <div class="dashboard-topbar">
+                <div class="dashboard-topbar-inner d-flex flex-wrap justify-content-between align-items-center">
+                    <div class="dashboard-title-block">
                         <p class="dashboard-eyebrow fw-bold mb-1">Quản lý <?= $sectionLabels[$section] ?? 'shop' ?></p>
-                        <h1 class="h3 mb-0"><?= $sectionTitles[$section] ?? 'Acc Clash of Clans' ?></h1>
+                        <h1 class="dashboard-page-title fw-bold mb-0 text-truncate"><?= $sectionTitles[$section] ?? 'Acc Clash of Clans' ?></h1>
                     </div>
-                    <div class="dashboard-actions d-flex flex-wrap gap-2">
+                    <div class="dashboard-actions d-flex flex-wrap">
                         <?php if ($section === 'apps'): ?>
                             <a class="btn btn-success fw-bold" href="https://carrot28.com/" target="_blank" rel="noopener noreferrer"><i data-lucide="external-link" style="width:16px;height:16px"></i> Carrot Store</a>
                         <?php endif; ?>
@@ -6620,6 +6835,56 @@ if (trafficChartCanvas && trafficChartDataEl && window.Chart) {
         });
     });
     trafficChart.update();
+}
+
+const trafficCountryCanvas = document.getElementById('traffic_country_chart');
+const trafficCountryDataEl = document.getElementById('traffic_country_data');
+if (trafficCountryCanvas && trafficCountryDataEl && window.Chart) {
+    const trafficCountryData = JSON.parse(trafficCountryDataEl.textContent || '{}');
+    const countryLabels = Array.isArray(trafficCountryData.labels) ? trafficCountryData.labels : [];
+    const countryUnique = Array.isArray(trafficCountryData.unique) ? trafficCountryData.unique.map(Number) : [];
+    const countryHits = Array.isArray(trafficCountryData.hits) ? trafficCountryData.hits.map(Number) : [];
+    const countryPalette = ['#0f766e', '#f59e0b', '#2563eb', '#dc2626', '#7c3aed', '#16a34a', '#db2777', '#0891b2', '#ea580c', '#475569', '#84cc16', '#9333ea'];
+
+    new Chart(trafficCountryCanvas, {
+        type: 'doughnut',
+        data: {
+            labels: countryLabels,
+            datasets: [{
+                data: countryUnique,
+                backgroundColor: countryLabels.map((_, index) => countryPalette[index % countryPalette.length]),
+                borderColor: '#fff',
+                borderWidth: 2,
+                hoverOffset: 4,
+            }],
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            cutout: '64%',
+            plugins: {
+                legend: {
+                    position: 'bottom',
+                    labels: {
+                        boxWidth: 10,
+                        boxHeight: 10,
+                        padding: 12,
+                        font: {size: 11, weight: '700'},
+                    },
+                },
+                tooltip: {
+                    callbacks: {
+                        label: (context) => {
+                            const index = context.dataIndex || 0;
+                            const unique = Number(context.parsed || 0);
+                            const hits = Number(countryHits[index] || 0);
+                            return `${context.label}: ${unique.toLocaleString('vi-VN')} IP / ${hits.toLocaleString('vi-VN')} hits`;
+                        },
+                    },
+                },
+            },
+        },
+    });
 }
 
 const backupPost = async (data) => {

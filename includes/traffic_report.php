@@ -74,18 +74,40 @@ function admin_traffic_report_aggregate_day(PDO $pdo, string $date, array $sites
             $hourlyUnique[$hour] = (int) ($row['unique_count'] ?? 0);
         }
 
+        $countryHits = [];
+        $countryUnique = [];
+        $countryStmt = $pdo->prepare("
+            SELECT CASE WHEN country_code REGEXP '^[A-Za-z]{2}$' THEN UPPER(country_code) ELSE 'Không rõ' END AS country_code, COUNT(*) AS unique_count, COALESCE(SUM(hits), 0) AS hits
+            FROM visit_daily_ip
+            WHERE site = :site AND visit_date = :report_date
+            GROUP BY country_code
+        ");
+        $countryStmt->execute([':site' => $site, ':report_date' => $date]);
+        foreach ($countryStmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+            $countryCode = trim((string) ($row['country_code'] ?? ''));
+            if (preg_match('/^[A-Za-z]{2}$/', $countryCode)) {
+                $countryCode = strtoupper($countryCode);
+            } elseif ($countryCode === '') {
+                $countryCode = 'Không rõ';
+            }
+            $countryHits[$countryCode] = (int) ($row['hits'] ?? 0);
+            $countryUnique[$countryCode] = (int) ($row['unique_count'] ?? 0);
+        }
+
         $upsert = $pdo->prepare("
             INSERT INTO visit_traffic_report (
-              site, report_date, unique_count, hits, hourly_hits_json, hourly_unique_json, first_seen_at, last_seen_at
+              site, report_date, unique_count, hits, hourly_hits_json, hourly_unique_json, country_hits_json, country_unique_json, first_seen_at, last_seen_at
             )
             VALUES (
-              :site, :report_date, :unique_count, :hits, :hourly_hits_json, :hourly_unique_json, :first_seen_at, :last_seen_at
+              :site, :report_date, :unique_count, :hits, :hourly_hits_json, :hourly_unique_json, :country_hits_json, :country_unique_json, :first_seen_at, :last_seen_at
             )
             ON DUPLICATE KEY UPDATE
               unique_count = VALUES(unique_count),
               hits = VALUES(hits),
               hourly_hits_json = VALUES(hourly_hits_json),
               hourly_unique_json = VALUES(hourly_unique_json),
+              country_hits_json = VALUES(country_hits_json),
+              country_unique_json = VALUES(country_unique_json),
               first_seen_at = VALUES(first_seen_at),
               last_seen_at = VALUES(last_seen_at),
               updated_at = CURRENT_TIMESTAMP
@@ -97,6 +119,8 @@ function admin_traffic_report_aggregate_day(PDO $pdo, string $date, array $sites
             ':hits' => (int) ($daily['hits'] ?? 0),
             ':hourly_hits_json' => json_encode($hourlyHits, JSON_UNESCAPED_SLASHES),
             ':hourly_unique_json' => json_encode($hourlyUnique, JSON_UNESCAPED_SLASHES),
+            ':country_hits_json' => json_encode($countryHits, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+            ':country_unique_json' => json_encode($countryUnique, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
             ':first_seen_at' => $daily['first_seen_at'] ?: null,
             ':last_seen_at' => $daily['last_seen_at'] ?: null,
         ]);

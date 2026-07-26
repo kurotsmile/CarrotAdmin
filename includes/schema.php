@@ -1245,6 +1245,7 @@ function admin_ensure_visit_daily_ip_table(PDO $pdo, string $defaultSite = 'web'
           first_seen_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
           last_seen_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
           hits INT UNSIGNED NOT NULL DEFAULT 1,
+          country_code CHAR(2) DEFAULT NULL,
           user_agent VARCHAR(512) DEFAULT NULL,
           referer VARCHAR(1024) DEFAULT NULL,
           request_path VARCHAR(1024) DEFAULT NULL,
@@ -1253,50 +1254,12 @@ function admin_ensure_visit_daily_ip_table(PDO $pdo, string $defaultSite = 'web'
           PRIMARY KEY (id),
           UNIQUE KEY uq_visit_daily_ip (site, visit_date, ip_address),
           KEY idx_visit_site_date (site, visit_date),
+          KEY idx_visit_country_date (country_code, visit_date),
           KEY idx_visit_date (visit_date),
           KEY idx_visit_last_seen_at (last_seen_at)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     ");
 
-    $columns = $pdo->query('SHOW COLUMNS FROM visit_daily_ip')->fetchAll(PDO::FETCH_ASSOC);
-    $hasSite = false;
-    foreach ($columns as $column) {
-        if (($column['Field'] ?? '') === 'site') {
-            $hasSite = true;
-            break;
-        }
-    }
-
-    if (!$hasSite) {
-        $pdo->exec("ALTER TABLE visit_daily_ip ADD site VARCHAR(32) NOT NULL DEFAULT '{$defaultSite}' AFTER id");
-    }
-
-    $indexes = $pdo->query('SHOW INDEX FROM visit_daily_ip')->fetchAll(PDO::FETCH_ASSOC);
-    $uniqueColumns = [];
-    foreach ($indexes as $index) {
-        if (($index['Key_name'] ?? '') === 'uq_visit_daily_ip') {
-            $uniqueColumns[(int) ($index['Seq_in_index'] ?? 0)] = $index['Column_name'] ?? '';
-        }
-    }
-    ksort($uniqueColumns);
-
-    if (array_values($uniqueColumns) !== ['site', 'visit_date', 'ip_address']) {
-        if ($uniqueColumns) {
-            $pdo->exec('ALTER TABLE visit_daily_ip DROP INDEX uq_visit_daily_ip');
-        }
-        $pdo->exec('ALTER TABLE visit_daily_ip ADD UNIQUE KEY uq_visit_daily_ip (site, visit_date, ip_address)');
-    }
-
-    $hasSiteDateIndex = false;
-    foreach ($indexes as $index) {
-        if (($index['Key_name'] ?? '') === 'idx_visit_site_date') {
-            $hasSiteDateIndex = true;
-            break;
-        }
-    }
-    if (!$hasSiteDateIndex) {
-        $pdo->exec('ALTER TABLE visit_daily_ip ADD KEY idx_visit_site_date (site, visit_date)');
-    }
 }
 
 function admin_ensure_visit_hourly_ip_table(PDO $pdo, string $defaultSite = 'web'): void
@@ -1313,6 +1276,7 @@ function admin_ensure_visit_hourly_ip_table(PDO $pdo, string $defaultSite = 'web
           first_seen_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
           last_seen_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
           hits INT UNSIGNED NOT NULL DEFAULT 1,
+          country_code CHAR(2) DEFAULT NULL,
           user_agent VARCHAR(512) DEFAULT NULL,
           referer VARCHAR(1024) DEFAULT NULL,
           request_path VARCHAR(1024) DEFAULT NULL,
@@ -1321,10 +1285,12 @@ function admin_ensure_visit_hourly_ip_table(PDO $pdo, string $defaultSite = 'web
           PRIMARY KEY (id),
           UNIQUE KEY uq_visit_hourly_ip (site, visit_date, visit_hour, ip_address),
           KEY idx_visit_hourly_site_date_hour (site, visit_date, visit_hour),
+          KEY idx_visit_hourly_country_date (country_code, visit_date),
           KEY idx_visit_hourly_date_hour (visit_date, visit_hour),
           KEY idx_visit_hourly_last_seen_at (last_seen_at)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     ");
+
 }
 
 function admin_ensure_visit_traffic_report_table(PDO $pdo): void
@@ -1338,6 +1304,8 @@ function admin_ensure_visit_traffic_report_table(PDO $pdo): void
           hits INT UNSIGNED NOT NULL DEFAULT 0,
           hourly_hits_json JSON DEFAULT NULL,
           hourly_unique_json JSON DEFAULT NULL,
+          country_hits_json JSON DEFAULT NULL,
+          country_unique_json JSON DEFAULT NULL,
           first_seen_at DATETIME DEFAULT NULL,
           last_seen_at DATETIME DEFAULT NULL,
           created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -1348,6 +1316,7 @@ function admin_ensure_visit_traffic_report_table(PDO $pdo): void
           KEY idx_visit_traffic_report_site_date (site, report_date)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     ");
+
 }
 
 function admin_country_seed_rows(): array

@@ -16,24 +16,24 @@
 
             <div class="row g-3 mb-4">
                 <div class="col-lg-4">
-                    <div class="dashboard-card dashboard-uptime h-100">
+                    <div class="dashboard-card dashboard-uptime dashboard-compact h-100">
                         <span class="dashboard-uptime-icon"><i data-lucide="timer"></i></span>
                         <div class="dashboard-uptime-content">
-                            <div class="dashboard-card-label mb-2">XAMPP uptime</div>
+                            <div class="dashboard-card-label mb-1">XAMPP uptime</div>
                             <?php if (is_array($serverRuntime)): ?>
                                 <div class="dashboard-uptime-value font-monospace" id="server_uptime" data-started-at="<?= (int) $serverRuntime['started_at'] ?>"><?= htmlspecialchars(admin_format_uptime($serverRuntime['uptime_seconds'])) ?></div>
-                                <div class="dashboard-uptime-start mt-2">Start: <?= htmlspecialchars(date('Y-m-d H:i:s', $serverRuntime['started_at'])) ?></div>
-                                <div class="dashboard-uptime-timezone mt-1">Timezone: <?= htmlspecialchars(date_default_timezone_get()) ?> <?= htmlspecialchars(date('P')) ?></div>
+                                <div class="dashboard-uptime-start mt-1">Start: <?= htmlspecialchars(date('Y-m-d H:i:s', $serverRuntime['started_at'])) ?></div>
+                                <div class="dashboard-uptime-timezone">Timezone: <?= htmlspecialchars(date_default_timezone_get()) ?> <?= htmlspecialchars(date('P')) ?></div>
                             <?php else: ?>
                                 <div class="dashboard-uptime-value font-monospace">--:--:--</div>
-                                <div class="dashboard-uptime-start mt-2">Chưa có dữ liệu runtime.</div>
-                                <div class="dashboard-uptime-timezone mt-1">Timezone: <?= htmlspecialchars(date_default_timezone_get()) ?> <?= htmlspecialchars(date('P')) ?></div>
+                                <div class="dashboard-uptime-start mt-1">Chưa có dữ liệu runtime.</div>
+                                <div class="dashboard-uptime-timezone">Timezone: <?= htmlspecialchars(date_default_timezone_get()) ?> <?= htmlspecialchars(date('P')) ?></div>
                             <?php endif; ?>
                         </div>
                     </div>
                 </div>
                 <div class="col-lg-4">
-                    <div class="dashboard-card dashboard-resource h-100">
+                    <div class="dashboard-card dashboard-resource dashboard-compact h-100">
                         <?php
                         $diskStats = $systemResources['disk'] ?? [];
                         $diskPercent = $diskStats['percent'] ?? null;
@@ -41,16 +41,16 @@
                         $diskFree = (int) ($diskStats['free'] ?? 0);
                         $diskTotal = (int) ($diskStats['total'] ?? 0);
                         ?>
-                        <div class="d-flex align-items-start justify-content-between gap-3 mb-2">
+                        <div class="d-flex align-items-start justify-content-between gap-2 mb-1">
                             <div>
-                                <div class="dashboard-card-label mb-1">Tài nguyên PC</div>
+                                <div class="dashboard-card-label">Tài nguyên PC</div>
                                 <div class="dashboard-resource-title">XAMPP disk</div>
                             </div>
                             <span class="dashboard-card-icon"><i data-lucide="hard-drive"></i></span>
                         </div>
                         <div class="dashboard-disk">
                             <div class="dashboard-disk-chart">
-                                <canvas id="xampp_disk_chart" width="104" height="104" aria-label="Biểu đồ dung lượng ổ XAMPP"></canvas>
+                                <canvas id="xampp_disk_chart" width="68" height="68" aria-label="Biểu đồ dung lượng ổ XAMPP"></canvas>
                                 <div class="dashboard-disk-center">
                                     <strong><?= $diskPercent !== null ? htmlspecialchars(number_format((float) $diskPercent, 1)) . '%' : '--' ?></strong>
                                     <span>đã dùng</span>
@@ -62,24 +62,36 @@
                                 <div><span>Tổng</span><strong><?= $diskTotal > 0 ? htmlspecialchars(admin_format_bytes($diskTotal)) : 'Không rõ' ?></strong></div>
                             </div>
                         </div>
-                        <div class="dashboard-resource-path mt-2"><?= htmlspecialchars((string) ($diskStats['path'] ?? '')) ?></div>
+                        <div class="dashboard-resource-path mt-1"><?= htmlspecialchars((string) ($diskStats['path'] ?? '')) ?></div>
                         <script type="application/json" id="xampp_disk_data"><?= json_encode(['used' => $diskUsed, 'free' => $diskFree], JSON_UNESCAPED_SLASHES) ?></script>
                     </div>
                 </div>
                 <div class="col-lg-4">
-                    <div class="glass-panel p-4 h-100">
-                        <div class="d-flex flex-wrap align-items-center justify-content-between gap-3">
-                            <div>
-                                <h2 class="h5 mb-1 overview-panel-title"><i data-lucide="database-zap"></i><span>Cache hệ thống</span></h2>
-                                <div class="muted-text">Hiện đang quản lý cache thống kê CarrotAdmin, list trang chủ CarrotHome và CarrotMusic.</div>
+                    <div class="glass-panel dashboard-cache-panel h-100">
+                        <div class="d-flex align-items-stretch justify-content-between gap-2 h-100">
+
+                            <div class="flex-grow-1">
+                                <h2 class="h5 mb-1 overview-panel-title">
+                                    <i data-lucide="database-zap"></i>
+                                    <span>Cache hệ thống</span>
+                                </h2>
+
+                                <div>
+                                    Hiện đang quản lý cache thống kê CarrotAdmin, list trang chủ CarrotHome và CarrotMusic.
+                                </div>
                             </div>
-                            <form class="js-delete" method="post" data-confirm="Clear toàn bộ cache CarrotAdmin, CarrotHome và CarrotMusic hiện tại?">
+
+                            <form class="js-delete d-flex"
+                                method="post"
+                                data-confirm="Clear toàn bộ cache CarrotAdmin, CarrotHome và CarrotMusic hiện tại?">
                                 <input type="hidden" name="action" value="clear_system_cache">
-                                <button class="btn btn-warning fw-bold" type="submit">
+
+                                <button class="btn btn-dark fw-bold h-100 px-3 d-flex flex-column align-items-center justify-content-center gap-2" type="submit">
                                     <i data-lucide="trash-2" style="width:18px;height:18px"></i>
-                                    Clear Cache
+                                    <span>Clear Cache</span>
                                 </button>
                             </form>
+
                         </div>
                     </div>
                 </div>
@@ -108,19 +120,35 @@
                         </div>
                     </div>
                 </div>
-                <div class="traffic-chart-wrap mb-4">
-                    <div class="d-flex flex-wrap align-items-center justify-content-between gap-3 mb-2">
-                        <div>
-                            <div class="dashboard-eyebrow fw-bold">Theo <?= ($trafficChartData['mode'] ?? '') === 'hourly' ? 'giờ' : 'ngày' ?></div>
-                            <div class="traffic-chart-title">Hits / IP - <?= htmlspecialchars($trafficDateRange['label']) ?></div>
+                <div class="traffic-chart-grid mb-4">
+                    <div class="traffic-chart-wrap">
+                        <div class="d-flex flex-wrap align-items-center justify-content-between gap-3 mb-2">
+                            <div>
+                                <div class="dashboard-eyebrow fw-bold">Theo <?= ($trafficChartData['mode'] ?? '') === 'hourly' ? 'giờ' : 'ngày' ?></div>
+                                <div class="traffic-chart-title">Hits / IP - <?= htmlspecialchars($trafficDateRange['label']) ?></div>
+                            </div>
+                            <div class="traffic-chart-legend">
+                                <button class="traffic-legend-btn is-active" type="button" data-traffic-dataset="0" aria-pressed="true"><i class="traffic-dot traffic-dot-today"></i>Hits</button>
+                                <button class="traffic-legend-btn is-active" type="button" data-traffic-dataset="1" aria-pressed="true"><i class="traffic-dot traffic-dot-yesterday"></i>IP</button>
+                            </div>
                         </div>
-                        <div class="traffic-chart-legend">
-                            <button class="traffic-legend-btn is-active" type="button" data-traffic-dataset="0" aria-pressed="true"><i class="traffic-dot traffic-dot-today"></i>Hits</button>
-                            <button class="traffic-legend-btn is-active" type="button" data-traffic-dataset="1" aria-pressed="true"><i class="traffic-dot traffic-dot-yesterday"></i>IP</button>
-                        </div>
+                        <canvas id="traffic_compare_chart" height="300" aria-label="Biểu đồ lưu lượng truy cập"></canvas>
+                        <script type="application/json" id="traffic_compare_data"><?= json_encode($trafficChartData, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?></script>
                     </div>
-                    <canvas id="traffic_compare_chart" height="350" aria-label="Biểu đồ lưu lượng truy cập"></canvas>
-                    <script type="application/json" id="traffic_compare_data"><?= json_encode($trafficChartData, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?></script>
+                    <div class="traffic-country-card">
+                        <div class="mb-2">
+                            <div class="dashboard-eyebrow fw-bold">Quốc gia</div>
+                            <div class="traffic-chart-title">Donut theo IP</div>
+                        </div>
+                        <?php if (!empty($trafficCountryData['labels'])): ?>
+                            <div class="traffic-country-chart">
+                                <canvas id="traffic_country_chart" height="200" aria-label="Biểu đồ donut quốc gia"></canvas>
+                            </div>
+                        <?php else: ?>
+                            <div class="traffic-country-empty">Chưa có dữ liệu quốc gia.</div>
+                        <?php endif; ?>
+                        <script type="application/json" id="traffic_country_data"><?= json_encode($trafficCountryData, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?></script>
+                    </div>
                 </div>
                 <div class="traffic-view active" data-traffic-panel="site">
                     <div class="dashboard-eyebrow fw-bold mb-2">Số liệu theo bộ lọc - <?= htmlspecialchars($trafficDateRange['label']) ?></div>
@@ -164,6 +192,7 @@
                         <tr>
                             <th>IP</th>
                             <th>Site</th>
+                            <th>Quốc gia</th>
                             <th class="text-end">Hits</th>
                             <th class="text-end">Số ngày có truy cập</th>
                             <th class="text-end">Hits/ngày</th>
@@ -176,6 +205,7 @@
                             <tr>
                                 <td class="font-monospace small"><?= htmlspecialchars($ipRow['ip_text'] ?? '') ?></td>
                                 <td><?= htmlspecialchars($ipRow['site_label'] ?? '') ?></td>
+                                <td class="fw-bold"><?= htmlspecialchars($ipRow['country_code'] ?: 'Không rõ') ?></td>
                                 <td class="text-end"><?= number_format((int) ($ipRow['range_hits'] ?? 0)) ?></td>
                                 <td class="text-end"><?= number_format((int) ($ipRow['visit_days'] ?? 0)) ?></td>
                                 <td class="text-end"><?= number_format((int) ($ipRow['range_hits'] ?? 0) / max(1, (int) ($ipRow['visit_days'] ?? 0)), 2) ?></td>
@@ -184,7 +214,7 @@
                             </tr>
                         <?php endforeach; ?>
                         <?php if (!$trafficIpRows): ?>
-                            <tr><td colspan="7" class="text-center muted-text py-4">Chưa có dữ liệu IP.</td></tr>
+                            <tr><td colspan="8" class="text-center muted-text py-4">Chưa có dữ liệu IP.</td></tr>
                         <?php endif; ?>
                         </tbody>
                     </table>

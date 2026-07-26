@@ -37,6 +37,16 @@ function install_run_step(string $name, callable $callback): array
     }
 }
 
+function install_ensure_visit_country_columns(PDO $pdo): void
+{
+    $pdo->exec('ALTER TABLE visit_daily_ip ADD COLUMN IF NOT EXISTS country_code CHAR(2) DEFAULT NULL AFTER hits');
+    $pdo->exec('ALTER TABLE visit_hourly_ip ADD COLUMN IF NOT EXISTS country_code CHAR(2) DEFAULT NULL AFTER hits');
+    $pdo->exec('ALTER TABLE visit_daily_ip ADD INDEX IF NOT EXISTS idx_visit_country_date (country_code, visit_date)');
+    $pdo->exec('ALTER TABLE visit_hourly_ip ADD INDEX IF NOT EXISTS idx_visit_hourly_country_date (country_code, visit_date)');
+    $pdo->exec('ALTER TABLE visit_traffic_report ADD COLUMN IF NOT EXISTS country_hits_json JSON DEFAULT NULL AFTER hourly_unique_json');
+    $pdo->exec('ALTER TABLE visit_traffic_report ADD COLUMN IF NOT EXISTS country_unique_json JSON DEFAULT NULL AFTER country_hits_json');
+}
+
 require __DIR__ . '/../CarrotCoc/config/database.php';
 $cocPdo = $pdo ?? null;
 $cocError = $db_error ?? null;
@@ -191,6 +201,7 @@ $results[] = install_run_step('CarrotCoc visit daily IP table', static function 
     admin_ensure_visit_daily_ip_table($cocPdo, 'coc');
     admin_ensure_visit_hourly_ip_table($cocPdo, 'coc');
     admin_ensure_visit_traffic_report_table($cocPdo);
+    install_ensure_visit_country_columns($cocPdo);
 });
 
 $results[] = install_run_step('CarrotMusic visit daily IP table', static function () use ($cocPdo, $cocError): void {
@@ -201,6 +212,7 @@ $results[] = install_run_step('CarrotMusic visit daily IP table', static functio
     admin_ensure_visit_daily_ip_table($cocPdo, 'music');
     admin_ensure_visit_hourly_ip_table($cocPdo, 'music');
     admin_ensure_visit_traffic_report_table($cocPdo);
+    install_ensure_visit_country_columns($cocPdo);
 });
 
 $results[] = install_run_step('CarrotEbook visit daily IP table', static function () use ($cocPdo, $cocError): void {
@@ -211,6 +223,7 @@ $results[] = install_run_step('CarrotEbook visit daily IP table', static functio
     admin_ensure_visit_daily_ip_table($cocPdo, 'ebook');
     admin_ensure_visit_hourly_ip_table($cocPdo, 'ebook');
     admin_ensure_visit_traffic_report_table($cocPdo);
+    install_ensure_visit_country_columns($cocPdo);
 });
 
 $results[] = install_run_step('CarrotCoc bank table', static function () use ($cocPdo, $cocError): void {
@@ -265,6 +278,15 @@ $results[] = install_run_step('CarrotHome visit daily IP table', static function
     admin_ensure_visit_daily_ip_table($homePdo, 'home');
     admin_ensure_visit_hourly_ip_table($homePdo, 'home');
     admin_ensure_visit_traffic_report_table($homePdo);
+    install_ensure_visit_country_columns($homePdo);
+});
+
+$results[] = install_run_step('CarrotCloud visit daily IP table', static function (): void {
+    $homePdo = install_carrot_home_pdo();
+    admin_ensure_visit_daily_ip_table($homePdo, 'cloud');
+    admin_ensure_visit_hourly_ip_table($homePdo, 'cloud');
+    admin_ensure_visit_traffic_report_table($homePdo);
+    install_ensure_visit_country_columns($homePdo);
 });
 
 $hasError = array_reduce($results, static fn(bool $carry, array $result): bool => $carry || $result['status'] !== 'success', false);
