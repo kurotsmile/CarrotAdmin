@@ -254,7 +254,7 @@
                                         </td>
                                         <td>
                                             <?php foreach ($songGenreLabels as $genreLabel): ?>
-                                                <span class="badge text-bg-secondary"><?= htmlspecialchars($genreLabel) ?></span>
+                                                <a  href="https://heartbeatplay.com/genre/<?= htmlspecialchars($genreLabel) ?>" target="_blank" class="btn btn-sm btn-secondary small" role="button" style="font-size:10px;"><?= htmlspecialchars($genreLabel) ?></a>
                                             <?php endforeach; ?>
                                         </td>
                                         <td class="text-end">
