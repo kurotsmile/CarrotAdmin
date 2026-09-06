@@ -74,16 +74,18 @@ require __DIR__ . '/../CarrotCoc/config/database.php';
 require __DIR__ . '/../CarrotCoc/includes/coc_helpers.php';
 require __DIR__ . '/includes/schema.php';
 require __DIR__ . '/includes/traffic_report.php';
+require __DIR__ . '/includes/orders_cleanup.php';
 
 $message = '';
 $error = '';
-$allowedSections = ['overview', 'apps', 'ebook', 'music', 'pages', 'users', 'api', 'bank', 'sites', 'coc', 'order', 'country', 'paypal', 'ai_support', 'cloud', 'backup'];
+$allowedSections = ['overview', 'apps', 'ebook', 'rom', 'music', 'pages', 'users', 'api', 'bank', 'sites', 'coc', 'order', 'country', 'paypal', 'ai_support', 'cloud', 'backup'];
 $section = in_array($_GET['section'] ?? 'overview', $allowedSections, true) ? ($_GET['section'] ?? 'overview') : 'overview';
 $editKey = trim($_GET['edit'] ?? '');
 $editId = isset($_GET['edit']) ? (int) $_GET['edit'] : 0;
 $cocTab = ($_GET['tab'] ?? 'accounts') === 'orders' ? 'orders' : 'accounts';
 $appTab = in_array($_GET['tab'] ?? 'main', ['main', 'photos', 'content', 'categories', 'stores', 'orders'], true) ? ($_GET['tab'] ?? 'main') : 'main';
 $ebookTab = in_array($_GET['tab'] ?? 'books', ['books', 'categories', 'stores', 'orders'], true) ? ($_GET['tab'] ?? 'books') : 'books';
+$romTab = in_array($_GET['tab'] ?? 'games', ['games', 'consoles', 'categories'], true) ? ($_GET['tab'] ?? 'games') : 'games';
 $musicTab = in_array($_GET['tab'] ?? 'songs', ['songs', 'artists', 'genres', 'orders', 'search_log'], true) ? ($_GET['tab'] ?? 'songs') : 'songs';
 $countryTab = ($_GET['tab'] ?? 'countries') === 'labels' ? 'labels' : 'countries';
 $paypalTab = in_array($_GET['tab'] ?? 'home', ['home', 'ebook', 'coc', 'music', 'cloud'], true) ? ($_GET['tab'] ?? 'home') : 'home';
@@ -98,6 +100,8 @@ $songs = [];
 $songArtistOptions = [];
 $songArtists = [];
 $songGenres = [];
+$songGenreLangRows = [];
+$editingGenreLangKey = trim($_GET['genre_lang'] ?? '');
 $songOrders = [];
 $songSearchLogs = [];
 $songSearchLogStats = ['total_rows' => 0, 'unique_queries' => 0, 'unique_ips' => 0];
@@ -125,6 +129,9 @@ $systemOrderIncome = [];
 $orderSourceFilter = in_array($_GET['source'] ?? 'all', ['all', 'app', 'music', 'ebook', 'cloud', 'coc'], true) ? ($_GET['source'] ?? 'all') : 'all';
 $orderStatusFilter = in_array($_GET['order_status'] ?? 'all', ['all', 'paid', 'pending'], true) ? ($_GET['order_status'] ?? 'all') : 'all';
 $ebooks = [];
+$roms = [];
+$romConsoles = [];
+$romCategories = [];
 $ebookCategories = [];
 $ebookStoreLinks = [];
 $ebookOrders = [];
@@ -137,6 +144,7 @@ $dashboardMetrics = [
     'coc' => 0,
     'songs' => 0,
     'ebook' => 0,
+    'rom' => 0,
     'bank' => 0,
     'sites' => 0,
     'cloud' => 0,
@@ -182,6 +190,8 @@ $appSort = 'priority';
 $appDir = 'DESC';
 $ebookSort = 'updated_at';
 $ebookDir = 'DESC';
+$romSort = 'sort_order';
+$romDir = 'ASC';
 $pageSort = 'updated_at';
 $pageDir = 'DESC';
 $userSort = 'created_at';
@@ -218,6 +228,11 @@ $artistPage = max(1, (int) ($_GET['artist_page'] ?? 1));
 $artistPerPage = 25;
 $artistTotal = 0;
 $artistTotalPages = 1;
+$genreSearch = trim($_GET['genre_q'] ?? '');
+$genrePage = max(1, (int) ($_GET['genre_page'] ?? 1));
+$genrePerPage = 25;
+$genreTotal = 0;
+$genreTotalPages = 1;
 $serverRuntime = null;
 $systemResources = [];
 
@@ -237,7 +252,7 @@ function admin_nas_delete_endpoint(): string
 
 function admin_allowed_media_types(): array
 {
-    return ['carrot_app', 'carrot_app_photo', 'carrot_ebook_cover', 'carrot_ebook_file', 'coc_images', 'bank', 'sites', 'country', 'song_avatar', 'song_mp3', 'artist_avatar', 'genre_avatar'];
+    return ['carrot_app', 'carrot_app_photo', 'carrot_ebook_cover', 'carrot_ebook_file', 'carrot_rom_avatar', 'carrot_rom_photo', 'carrot_rom_file', 'coc_images', 'bank', 'sites', 'country', 'song_avatar', 'song_mp3', 'artist_avatar', 'genre_avatar'];
 }
 
 function admin_upload_image_to_nas(array $file, string $typeMedia): string
@@ -319,6 +334,15 @@ function admin_ajax_upload(): void
             $allowedEbookMimes = ['application/epub+zip', 'application/pdf', 'text/plain', 'text/markdown', 'text/html'];
             if (!in_array($mimeType, $allowedEbookMimes, true) && !preg_match('/\.(epub|pdf|txt|md|html)$/i', $fileName)) {
                 throw new RuntimeException('Vui lòng chọn tệp EPUB, PDF hoặc file văn bản.');
+            }
+        }
+        if (in_array($typeMedia, ['carrot_rom_avatar', 'carrot_rom_photo'], true) && strpos($mimeType, 'image/') !== 0) {
+            throw new RuntimeException('Vui lòng chọn tệp ảnh ROM.');
+        }
+        if ($typeMedia === 'carrot_rom_file') {
+            $fileName = (string) ($file['name'] ?? '');
+            if (!preg_match('/\.(zip|7z|rar|iso|bin|cue|pbp|cso|chd|pkg|rom|nes|sfc|gba|gbc|apk)$/i', $fileName)) {
+                throw new RuntimeException('Vui lòng chọn file ROM hoặc file nén hợp lệ.');
             }
         }
 
@@ -436,6 +460,184 @@ function admin_fetch_ebook_store_link(PDO $pdo, string $id): ?array
     $stmt->execute([$id]);
     $row = $stmt->fetch();
     return $row ?: null;
+}
+
+function admin_fetch_rom(PDO $pdo, string $id): ?array
+{
+    $stmt = $pdo->prepare('SELECT * FROM rom WHERE id = ?');
+    $stmt->execute([$id]);
+    $row = $stmt->fetch();
+    return $row ?: null;
+}
+
+function admin_rom_photos_to_json(string $value): string
+{
+    $lines = preg_split('/\r\n|\r|\n/', $value) ?: [];
+    $photos = array_values(array_unique(array_filter(array_map(static fn(string $line): string => trim($line), $lines))));
+    return json_encode($photos, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+}
+
+function admin_rom_decode_photos(?string $value): array
+{
+    $value = trim((string) $value);
+    if ($value === '') {
+        return [];
+    }
+    $decoded = json_decode($value, true);
+    if (is_array($decoded)) {
+        return array_values(array_filter(array_map(static fn($item): string => trim((string) $item), $decoded)));
+    }
+    return array_values(array_filter(array_map(static fn(string $line): string => trim($line), preg_split('/\r\n|\r|\n/', $value) ?: [])));
+}
+
+function admin_rom_decode_files(?string $fileRom, ?string $fileSize = ''): array
+{
+    $fileRom = trim((string) $fileRom);
+    if ($fileRom === '') {
+        return [];
+    }
+
+    $decoded = json_decode($fileRom, true);
+    if (is_array($decoded)) {
+        $items = array_is_list($decoded) ? $decoded : [$decoded];
+        $rows = [];
+        foreach ($items as $item) {
+            if (!is_array($item)) {
+                continue;
+            }
+            $url = trim((string) ($item['url'] ?? $item['file_rom'] ?? ''));
+            if ($url === '') {
+                continue;
+            }
+            $rows[] = [
+                'console_id' => trim((string) ($item['console_id'] ?? $item['platform'] ?? '')),
+                'console_name' => trim((string) ($item['console_name'] ?? '')),
+                'url' => $url,
+                'file_size' => trim((string) ($item['file_size'] ?? $item['size'] ?? '')),
+            ];
+        }
+        return $rows;
+    }
+
+    return [[
+        'console_id' => '',
+        'console_name' => '',
+        'url' => $fileRom,
+        'file_size' => trim((string) $fileSize),
+    ]];
+}
+
+function admin_rom_files_to_json(array $rows): string
+{
+    $files = [];
+    foreach ($rows as $row) {
+        if (!is_array($row)) {
+            continue;
+        }
+        $consoleId = mb_substr(trim((string) ($row['console_id'] ?? '')), 0, 120);
+        $url = trim((string) ($row['url'] ?? ''));
+        if ($consoleId === '' && $url === '') {
+            continue;
+        }
+        $files[] = [
+            'console_id' => $consoleId,
+            'console_name' => mb_substr(trim((string) ($row['console_name'] ?? '')), 0, 255),
+            'url' => $url,
+            'file_size' => mb_substr(trim((string) ($row['file_size'] ?? '')), 0, 64),
+        ];
+    }
+
+    return $files ? json_encode($files, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) : '';
+}
+
+function admin_rom_first_file(array|string|null $fileRom, ?string $fileSize = ''): array
+{
+    $rows = is_array($fileRom) ? $fileRom : admin_rom_decode_files($fileRom, $fileSize);
+    foreach ($rows as $row) {
+        if (!empty($row['url'])) {
+            return $row;
+        }
+    }
+    return ['console_id' => '', 'console_name' => '', 'url' => '', 'file_size' => ''];
+}
+
+function admin_fetch_rom_console(PDO $pdo, string $id): ?array
+{
+    $stmt = $pdo->prepare('SELECT * FROM rom_console WHERE id = ?');
+    $stmt->execute([$id]);
+    $row = $stmt->fetch();
+    return $row ?: null;
+}
+
+function admin_fetch_rom_category(PDO $pdo, string $id): ?array
+{
+    $stmt = $pdo->prepare('SELECT * FROM rom_category WHERE id = ?');
+    $stmt->execute([$id]);
+    $row = $stmt->fetch();
+    return $row ?: null;
+}
+
+function admin_clean_rom_relation_ids(array $ids): array
+{
+    return array_values(array_unique(array_filter(array_map(static function ($value): string {
+        return mb_substr(trim((string) $value), 0, 120);
+    }, $ids))));
+}
+
+function admin_fetch_rom_console_ids(PDO $pdo, string $romId): array
+{
+    try {
+        $stmt = $pdo->prepare('SELECT console_id FROM rom_console_map WHERE rom_id = ? ORDER BY console_id ASC');
+        $stmt->execute([$romId]);
+        return admin_clean_rom_relation_ids($stmt->fetchAll(PDO::FETCH_COLUMN));
+    } catch (Throwable $e) {
+        return [];
+    }
+}
+
+function admin_fetch_rom_category_ids(PDO $pdo, string $romId): array
+{
+    try {
+        $stmt = $pdo->prepare('SELECT category_id FROM rom_category_map WHERE rom_id = ? ORDER BY category_id ASC');
+        $stmt->execute([$romId]);
+        return admin_clean_rom_relation_ids($stmt->fetchAll(PDO::FETCH_COLUMN));
+    } catch (Throwable $e) {
+        return [];
+    }
+}
+
+function admin_sync_rom_consoles(PDO $pdo, string $romId, array $consoleIds): void
+{
+    $consoleIds = admin_clean_rom_relation_ids($consoleIds);
+    $pdo->prepare('DELETE FROM rom_console_map WHERE rom_id = ?')->execute([$romId]);
+    if (!$consoleIds) {
+        return;
+    }
+
+    $now = gmdate('c');
+    $consoleInsert = $pdo->prepare('INSERT IGNORE INTO rom_console (id, name, created_at, updated_at) VALUES (?, ?, ?, ?)');
+    $mapInsert = $pdo->prepare('INSERT IGNORE INTO rom_console_map (rom_id, console_id) VALUES (?, ?)');
+    foreach ($consoleIds as $consoleId) {
+        $consoleInsert->execute([$consoleId, strtoupper($consoleId), $now, $now]);
+        $mapInsert->execute([$romId, $consoleId]);
+    }
+}
+
+function admin_sync_rom_categories(PDO $pdo, string $romId, array $categoryIds): void
+{
+    $categoryIds = admin_clean_rom_relation_ids($categoryIds);
+    $pdo->prepare('DELETE FROM rom_category_map WHERE rom_id = ?')->execute([$romId]);
+    if (!$categoryIds) {
+        return;
+    }
+
+    $now = gmdate('c');
+    $categoryInsert = $pdo->prepare('INSERT IGNORE INTO rom_category (id, name, created_at, updated_at) VALUES (?, ?, ?, ?)');
+    $mapInsert = $pdo->prepare('INSERT IGNORE INTO rom_category_map (rom_id, category_id) VALUES (?, ?)');
+    foreach ($categoryIds as $categoryId) {
+        $categoryInsert->execute([$categoryId, $categoryId, $now, $now]);
+        $mapInsert->execute([$romId, $categoryId]);
+    }
 }
 
 function admin_fetch_app_category_ids(PDO $pdo, string $appId): array
@@ -892,6 +1094,16 @@ function admin_substr(string $value, int $length): string
     return function_exists('mb_substr') ? mb_substr($value, 0, $length) : substr($value, 0, $length);
 }
 
+function admin_ai_language_instruction(string $lang): string
+{
+    $lang = trim($lang);
+    if ($lang === '') {
+        return 'English (fallback because no Lang key was selected)';
+    }
+
+    return $lang . ' (use the natural language represented by this Lang key; all JSON string values must be in this language)';
+}
+
 function admin_gemini_complete(PDO $pdo, string $prompt, float $temperature = 0.7): string
 {
     $configs = admin_fetch_ai_support_configs($pdo, true);
@@ -1050,11 +1262,12 @@ PROMPT;
 
 function admin_gemini_generate_song_artist_description(PDO $pdo, string $idea, string $artistName, string $lang, string $currentDescription = ''): array
 {
+    $languageInstruction = admin_ai_language_instruction($lang);
     $prompt = <<<PROMPT
 You are a senior music profile writer for a CMS.
-Write or improve the artist biography from the admin's request and return only valid JSON.
+Write or improve a long-form artist biography from the admin's request and return only valid JSON.
 
-Target language: {$lang}
+Target language: {$languageInstruction}
 Artist name: {$artistName}
 Current description, if any:
 {$currentDescription}
@@ -1069,7 +1282,10 @@ Return exactly this JSON shape:
 
 Rules:
 - description must be clean HTML only, without html/body tags, script tags, markdown fences, or inline event handlers.
-- Keep the tone concise, engaging, and suitable for an artist profile page.
+- Write a detailed long description, about 500-800 words or equivalent length for the target language.
+- Use multiple HTML sections with <h2> headings and <p> paragraphs.
+- Keep the tone engaging, informative, and suitable for an artist profile page.
+- Do not switch languages. If the Lang key is missing or empty, write in English.
 - Do not include explanations outside the JSON.
 PROMPT;
 
@@ -1106,11 +1322,12 @@ PROMPT;
 
 function admin_gemini_generate_song_genre_description(PDO $pdo, string $idea, string $genreId, string $title, string $lang, string $currentDescription = ''): array
 {
+    $languageInstruction = admin_ai_language_instruction($lang);
     $prompt = <<<PROMPT
 You are a senior music taxonomy editor for a CMS.
-Write or improve the music genre description from the admin's request and return only valid JSON.
+Write or improve a long-form music genre description from the admin's request and return only valid JSON.
 
-Target language: {$lang}
+Target language: {$languageInstruction}
 Genre ID: {$genreId}
 Genre title: {$title}
 Current description, if any:
@@ -1126,8 +1343,11 @@ Return exactly this JSON shape:
 
 Rules:
 - description must be clean HTML only, without html/body tags, script tags, markdown fences, or inline event handlers.
-- Keep the tone concise, engaging, and suitable for a music genre page.
+- Write a detailed long description, about 500-800 words or equivalent length for the target language.
+- Use multiple HTML sections with <h2> headings and <p> paragraphs.
+- Keep the tone engaging, informative, and suitable for a music genre page.
 - Mention listening mood, style, or discovery value when relevant.
+- Do not switch languages. If the Lang key is missing or empty, write in English.
 - Do not include explanations outside the JSON.
 PROMPT;
 
@@ -1744,7 +1964,7 @@ function admin_site_id_by_key(PDO $pdo, string $siteKey, array $aliases = []): ?
         $hostMap = [
             'CarrotHome' => ['carrot28.com', 'home.carrot28.com'],
             'CarrotMusic' => ['heartbeatplay.com', 'music.carrot28.com'],
-            'CarrotCoc' => ['coc.carrot28.com'],
+            'CarrotCoc' => ['clanacc.com'],
             'CarrotCloud' => ['cloud.carrot28.com'],
         ];
         foreach ($hostMap[$siteKey] ?? [] as $host) {
@@ -2671,33 +2891,6 @@ function admin_system_order_summary(array $rows): array
     return [$stats, $income];
 }
 
-function admin_delete_created_orders(PDO $pdo): array
-{
-    $targets = [
-        'app_orders' => 'App',
-        'song_orders' => 'Âm nhạc',
-        'ebook_orders' => 'Sách',
-        'cloud_subscription' => 'Cloud',
-        'coc_orders' => 'COC',
-    ];
-    $deleted = [];
-    $total = 0;
-
-    foreach ($targets as $table => $label) {
-        try {
-            $stmt = $pdo->prepare('DELETE FROM ' . admin_sql_ident($table) . ' WHERE status = ?');
-            $stmt->execute(['CREATED']);
-            $count = (int) $stmt->rowCount();
-            $deleted[$label] = $count;
-            $total += $count;
-        } catch (Throwable $e) {
-            $deleted[$label] = 0;
-        }
-    }
-
-    return ['total' => $total, 'items' => $deleted];
-}
-
 function admin_visit_ip_rows(?PDO $pdo, string $site, string $label, array $dateRange): array
 {
     if (!$pdo instanceof PDO) {
@@ -3442,6 +3635,7 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages', 'users', '
             $dashboardMetrics['coc'] = admin_cached_count_table($pdo, 'main_coc', 'coc');
             $dashboardMetrics['songs'] = admin_cached_count_table($pdo, 'main_song', 'song');
             $dashboardMetrics['ebook'] = admin_cached_count_table($pdo, 'main_ebook', 'ebook');
+            $dashboardMetrics['rom'] = admin_cached_count_table($pdo, 'main_rom', 'rom');
             $dashboardMetrics['bank'] = admin_cached_count_table($pdo, 'main_bank', 'bank');
             $dashboardMetrics['sites'] = admin_cached_count_table($pdo, 'main_sites', 'sites');
             admin_ensure_cloud_tables($pdo);
@@ -3522,6 +3716,10 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages', 'users', '
             admin_ensure_ebook_tables($pdo);
         }
 
+        if ($section === 'rom') {
+            admin_ensure_rom_tables($pdo);
+        }
+
         if ($section === 'music') {
             admin_ensure_music_tables($pdo);
         }
@@ -3561,7 +3759,7 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages', 'users', '
         if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $action = $_POST['action'] ?? '';
 
-            if ($section === 'order' && $action === 'delete_created_orders') {
+            if (in_array($section, ['overview', 'order'], true) && $action === 'delete_created_orders') {
                 $deletedCreatedOrders = admin_delete_created_orders($pdo);
                 $deletedItems = [];
                 foreach ($deletedCreatedOrders['items'] as $label => $count) {
@@ -3865,6 +4063,140 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages', 'users', '
                 }
             }
 
+            if ($section === 'rom' && $action === 'delete_rom') {
+                $stmt = $pdo->prepare('DELETE FROM rom WHERE id = ?');
+                $stmt->execute([trim($_POST['id'] ?? '')]);
+                admin_clear_internal_cache('overview_count_main_rom');
+                $message = 'Đã xóa ROM.';
+            }
+
+            if ($section === 'rom' && $action === 'delete_rom_console') {
+                $stmt = $pdo->prepare('DELETE FROM rom_console WHERE id = ?');
+                $stmt->execute([trim($_POST['id'] ?? '')]);
+                $message = 'Đã xóa hệ máy ROM.';
+            }
+
+            if ($section === 'rom' && $action === 'save_rom_console') {
+                $originalId = trim($_POST['original_id'] ?? '');
+                $id = mb_substr(trim($_POST['id'] ?? ''), 0, 120);
+                $name = trim($_POST['name'] ?? '');
+                $emulator = trim($_POST['emulator'] ?? '');
+                $sortOrder = (int) ($_POST['sort_order'] ?? 0);
+                $status = trim($_POST['status'] ?? 'active') ?: 'active';
+                $now = gmdate('c');
+
+                if ($id === '' || $name === '') {
+                    throw new RuntimeException('Vui lòng nhập ID và tên hệ máy.');
+                }
+
+                if ($originalId !== '') {
+                    $stmt = $pdo->prepare('UPDATE rom_console SET id = ?, name = ?, emulator = ?, sort_order = ?, status = ?, updated_at = ? WHERE id = ?');
+                    $stmt->execute([$id, $name, $emulator, $sortOrder, $status, $now, $originalId]);
+                    $message = 'Đã cập nhật hệ máy ROM.';
+                } else {
+                    $stmt = $pdo->prepare('
+                        INSERT INTO rom_console (id, name, emulator, sort_order, status, created_at, updated_at)
+                        VALUES (?, ?, ?, ?, ?, ?, ?)
+                        ON DUPLICATE KEY UPDATE name = VALUES(name), emulator = VALUES(emulator), sort_order = VALUES(sort_order), status = VALUES(status), updated_at = VALUES(updated_at)
+                    ');
+                    $stmt->execute([$id, $name, $emulator, $sortOrder, $status, $now, $now]);
+                    $message = 'Đã lưu hệ máy ROM.';
+                }
+            }
+
+            if ($section === 'rom' && $action === 'delete_rom_category') {
+                $stmt = $pdo->prepare('DELETE FROM rom_category WHERE id = ?');
+                $stmt->execute([trim($_POST['id'] ?? '')]);
+                $message = 'Đã xóa thể loại ROM.';
+            }
+
+            if ($section === 'rom' && $action === 'save_rom_category') {
+                $originalId = trim($_POST['original_id'] ?? '');
+                $id = mb_substr(trim($_POST['id'] ?? ''), 0, 120);
+                $name = trim($_POST['name'] ?? '');
+                $description = trim($_POST['description'] ?? '');
+                $sortOrder = (int) ($_POST['sort_order'] ?? 0);
+                $status = trim($_POST['status'] ?? 'active') ?: 'active';
+                $now = gmdate('c');
+
+                if ($id === '' || $name === '') {
+                    throw new RuntimeException('Vui lòng nhập ID và tên thể loại.');
+                }
+
+                if ($originalId !== '') {
+                    $stmt = $pdo->prepare('UPDATE rom_category SET id = ?, name = ?, description = ?, sort_order = ?, status = ?, updated_at = ? WHERE id = ?');
+                    $stmt->execute([$id, $name, $description, $sortOrder, $status, $now, $originalId]);
+                    $message = 'Đã cập nhật thể loại ROM.';
+                } else {
+                    $stmt = $pdo->prepare('
+                        INSERT INTO rom_category (id, name, description, sort_order, status, created_at, updated_at)
+                        VALUES (?, ?, ?, ?, ?, ?, ?)
+                        ON DUPLICATE KEY UPDATE name = VALUES(name), description = VALUES(description), sort_order = VALUES(sort_order), status = VALUES(status), updated_at = VALUES(updated_at)
+                    ');
+                    $stmt->execute([$id, $name, $description, $sortOrder, $status, $now, $now]);
+                    $message = 'Đã lưu thể loại ROM.';
+                }
+            }
+
+            if ($section === 'rom' && $action === 'save_rom') {
+                $originalId = trim($_POST['original_id'] ?? '');
+                $id = trim($_POST['id'] ?? '');
+                $name = trim($_POST['name'] ?? '');
+                $consoleIds = admin_clean_rom_relation_ids(is_array($_POST['console_ids'] ?? null) ? $_POST['console_ids'] : []);
+                $platform = $consoleIds ? implode(',', $consoleIds) : trim($_POST['platform'] ?? '');
+                $emulator = trim($_POST['emulator'] ?? '');
+                $categoryIds = admin_clean_rom_relation_ids(is_array($_POST['category_ids'] ?? null) ? $_POST['category_ids'] : []);
+                $category = $categoryIds ? implode(',', $categoryIds) : trim($_POST['category'] ?? '');
+                $region = trim($_POST['region'] ?? '');
+                $lang = trim($_POST['lang'] ?? 'en') ?: 'en';
+                $price = (float) ($_POST['price'] ?? 0);
+                $isFree = !empty($_POST['is_free']) ? 1 : 0;
+                $status = trim($_POST['status'] ?? 'draft') ?: 'draft';
+                $avatar = trim($_POST['avatar'] ?? '');
+                $photos = admin_rom_photos_to_json((string) ($_POST['photos'] ?? ''));
+                $romFileRows = is_array($_POST['rom_files'] ?? null) ? $_POST['rom_files'] : [];
+                $fileRom = admin_rom_files_to_json($romFileRows);
+                if ($fileRom === '') {
+                    $fileRom = trim($_POST['file_rom'] ?? '');
+                }
+                $firstRomFile = admin_rom_first_file($fileRom, trim($_POST['file_size'] ?? ''));
+                $fileSize = (string) ($firstRomFile['file_size'] ?? '');
+                if ($fileSize === '') {
+                    $fileSize = trim($_POST['file_size'] ?? '');
+                }
+                $sortOrder = (int) ($_POST['sort_order'] ?? 0);
+                $description = trim($_POST['description'] ?? '');
+                $publishedAt = trim($_POST['published_at'] ?? '') ?: date('Y-m-d');
+                $now = gmdate('c');
+
+                if ($id === '' || $name === '') {
+                    throw new RuntimeException('Vui lòng nhập ID và tên ROM.');
+                }
+
+                if ($originalId !== '') {
+                    $stmt = $pdo->prepare('
+                        UPDATE rom
+                        SET id = ?, name = ?, platform = ?, emulator = ?, category = ?, region = ?, lang = ?, price = ?, is_free = ?, status = ?, avatar = ?, photos = ?, file_rom = ?, file_size = ?, sort_order = ?, description = ?, published_at = ?, updated_at = ?
+                        WHERE id = ?
+                    ');
+                    $stmt->execute([$id, $name, $platform, $emulator, $category, $region, $lang, $price, $isFree, $status, $avatar, $photos, $fileRom, $fileSize, $sortOrder, $description, $publishedAt, $now, $originalId]);
+                    admin_sync_rom_consoles($pdo, $id, $consoleIds);
+                    admin_sync_rom_categories($pdo, $id, $categoryIds);
+                    admin_clear_internal_cache('overview_count_main_rom');
+                    $message = 'Đã cập nhật ROM.';
+                } else {
+                    $stmt = $pdo->prepare('
+                        INSERT INTO rom (id, name, platform, emulator, category, region, lang, price, is_free, status, avatar, photos, file_rom, file_size, sort_order, description, published_at, created_at, updated_at)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ');
+                    $stmt->execute([$id, $name, $platform, $emulator, $category, $region, $lang, $price, $isFree, $status, $avatar, $photos, $fileRom, $fileSize, $sortOrder, $description, $publishedAt, $now, $now]);
+                    admin_sync_rom_consoles($pdo, $id, $consoleIds);
+                    admin_sync_rom_categories($pdo, $id, $categoryIds);
+                    admin_clear_internal_cache('overview_count_main_rom');
+                    $message = 'Đã thêm ROM mới.';
+                }
+            }
+
             if ($section === 'music' && $action === 'delete_song') {
                 $stmt = $pdo->prepare('DELETE FROM song WHERE id = ?');
                 $stmt->execute([trim($_POST['id'] ?? '')]);
@@ -3884,6 +4216,13 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages', 'users', '
                 $stmt->execute([trim($_POST['genre_id'] ?? '')]);
                 admin_clear_carrotmusic_cache();
                 $message = 'Đã xóa thể loại.';
+            }
+
+            if ($section === 'music' && $action === 'delete_song_genre_lang') {
+                $stmt = $pdo->prepare('DELETE FROM song_genre_lang WHERE id = ?');
+                $stmt->execute([(int) ($_POST['id'] ?? 0)]);
+                admin_clear_carrotmusic_cache();
+                $message = 'Đã xóa mô tả ngôn ngữ của thể loại.';
             }
 
             if ($section === 'music' && $action === 'delete_song_order') {
@@ -4033,7 +4372,7 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages', 'users', '
                 try {
                     $idea = trim($_POST['idea'] ?? '');
                     $artistName = trim($_POST['name'] ?? '');
-                    $langKey = trim($_POST['lang_key'] ?? 'vi');
+                    $langKey = trim($_POST['lang_key'] ?? '');
                     $currentDescription = trim($_POST['description'] ?? '');
 
                     if ($idea === '') {
@@ -4043,7 +4382,7 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages', 'users', '
                         throw new RuntimeException('Vui lòng nhập tên nghệ sĩ trước khi yêu cầu AI.');
                     }
                     if ($langKey === '') {
-                        throw new RuntimeException('Vui lòng chọn lang trước khi yêu cầu AI.');
+                        $langKey = 'en';
                     }
 
                     admin_json_success(admin_gemini_generate_song_artist_description($pdo, $idea, $artistName, $langKey, $currentDescription));
@@ -4057,7 +4396,7 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages', 'users', '
                     $idea = trim($_POST['idea'] ?? '');
                     $genreId = trim($_POST['genre_id'] ?? '');
                     $title = trim($_POST['title'] ?? '');
-                    $langKey = trim($_POST['lang_key'] ?? ($_SESSION['key_lang'] ?? 'vi'));
+                    $langKey = trim($_POST['lang_key'] ?? '');
                     $currentDescription = trim($_POST['description'] ?? '');
 
                     if ($idea === '') {
@@ -4073,7 +4412,7 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages', 'users', '
                         $title = $genreId;
                     }
                     if ($langKey === '') {
-                        $langKey = 'vi';
+                        $langKey = 'en';
                     }
 
                     admin_json_success(admin_gemini_generate_song_genre_description($pdo, $idea, $genreId, $title, $langKey, $currentDescription));
@@ -4282,6 +4621,7 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages', 'users', '
                 $title = trim($_POST['title'] ?? '');
                 $avatar = trim($_POST['avatar'] ?? '');
                 $description = trim($_POST['description'] ?? '');
+                $langKey = trim($_POST['lang_key'] ?? '');
 
                 if ($genreId === '') {
                     throw new RuntimeException('Vui lòng nhập genre_id.');
@@ -4291,17 +4631,47 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages', 'users', '
                 }
 
                 if ($originalId !== '') {
-                    $stmt = $pdo->prepare('UPDATE song_genre SET genre_id = ?, title = ?, avatar = ?, description = ? WHERE genre_id = ?');
-                    $stmt->execute([$genreId, $title, $avatar, $description, $originalId]);
+                    if ($langKey === '') {
+                        $stmt = $pdo->prepare('UPDATE song_genre SET genre_id = ?, title = ?, avatar = ?, description = ? WHERE genre_id = ?');
+                        $stmt->execute([$genreId, $title, $avatar, $description, $originalId]);
+                    } else {
+                        $stmt = $pdo->prepare('UPDATE song_genre SET genre_id = ?, title = ?, avatar = ? WHERE genre_id = ?');
+                        $stmt->execute([$genreId, $title, $avatar, $originalId]);
+                    }
+                    if ($langKey !== '') {
+                        $stmt = $pdo->prepare('
+                            INSERT INTO song_genre_lang (genre_id, lang_key, description)
+                            VALUES (?, ?, ?)
+                            ON DUPLICATE KEY UPDATE description = VALUES(description)
+                        ');
+                        $stmt->execute([$genreId, $langKey, $description]);
+                    }
                     admin_clear_carrotmusic_cache();
                     $message = 'Đã cập nhật thể loại.';
                 } else {
-                    $stmt = $pdo->prepare('
-                        INSERT INTO song_genre (genre_id, title, avatar, description)
-                        VALUES (?, ?, ?, ?)
-                        ON DUPLICATE KEY UPDATE title = VALUES(title), avatar = VALUES(avatar), description = VALUES(description)
-                    ');
-                    $stmt->execute([$genreId, $title, $avatar, $description]);
+                    if ($langKey === '') {
+                        $stmt = $pdo->prepare('
+                            INSERT INTO song_genre (genre_id, title, avatar, description)
+                            VALUES (?, ?, ?, ?)
+                            ON DUPLICATE KEY UPDATE title = VALUES(title), avatar = VALUES(avatar), description = VALUES(description)
+                        ');
+                        $stmt->execute([$genreId, $title, $avatar, $description]);
+                    } else {
+                        $stmt = $pdo->prepare('
+                            INSERT INTO song_genre (genre_id, title, avatar)
+                            VALUES (?, ?, ?)
+                            ON DUPLICATE KEY UPDATE title = VALUES(title), avatar = VALUES(avatar)
+                        ');
+                        $stmt->execute([$genreId, $title, $avatar]);
+                    }
+                    if ($langKey !== '') {
+                        $stmt = $pdo->prepare('
+                            INSERT INTO song_genre_lang (genre_id, lang_key, description)
+                            VALUES (?, ?, ?)
+                            ON DUPLICATE KEY UPDATE description = VALUES(description)
+                        ');
+                        $stmt->execute([$genreId, $langKey, $description]);
+                    }
                     admin_clear_carrotmusic_cache();
                     $message = 'Đã lưu thể loại.';
                 }
@@ -5481,6 +5851,16 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages', 'users', '
             }
         }
 
+        if ($section === 'rom' && $editKey !== '') {
+            if ($romTab === 'consoles') {
+                $editing = admin_fetch_rom_console($pdo, $editKey);
+            } elseif ($romTab === 'categories') {
+                $editing = admin_fetch_rom_category($pdo, $editKey);
+            } else {
+                $editing = admin_fetch_rom($pdo, $editKey);
+            }
+        }
+
         if ($section === 'music' && $musicTab === 'songs' && $editKey !== '') {
             $editing = admin_fetch_song($pdo, $editKey);
         }
@@ -5490,9 +5870,17 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages', 'users', '
         }
 
         if ($section === 'music' && $musicTab === 'genres' && $editKey !== '') {
-            $stmt = $pdo->prepare('SELECT * FROM song_genre WHERE genre_id = ?');
-            $stmt->execute([$editKey]);
+            $stmt = $pdo->prepare('
+                SELECT g.*, gl.id AS lang_row_id, gl.lang_key AS selected_lang_key, gl.description AS lang_description, g.description AS default_description
+                FROM song_genre g
+                LEFT JOIN song_genre_lang gl ON gl.genre_id = g.genre_id AND gl.lang_key = ?
+                WHERE g.genre_id = ?
+            ');
+            $stmt->execute([$editingGenreLangKey, $editKey]);
             $editing = $stmt->fetch() ?: null;
+            if ($editing && $editingGenreLangKey !== '') {
+                $editing['description'] = (string) ($editing['lang_description'] ?? '');
+            }
         }
 
         if ($section === 'pages' && $editId > 0) {
@@ -5582,6 +5970,18 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages', 'users', '
             'updated_at' => 'ebook.updated_at',
         ];
         [$ebookSort, $ebookDir] = admin_sort_state($ebookSortColumns, 'updated_at', 'DESC');
+
+        $romSortColumns = [
+            'id' => 'rom.id',
+            'name' => 'rom.name',
+            'platform' => 'rom.platform',
+            'category' => 'rom.category',
+            'status' => 'rom.status',
+            'price' => 'rom.price',
+            'sort_order' => 'rom.sort_order',
+            'updated_at' => 'rom.updated_at',
+        ];
+        [$romSort, $romDir] = admin_sort_state($romSortColumns, 'sort_order', 'ASC');
 
         $pageSortColumns = [
             'id' => 'id',
@@ -5713,6 +6113,41 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages', 'users', '
                 ')->fetchAll();
             }
         }
+        if ($section === 'rom') {
+            $romConsoles = $pdo->query('
+                SELECT c.*, COUNT(rcm.rom_id) AS rom_count
+                FROM rom_console c
+                LEFT JOIN rom_console_map rcm ON rcm.console_id = c.id
+                GROUP BY c.id, c.name, c.emulator, c.sort_order, c.status, c.created_at, c.updated_at
+                ORDER BY c.sort_order ASC, c.name ASC, c.id ASC
+            ')->fetchAll();
+            $romCategories = $pdo->query('
+                SELECT c.*, COUNT(rcm.rom_id) AS rom_count
+                FROM rom_category c
+                LEFT JOIN rom_category_map rcm ON rcm.category_id = c.id
+                GROUP BY c.id, c.name, c.description, c.sort_order, c.status, c.created_at, c.updated_at
+                ORDER BY c.sort_order ASC, c.name ASC, c.id ASC
+            ')->fetchAll();
+            $roms = $pdo->query('
+                SELECT rom.*,
+                  rom_console_names.console_names,
+                  rom_category_names.category_names
+                FROM rom
+                LEFT JOIN (
+                    SELECT rcm.rom_id, GROUP_CONCAT(DISTINCT rc.name ORDER BY rc.sort_order ASC, rc.name ASC SEPARATOR ", ") AS console_names
+                    FROM rom_console_map rcm
+                    INNER JOIN rom_console rc ON rc.id = rcm.console_id
+                    GROUP BY rcm.rom_id
+                ) rom_console_names ON rom_console_names.rom_id = rom.id
+                LEFT JOIN (
+                    SELECT rcmap.rom_id, GROUP_CONCAT(DISTINCT rcat.name ORDER BY rcat.sort_order ASC, rcat.name ASC SEPARATOR ", ") AS category_names
+                    FROM rom_category_map rcmap
+                    INNER JOIN rom_category rcat ON rcat.id = rcmap.category_id
+                    GROUP BY rcmap.rom_id
+                ) rom_category_names ON rom_category_names.rom_id = rom.id
+                ORDER BY ' . admin_order_by($romSortColumns, $romSort, $romDir) . ', rom.name ASC
+            ')->fetchAll();
+        }
         if ($section === 'music') {
             $songWhere = [];
             $songParams = [];
@@ -5796,13 +6231,55 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages', 'users', '
         } else {
             $songArtists = [];
         }
-        $songGenres = $section === 'music'
-            ? $pdo->query('
+        if ($section === 'music' && $musicTab === 'genres') {
+            $genreWhere = [];
+            $genreParams = [];
+            if ($genreSearch !== '') {
+                $genreWhere[] = '(g.genre_id LIKE :genre_q_id OR g.title LIKE :genre_q_title)';
+                $genreSearchValue = '%' . $genreSearch . '%';
+                $genreParams[':genre_q_id'] = $genreSearchValue;
+                $genreParams[':genre_q_title'] = $genreSearchValue;
+            }
+            $genreWhereSql = $genreWhere ? ' WHERE ' . implode(' AND ', $genreWhere) : '';
+            $genreCountStmt = $pdo->prepare('SELECT COUNT(*) FROM song_genre g' . $genreWhereSql);
+            $genreCountStmt->execute($genreParams);
+            $genreTotal = (int) $genreCountStmt->fetchColumn();
+            $genreTotalPages = max(1, (int) ceil($genreTotal / $genrePerPage));
+            $genrePage = min($genrePage, $genreTotalPages);
+            $genreOffset = ($genrePage - 1) * $genrePerPage;
+            $genreStmt = $pdo->prepare('
+                SELECT g.*, COUNT(s.id) AS song_count
+                FROM song_genre g
+                LEFT JOIN song s ON FIND_IN_SET(g.genre_id, REPLACE(COALESCE(s.genre, \'\'), \' \', \'\')) > 0
+                ' . $genreWhereSql . '
+                GROUP BY g.genre_id, g.title, g.avatar, g.description, g.created_at, g.updated_at
+                ORDER BY g.genre_id ASC
+                LIMIT :limit OFFSET :offset
+            ');
+            foreach ($genreParams as $paramKey => $paramValue) {
+                $genreStmt->bindValue($paramKey, $paramValue);
+            }
+            $genreStmt->bindValue(':limit', $genrePerPage, PDO::PARAM_INT);
+            $genreStmt->bindValue(':offset', $genreOffset, PDO::PARAM_INT);
+            $genreStmt->execute();
+            $songGenres = $genreStmt->fetchAll();
+        } elseif ($section === 'music') {
+            $songGenres = $pdo->query('
                 SELECT g.*, COUNT(s.id) AS song_count
                 FROM song_genre g
                 LEFT JOIN song s ON FIND_IN_SET(g.genre_id, REPLACE(COALESCE(s.genre, \'\'), \' \', \'\')) > 0
                 GROUP BY g.genre_id, g.title, g.avatar, g.description, g.created_at, g.updated_at
                 ORDER BY g.genre_id ASC
+            ')->fetchAll();
+        } else {
+            $songGenres = [];
+        }
+        $songGenreLangRows = ($section === 'music' && $musicTab === 'genres')
+            ? $pdo->query('
+                SELECT gl.*, g.title
+                FROM song_genre_lang gl
+                INNER JOIN song_genre g ON g.genre_id = gl.genre_id
+                ORDER BY gl.genre_id ASC, gl.lang_key ASC
             ')->fetchAll()
             : [];
         $songOrders = ($section === 'music' && $musicTab === 'orders')
@@ -5995,6 +6472,7 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages', 'users', '
         $error = $e->getMessage();
         $accounts = [];
         $apps = [];
+        $roms = [];
         $songs = [];
         $songArtistOptions = [];
         $songArtists = [];
@@ -6029,9 +6507,9 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages', 'users', '
 }
 
 $photoText = ($section === 'coc' && $editing) ? implode("\n", coc_decode_photos($editing['photos'])) : '';
-$pageTitle = ['overview' => 'Tổng quan', 'apps' => 'App', 'ebook' => 'Ebook', 'music' => 'Âm nhạc', 'pages' => 'Page', 'users' => 'Users', 'api' => 'API', 'bank' => 'Bank', 'sites' => 'Sites', 'coc' => 'Coc', 'order' => 'Order', 'country' => 'Country', 'paypal' => 'Paypal', 'ai_support' => 'AI Support', 'cloud' => 'Cloud', 'backup' => 'Sao Lưu'][$section] ?? 'Tổng quan';
-$sectionLabels = ['overview' => 'tổng quan', 'apps' => 'ứng dụng', 'ebook' => 'ebook', 'music' => 'âm nhạc', 'pages' => 'Page/SEO', 'users' => 'người dùng', 'api' => 'API key', 'bank' => 'ngân hàng', 'sites' => 'website', 'coc' => 'shop', 'order' => 'đơn hàng', 'country' => 'quốc gia hỗ trợ', 'paypal' => 'PayPal', 'ai_support' => 'AI Support', 'cloud' => 'Cloud', 'backup' => 'sao lưu dữ liệu'];
-$sectionTitles = ['overview' => 'Tổng quan', 'apps' => 'App Carrot Home', 'ebook' => 'CarrotEbook', 'music' => 'Heart Beat Play', 'pages' => 'Page Carrot Home', 'users' => 'User Carrot Home', 'api' => 'API Config', 'bank' => 'Bank', 'sites' => 'Sites', 'coc' => 'Acc Clash of Clans', 'order' => 'Order tổng hệ thống', 'country' => 'Country', 'paypal' => 'Paypal Config', 'ai_support' => 'AI - Support', 'cloud' => 'CarrotCloud', 'backup' => 'Sao Lưu Database'];
+$pageTitle = ['overview' => 'Tổng quan', 'apps' => 'App', 'ebook' => 'Ebook', 'rom' => 'Rom', 'music' => 'Âm nhạc', 'pages' => 'Page', 'users' => 'Users', 'api' => 'API', 'bank' => 'Bank', 'sites' => 'Sites', 'coc' => 'Coc', 'order' => 'Order', 'country' => 'Country', 'paypal' => 'Paypal', 'ai_support' => 'AI Support', 'cloud' => 'Cloud', 'backup' => 'Sao Lưu'][$section] ?? 'Tổng quan';
+$sectionLabels = ['overview' => 'tổng quan', 'apps' => 'ứng dụng', 'ebook' => 'ebook', 'rom' => 'rom giả lập', 'music' => 'âm nhạc', 'pages' => 'Page/SEO', 'users' => 'người dùng', 'api' => 'API key', 'bank' => 'ngân hàng', 'sites' => 'website', 'coc' => 'shop', 'order' => 'đơn hàng', 'country' => 'quốc gia hỗ trợ', 'paypal' => 'PayPal', 'ai_support' => 'AI Support', 'cloud' => 'Cloud', 'backup' => 'sao lưu dữ liệu'];
+$sectionTitles = ['overview' => 'Tổng quan', 'apps' => 'App Carrot Home', 'ebook' => 'CarrotEbook', 'rom' => 'CarrotRom', 'music' => 'Heart Beat Play', 'pages' => 'Page Carrot Home', 'users' => 'User Carrot Home', 'api' => 'API Config', 'bank' => 'Bank', 'sites' => 'Sites', 'coc' => 'Acc Clash of Clans', 'order' => 'Order tổng hệ thống', 'country' => 'Country', 'paypal' => 'Paypal Config', 'ai_support' => 'AI - Support', 'cloud' => 'CarrotCloud', 'backup' => 'Sao Lưu Database'];
 $trafficRangeDays = admin_traffic_range_days($trafficDateRange);
 $dashboardCards = [
     ['label' => 'App', 'value' => $dashboardMetrics['apps'], 'icon' => 'boxes'],
@@ -6040,6 +6518,7 @@ $dashboardCards = [
     ['label' => 'Coc', 'value' => $dashboardMetrics['coc'], 'icon' => 'shield'],
     ['label' => 'Bài hát', 'value' => $dashboardMetrics['songs'], 'icon' => 'music-2'],
     ['label' => 'Ebook', 'value' => $dashboardMetrics['ebook'], 'icon' => 'book-open'],
+    ['label' => 'Rom', 'value' => $dashboardMetrics['rom'], 'icon' => 'gamepad-2'],
     ['label' => 'Bank', 'value' => $dashboardMetrics['bank'], 'icon' => 'landmark'],
     ['label' => 'Sites', 'value' => $dashboardMetrics['sites'], 'icon' => 'globe'],
     ['label' => 'Cloud', 'value' => $dashboardMetrics['cloud'], 'icon' => 'cloud'],
@@ -6048,18 +6527,19 @@ $dashboardCards = [
 ];
 $trafficRows = [
     ['label' => 'CarrotAdmin', 'url' => 'index.php', 'metrics' => $trafficMetrics['admin']],
-    ['label' => 'COC Shop', 'url' => 'https://coc.carrot28.com/', 'metrics' => $trafficMetrics['coc']],
+    ['label' => 'ClanAcc', 'url' => 'https://clanacc.com/', 'metrics' => $trafficMetrics['coc']],
     ['label' => 'CarrotHome', 'url' => 'https://carrot28.com/', 'metrics' => $trafficMetrics['home']],
     ['label' => 'CarrotEbook', 'url' => 'https://ebook.carrot28.com/', 'metrics' => $trafficMetrics['ebook']],
     ['label' => 'Heart Beat Play', 'url' => 'https://heartbeatplay.com/', 'metrics' => $trafficMetrics['music']],
     ['label' => 'CarrotCloud', 'url' => 'https://cloud.carrot28.com/', 'metrics' => $trafficMetrics['cloud']],
     ['label' => 'Tổng cộng', 'url' => '', 'metrics' => $trafficMetrics['total']],
 ];
-$useSelect2 = $section === 'overview' || $section === 'apps' || $section === 'ebook' || $section === 'music' || $section === 'pages' || $section === 'cloud' || ($section === 'country' && $countryTab === 'labels') || ($section === 'sites' && $sitesTab === 'google_search');
+$useSelect2 = $section === 'overview' || $section === 'apps' || $section === 'ebook' || $section === 'rom' || $section === 'music' || $section === 'pages' || $section === 'cloud' || ($section === 'country' && $countryTab === 'labels') || ($section === 'sites' && $sitesTab === 'google_search');
 $useJquery = $useSelect2 || $section === 'coc';
 $sectionCreateUrls = [
     'apps' => 'index.php?section=apps',
     'ebook' => 'index.php?section=ebook&tab=' . urlencode($ebookTab),
+    'rom' => 'index.php?section=rom&tab=' . urlencode($romTab),
     'music' => 'index.php?section=music&tab=' . urlencode($musicTab),
     'pages' => 'index.php?section=pages',
     'users' => 'index.php?section=users',
@@ -6211,9 +6691,12 @@ $sectionCreateUrls = [
         .traffic-dot-today{background:#0f766e}
         .traffic-dot-yesterday{background:#f59e0b}
         #traffic_compare_chart{display:block;width:100%;height:300px!important;max-height:300px}
+        .traffic-chart-fallback{margin-top:.5rem;color:#64748b;font-size:.78rem;font-weight:800}
         .backup-action-card{border:1px solid rgba(15,23,42,.08);border-radius:8px;background:#fff;padding:1rem;height:100%}
         .backup-progress{height:10px;border-radius:999px;background:#e2e8f0;overflow:hidden}
         .backup-progress-bar{height:100%;width:0;background:#198754;transition:width .25s ease}
+        .admin-upload-progress{height:10px;border-radius:999px;background:#e2e8f0;overflow:hidden}
+        .admin-upload-progress-bar{height:100%;width:0;background:#198754;transition:width .18s ease}
         .backup-file-name{font-weight:800;overflow-wrap:anywhere}
         .glass-panel,.admin-shell{border:1px solid rgba(15,23,42,.08)!important;border-radius:8px!important;background:rgba(255,255,255,.96)!important;box-shadow:0 14px 36px rgba(15,23,42,.06)!important}
         .table{--bs-table-bg:transparent}
@@ -6227,6 +6710,8 @@ $sectionCreateUrls = [
         .music-song-cell a{flex:0 0 auto}
         .music-song-text{min-width:0;max-width:100%}
         .music-song-name,.music-song-id{display:block;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+        .form-control.admin-field-highlight,.select2-container.admin-field-highlight .select2-selection{animation:adminFieldHighlight 1.35s ease-out;border-color:#f59e0b!important;box-shadow:0 0 0 .22rem rgba(245,158,11,.24)!important}
+        @keyframes adminFieldHighlight{0%{background:#fff7ed;border-color:#f59e0b;box-shadow:0 0 0 .28rem rgba(245,158,11,.32)}65%{background:#fff7ed}100%{background:#fff;border-color:rgba(15,23,42,.16);box-shadow:none}}
         .table tbody tr.admin-row-editing>*,.table tbody tr.coc-account-row-editing>*{--bs-table-bg:#fff7ed;--bs-table-striped-bg:#fff7ed;box-shadow:inset 0 1px 0 rgba(245,158,11,.32),inset 0 -1px 0 rgba(245,158,11,.32)}
         .table tbody tr.admin-row-editing>td:first-child,.table tbody tr.coc-account-row-editing>td:first-child{border-left:4px solid #f59e0b;font-weight:900;color:#92400e}
         .table tbody tr.admin-row-editing strong,.table tbody tr.coc-account-row-editing strong{color:#92400e}
@@ -6235,6 +6720,10 @@ $sectionCreateUrls = [
         .coc-photo-preview img{width:100%;height:100%;object-fit:cover}
         .coc-photo-item .input-group{min-width:0}
         .coc-photo-item .form-control{min-width:0}
+        .rom-file-item{border:1px solid rgba(15,23,42,.1);border-radius:8px;background:#f8fafc;padding:.65rem}
+        .rom-file-title{display:flex;align-items:center;justify-content:space-between;gap:.75rem;margin-bottom:.55rem}
+        .rom-file-title strong{min-width:0}
+        .rom-file-item .input-group,.rom-file-item .form-control{min-width:0}
         .api-config-name{display:flex;flex-wrap:wrap;align-items:baseline;gap:.45rem}
         .api-config-meta{display:grid;grid-template-columns:86px minmax(0,1fr);gap:.45rem;margin-top:.25rem;color:#64748b}
         .api-config-meta span{font-weight:800;text-transform:uppercase;font-size:.68rem}
@@ -6268,6 +6757,7 @@ $sectionCreateUrls = [
                 <a class="list-group-item list-group-item-action <?= $section === 'coc' ? 'active' : '' ?>" href="index.php?section=coc"><i data-lucide="shield"></i><span>Coc</span></a>
                 <a class="list-group-item list-group-item-action <?= $section === 'order' ? 'active' : '' ?>" href="index.php?section=order"><i data-lucide="receipt-text"></i><span>Order</span></a>
                 <a class="list-group-item list-group-item-action <?= $section === 'ebook' ? 'active' : '' ?>" href="index.php?section=ebook"><i data-lucide="book-open"></i><span>Ebook</span></a>
+                <a class="list-group-item list-group-item-action <?= $section === 'rom' ? 'active' : '' ?>" href="index.php?section=rom"><i data-lucide="gamepad-2"></i><span>Rom</span></a>
                 <a class="list-group-item list-group-item-action <?= $section === 'paypal' ? 'active' : '' ?>" href="index.php?section=paypal"><i data-lucide="credit-card"></i><span>Paypal</span></a>
                 <a class="list-group-item list-group-item-action <?= $section === 'ai_support' ? 'active' : '' ?>" href="index.php?section=ai_support"><i data-lucide="sparkles"></i><span>AI - Support</span></a>
                 <a class="list-group-item list-group-item-action <?= $section === 'cloud' ? 'active' : '' ?>" href="index.php?section=cloud"><i data-lucide="cloud"></i><span>Cloud</span></a>
@@ -6292,6 +6782,9 @@ $sectionCreateUrls = [
                         <?php if ($section === 'ebook'): ?>
                             <a class="btn btn-success fw-bold" href="https://ebook.carrot28.com/" target="_blank" rel="noopener noreferrer"><i data-lucide="external-link" style="width:16px;height:16px"></i> CarrotEbook</a>
                         <?php endif; ?>
+                        <?php if ($section === 'rom'): ?>
+                            <a class="btn btn-success fw-bold" href="https://rom.carrot28.com/" target="_blank" rel="noopener noreferrer"><i data-lucide="external-link" style="width:16px;height:16px"></i> CarrotRom</a>
+                        <?php endif; ?>
                         <?php if ($section === 'music'): ?>
                             <a class="btn btn-success fw-bold" href="https://heartbeatplay.com/" target="_blank" rel="noopener noreferrer"><i data-lucide="external-link" style="width:16px;height:16px"></i> Heart Beat Play</a>
                         <?php endif; ?>
@@ -6299,7 +6792,7 @@ $sectionCreateUrls = [
                             <a class="btn btn-success fw-bold" href="https://cloud.carrot28.com/" target="_blank" rel="noopener noreferrer"><i data-lucide="external-link" style="width:16px;height:16px"></i> CarrotCloud</a>
                         <?php endif; ?>
                         <?php if ($section === 'coc'): ?>
-                            <a class="btn btn-secondary fw-bold" href="https://coc.carrot28.com/" target="_blank" rel="noopener noreferrer">Xem shop</a>
+                            <a class="btn btn-secondary fw-bold" href="https://clanacc.com/" target="_blank" rel="noopener noreferrer">Xem shop</a>
                         <?php endif; ?>
                         <?php if ($editing || $editingGoogleSearchVerification): ?>
                             <a class="btn btn-success fw-bold" href="<?= htmlspecialchars($sectionCreateUrls[$section] ?? 'index.php') ?>">Thêm mới</a>
@@ -6319,7 +6812,7 @@ $sectionCreateUrls = [
     </div>
 </div>
 <script>
-document.querySelectorAll('.js-delete').forEach((form) => {
+document.querySelectorAll('.js-delete, .js-confirm-delete').forEach((form) => {
     form.addEventListener('submit', async (event) => {
         event.preventDefault();
 
@@ -6351,6 +6844,67 @@ function adminCreateFileDeleteButton(uploadButton) {
     deleteButton.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16" aria-hidden="true"><path d="M5.5 5.5A.5.5 0 0 1 6 6v6a.5.5 0 0 1-1 0V6a.5.5 0 0 1 .5-.5Zm2.5 0a.5.5 0 0 1 .5.5v6a.5.5 0 0 1-1 0V6a.5.5 0 0 1 .5-.5Zm3 .5a.5.5 0 0 0-1 0v6a.5.5 0 0 0 1 0V6Z"/><path d="M14.5 3a1 1 0 0 1-1 1H13v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V4h-.5a1 1 0 0 1 0-2H5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1h2.5a1 1 0 0 1 1 1ZM4.118 4 4 4.059V13a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1V4.059L11.882 4H4.118ZM2.5 3h11V2h-11v1Z"/></svg>';
     uploadButton.insertAdjacentElement('afterend', deleteButton);
     return deleteButton;
+}
+
+function adminFormatUploadBytes(bytes) {
+    const value = Number(bytes || 0);
+    if (value >= 1024 * 1024) {
+        return `${(value / 1024 / 1024).toFixed(1)} MB`;
+    }
+    if (value >= 1024) {
+        return `${(value / 1024).toFixed(1)} KB`;
+    }
+    return `${value} B`;
+}
+
+function adminUploadFormData(formData, onProgress = null) {
+    return new Promise((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        xhr.open('POST', 'index.php');
+        xhr.responseType = 'json';
+
+        xhr.upload.addEventListener('progress', (event) => {
+            if (typeof onProgress !== 'function') {
+                return;
+            }
+            if (event.lengthComputable && event.total > 0) {
+                onProgress({
+                    percent: Math.min(100, Math.round((event.loaded / event.total) * 100)),
+                    loaded: event.loaded,
+                    total: event.total,
+                    computable: true,
+                });
+            } else {
+                onProgress({
+                    percent: 0,
+                    loaded: event.loaded,
+                    total: 0,
+                    computable: false,
+                });
+            }
+        });
+
+        xhr.addEventListener('load', () => {
+            let payload = xhr.response;
+            if (!payload && xhr.responseText) {
+                try {
+                    payload = JSON.parse(xhr.responseText);
+                } catch (error) {
+                    reject(new Error('Server trả về dữ liệu upload không hợp lệ.'));
+                    return;
+                }
+            }
+            if (xhr.status < 200 || xhr.status >= 300 || !payload || payload.status !== 'success') {
+                reject(new Error((payload && payload.message) || 'Upload thất bại.'));
+                return;
+            }
+            resolve(payload);
+        });
+
+        xhr.addEventListener('error', () => reject(new Error('Không kết nối được server upload.')));
+        xhr.addEventListener('abort', () => reject(new Error('Upload đã bị hủy.')));
+        xhr.send(formData);
+    });
 }
 
 document.querySelectorAll('.js-upload').forEach((button) => {
@@ -6450,13 +7004,40 @@ document.querySelectorAll('.js-delete-file').forEach((button) => {
 
 async function adminOpenUploadDialog(button) {
     const accept = button.dataset.accept || '';
+    const setDialogProgress = (progress) => {
+        const wrap = document.getElementById('admin-upload-progress-wrap');
+        const bar = document.getElementById('admin-upload-progress-bar');
+        const text = document.getElementById('admin-upload-progress-text');
+        if (!wrap || !bar || !text) {
+            return;
+        }
+
+        wrap.classList.remove('d-none');
+        if (progress.computable) {
+            const percent = Number(progress.percent || 0);
+            bar.style.width = `${percent}%`;
+            text.textContent = percent >= 100
+                ? 'Đã gửi file, đang xử lý...'
+                : `${percent}% - ${adminFormatUploadBytes(progress.loaded)} / ${adminFormatUploadBytes(progress.total)}`;
+        } else {
+            bar.style.width = '35%';
+            text.textContent = `Đang tải lên... ${adminFormatUploadBytes(progress.loaded)}`;
+        }
+    };
     const result = await Swal.fire({
         title: 'Upload file',
-        html: `<input id="admin-upload-file" class="swal2-file" type="file" ${accept ? `accept="${accept}"` : ''}>`,
+        html: `
+            <input id="admin-upload-file" class="swal2-file" type="file" ${accept ? `accept="${accept}"` : ''}>
+            <div id="admin-upload-progress-wrap" class="d-none mt-3 text-start">
+                <div class="admin-upload-progress"><div class="admin-upload-progress-bar" id="admin-upload-progress-bar"></div></div>
+                <div class="small fw-bold mt-2" id="admin-upload-progress-text">0%</div>
+            </div>
+        `,
         showCancelButton: true,
         confirmButtonText: 'Upload',
         cancelButtonText: 'Hủy',
         focusConfirm: false,
+        showLoaderOnConfirm: true,
         preConfirm: async () => {
             const fileInput = document.getElementById('admin-upload-file');
             const file = fileInput && fileInput.files ? fileInput.files[0] : null;
@@ -6471,20 +7052,15 @@ async function adminOpenUploadDialog(button) {
             formData.append('file', file);
 
             try {
-                const response = await fetch('index.php', {
-                    method: 'POST',
-                    body: formData,
-                });
-                const payload = await response.json();
-                if (!response.ok || payload.status !== 'success') {
-                    throw new Error(payload.message || 'Upload thất bại.');
-                }
+                const payload = await adminUploadFormData(formData, setDialogProgress);
+                setDialogProgress({percent: 100, loaded: file.size, total: file.size, computable: true});
                 return payload.url;
             } catch (error) {
                 Swal.showValidationMessage(error.message);
                 return false;
             }
         },
+        allowOutsideClick: () => !Swal.isLoading(),
     });
 
     return result.isConfirmed && result.value ? result.value : '';
@@ -6547,13 +7123,13 @@ if (window.jQuery) {
             $field.find('.js-coc-photos-source').val(urls.join('\n')).trigger('change');
         };
 
-        const createCocPhotoItem = (url = '') => {
+        const createCocPhotoItem = (url = '', typeMedia = 'coc_images') => {
             const $item = $(`
                 <div class="coc-photo-item js-coc-photo-item">
                     <div class="coc-photo-preview"></div>
                     <div class="input-group">
                         <input class="form-control js-coc-photo-url" placeholder="Image URL">
-                        <button class="btn btn-secondary js-coc-photo-upload" type="button" data-type-media="coc_images" data-accept="image/*" title="Upload ảnh" aria-label="Upload ảnh"><i data-lucide="upload" style="width:16px;height:16px"></i></button>
+                        <button class="btn btn-secondary js-coc-photo-upload" type="button" data-type-media="${typeMedia}" data-accept="image/*" title="Upload ảnh" aria-label="Upload ảnh"><i data-lucide="upload" style="width:16px;height:16px"></i></button>
                         <button class="btn btn-outline-danger js-coc-photo-remove" type="button" title="Xóa item ảnh" aria-label="Xóa item ảnh"><i data-lucide="trash-2" style="width:16px;height:16px"></i></button>
                     </div>
                 </div>
@@ -6575,7 +7151,7 @@ if (window.jQuery) {
 
         $(document).on('click', '.js-coc-photo-add', function () {
             const $field = $(this).closest('.js-coc-photos-field');
-            $field.find('.js-coc-photos-list').append(createCocPhotoItem(''));
+            $field.find('.js-coc-photos-list').append(createCocPhotoItem('', $field.data('typeMedia') || 'coc_images'));
             if (window.lucide) {
                 lucide.createIcons();
             }
@@ -6730,16 +7306,96 @@ if (xamppDiskCanvas && xamppDiskDataEl && window.Chart) {
 const trafficChartCanvas = document.getElementById('traffic_compare_chart');
 const trafficChartDataEl = document.getElementById('traffic_compare_data');
 let overviewTrafficChart = null;
-if (trafficChartCanvas && trafficChartDataEl && window.Chart) {
-    const trafficChartData = JSON.parse(trafficChartDataEl.textContent || '{}');
-    overviewTrafficChart = new Chart(trafficChartCanvas, {
+const parseTrafficJson = (element) => {
+    try {
+        return JSON.parse(element?.textContent || '{}');
+    } catch (error) {
+        return {};
+    }
+};
+const toTrafficSeries = (items) => Array.isArray(items)
+    ? items.map((item) => {
+        const value = Number(item);
+        return Number.isFinite(value) ? Math.max(0, value) : 0;
+    })
+    : [];
+const renderTrafficCanvasFallback = (canvas, data) => {
+    if (!canvas || !canvas.getContext) {
+        return;
+    }
+    const fallbackNote = document.getElementById('traffic_compare_fallback');
+    fallbackNote?.classList.remove('d-none');
+    const labels = Array.isArray(data.labels) ? data.labels : [];
+    const hits = toTrafficSeries(data.hits);
+    const unique = toTrafficSeries(data.unique);
+    const cssWidth = Math.max(320, Math.floor(canvas.getBoundingClientRect().width || canvas.clientWidth || 760));
+    const cssHeight = Math.max(230, Math.floor(canvas.getBoundingClientRect().height || canvas.clientHeight || 300));
+    const ratio = window.devicePixelRatio || 1;
+    canvas.width = Math.floor(cssWidth * ratio);
+    canvas.height = Math.floor(cssHeight * ratio);
+    canvas.style.width = cssWidth + 'px';
+    canvas.style.height = cssHeight + 'px';
+    const ctx = canvas.getContext('2d');
+    ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+    ctx.clearRect(0, 0, cssWidth, cssHeight);
+    const pad = {left: 46, right: 16, top: 18, bottom: 34};
+    const plotWidth = Math.max(1, cssWidth - pad.left - pad.right);
+    const plotHeight = Math.max(1, cssHeight - pad.top - pad.bottom);
+    const maxValue = Math.max(1, ...hits, ...unique);
+    ctx.strokeStyle = '#e2e8f0';
+    ctx.lineWidth = 1;
+    ctx.font = '11px system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+    ctx.fillStyle = '#64748b';
+    for (let i = 0; i <= 4; i++) {
+        const y = pad.top + plotHeight - (plotHeight * i / 4);
+        ctx.beginPath();
+        ctx.moveTo(pad.left, y);
+        ctx.lineTo(cssWidth - pad.right, y);
+        ctx.stroke();
+        ctx.fillText(Math.round(maxValue * i / 4).toLocaleString('vi-VN'), 6, y + 4);
+    }
+    const drawLine = (series, color) => {
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        series.forEach((value, index) => {
+            const x = pad.left + (labels.length > 1 ? (plotWidth * index / (labels.length - 1)) : plotWidth / 2);
+            const y = pad.top + plotHeight - (plotHeight * Math.min(value, maxValue) / maxValue);
+            if (index === 0) {
+                ctx.moveTo(x, y);
+            } else {
+                ctx.lineTo(x, y);
+            }
+        });
+        ctx.stroke();
+    };
+    drawLine(hits.length ? hits : [0], '#0f766e');
+    drawLine(unique.length ? unique : [0], '#f59e0b');
+    const labelStep = Math.max(1, Math.ceil(labels.length / 8));
+    labels.forEach((label, index) => {
+        if (index % labelStep !== 0 && index !== labels.length - 1) {
+            return;
+        }
+        const x = pad.left + (labels.length > 1 ? (plotWidth * index / (labels.length - 1)) : plotWidth / 2);
+        ctx.fillStyle = '#64748b';
+        ctx.textAlign = 'center';
+        ctx.fillText(String(label).slice(0, 10), x, cssHeight - 10);
+    });
+    ctx.textAlign = 'left';
+};
+if (trafficChartCanvas && trafficChartDataEl) {
+    const trafficChartData = parseTrafficJson(trafficChartDataEl);
+    if (window.Chart) {
+        try {
+            overviewTrafficChart = new Chart(trafficChartCanvas, {
         type: 'line',
         data: {
             labels: Array.isArray(trafficChartData.labels) ? trafficChartData.labels : [],
             datasets: [
                 {
                     label: 'Hits',
-                    data: Array.isArray(trafficChartData.hits) ? trafficChartData.hits.map(Number) : [],
+                    data: toTrafficSeries(trafficChartData.hits),
+                    yAxisID: 'y',
                     borderColor: '#0f766e',
                     backgroundColor: 'rgba(15, 118, 110, .12)',
                     borderWidth: 3,
@@ -6750,11 +7406,12 @@ if (trafficChartCanvas && trafficChartDataEl && window.Chart) {
                 },
                 {
                     label: 'IP',
-                    data: Array.isArray(trafficChartData.unique) ? trafficChartData.unique.map(Number) : [],
+                    data: toTrafficSeries(trafficChartData.unique),
+                    yAxisID: 'yIp',
                     borderColor: '#f59e0b',
                     backgroundColor: 'rgba(245, 158, 11, .10)',
-                    borderWidth: 2,
-                    pointRadius: 2,
+                    borderWidth: 3,
+                    pointRadius: 3,
                     pointHoverRadius: 5,
                     tension: .32,
                     fill: false,
@@ -6788,7 +7445,21 @@ if (trafficChartCanvas && trafficChartDataEl && window.Chart) {
                     },
                 },
                 y: {
+                    type: 'linear',
+                    position: 'left',
                     beginAtZero: true,
+                    ticks: {
+                        precision: 0,
+                        callback: (value) => Number(value).toLocaleString('vi-VN'),
+                    },
+                },
+                yIp: {
+                    type: 'linear',
+                    position: 'right',
+                    beginAtZero: true,
+                    grid: {
+                        drawOnChartArea: false,
+                    },
                     ticks: {
                         precision: 0,
                         callback: (value) => Number(value).toLocaleString('vi-VN'),
@@ -6796,7 +7467,16 @@ if (trafficChartCanvas && trafficChartDataEl && window.Chart) {
                 },
             },
         },
-    });
+            });
+        } catch (error) {
+            overviewTrafficChart = null;
+            renderTrafficCanvasFallback(trafficChartCanvas, trafficChartData);
+        }
+    } else {
+        renderTrafficCanvasFallback(trafficChartCanvas, trafficChartData);
+    }
+}
+if (overviewTrafficChart) {
     const trafficLegendStorageKey = 'carrotadmin:overview:trafficLegend';
     const trafficLegendButtons = Array.from(document.querySelectorAll('.traffic-legend-btn[data-traffic-dataset]'));
     const readTrafficLegendState = () => {
@@ -6823,10 +7503,19 @@ if (trafficChartCanvas && trafficChartDataEl && window.Chart) {
         button.setAttribute('aria-pressed', String(visible));
     };
     const savedTrafficLegendState = readTrafficLegendState();
+    const allSavedDatasetsHidden = trafficLegendButtons.length > 0
+        && trafficLegendButtons.every((button) => Object.prototype.hasOwnProperty.call(savedTrafficLegendState, String(Number(button.dataset.trafficDataset || 0))))
+        && trafficLegendButtons.every((button) => savedTrafficLegendState[String(Number(button.dataset.trafficDataset || 0))] === false);
+    if (allSavedDatasetsHidden) {
+        try {
+            window.localStorage.removeItem(trafficLegendStorageKey);
+        } catch (error) {
+        }
+    }
 
     trafficLegendButtons.forEach((button) => {
         const datasetIndex = Number(button.dataset.trafficDataset || 0);
-        if (Object.prototype.hasOwnProperty.call(savedTrafficLegendState, String(datasetIndex))) {
+        if (!allSavedDatasetsHidden && Object.prototype.hasOwnProperty.call(savedTrafficLegendState, String(datasetIndex))) {
             const visible = savedTrafficLegendState[String(datasetIndex)] !== false;
             overviewTrafficChart.setDatasetVisibility(datasetIndex, visible);
             setTrafficLegendButton(button, visible);
@@ -6896,17 +7585,19 @@ if (trafficCountryCanvas && trafficCountryDataEl && window.Chart) {
 const refreshOverviewTrafficCharts = (doc) => {
     const nextTrafficDataEl = doc.querySelector('#traffic_compare_data');
     if (overviewTrafficChart && nextTrafficDataEl) {
-        const nextTrafficData = JSON.parse(nextTrafficDataEl.textContent || '{}');
+        const nextTrafficData = parseTrafficJson(nextTrafficDataEl);
         overviewTrafficChart.data.labels = Array.isArray(nextTrafficData.labels) ? nextTrafficData.labels : [];
-        overviewTrafficChart.data.datasets[0].data = Array.isArray(nextTrafficData.hits) ? nextTrafficData.hits.map(Number) : [];
-        overviewTrafficChart.data.datasets[1].data = Array.isArray(nextTrafficData.unique) ? nextTrafficData.unique.map(Number) : [];
+        overviewTrafficChart.data.datasets[0].data = toTrafficSeries(nextTrafficData.hits);
+        overviewTrafficChart.data.datasets[1].data = toTrafficSeries(nextTrafficData.unique);
         overviewTrafficChart.options.scales.x.ticks.maxTicksLimit = (nextTrafficData.mode || 'daily') === 'hourly' ? 12 : 10;
         overviewTrafficChart.update();
+    } else if (trafficChartCanvas && nextTrafficDataEl) {
+        renderTrafficCanvasFallback(trafficChartCanvas, parseTrafficJson(nextTrafficDataEl));
     }
 
     const nextCountryDataEl = doc.querySelector('#traffic_country_data');
     if (overviewTrafficCountryChart && nextCountryDataEl) {
-        const nextCountryData = JSON.parse(nextCountryDataEl.textContent || '{}');
+        const nextCountryData = parseTrafficJson(nextCountryDataEl);
         const countryLabels = Array.isArray(nextCountryData.labels) ? nextCountryData.labels : [];
         const countryUnique = Array.isArray(nextCountryData.unique) ? nextCountryData.unique.map(Number) : [];
         overviewTrafficCountryChart.data.labels = countryLabels;
@@ -7436,6 +8127,28 @@ if (window.jQuery && jQuery.fn.select2) {
         placeholder: 'Chọn category',
     });
 
+    jQuery('.js-rom-console-select').select2({
+        theme: 'bootstrap-5',
+        width: '100%',
+        tags: true,
+        placeholder: 'Chọn hệ máy',
+    });
+
+    jQuery('.js-rom-category-select').select2({
+        theme: 'bootstrap-5',
+        width: '100%',
+        tags: true,
+        placeholder: 'Chọn thể loại',
+    });
+
+    jQuery('.js-rom-status-select').select2({
+        theme: 'bootstrap-5',
+        width: '100%',
+        tags: true,
+        minimumResultsForSearch: Infinity,
+        placeholder: 'Chọn trạng thái',
+    });
+
     jQuery('.js-country-select').select2({
         theme: 'bootstrap-5',
         width: '100%',
@@ -7465,6 +8178,59 @@ if (window.jQuery && jQuery.fn.select2) {
 const quickAddSongArtistButton = document.querySelector('.js-quick-add-song-artist');
 const songArtistSelect = document.getElementById('song_artist_ids');
 const songLangSelect = document.getElementById('song_lang');
+const highlightAdminField = (field) => {
+    if (!field) {
+        return;
+    }
+
+    field.classList.remove('admin-field-highlight');
+    void field.offsetWidth;
+    field.classList.add('admin-field-highlight');
+    window.setTimeout(() => field.classList.remove('admin-field-highlight'), 1450);
+
+    if (window.jQuery && jQuery.fn.select2 && jQuery(field).data('select2')) {
+        const select2Container = jQuery(field).next('.select2-container').get(0);
+        if (select2Container) {
+            select2Container.classList.remove('admin-field-highlight');
+            void select2Container.offsetWidth;
+            select2Container.classList.add('admin-field-highlight');
+            window.setTimeout(() => select2Container.classList.remove('admin-field-highlight'), 1450);
+        }
+    }
+};
+const getSongArtistOptionLang = (option) => (option?.dataset?.langKey || '').trim();
+const syncSongArtistFields = (changedOption = null) => {
+    if (!songArtistSelect) {
+        return;
+    }
+
+    const selectedOptions = Array.from(songArtistSelect.selectedOptions || []);
+    const langOption = changedOption && getSongArtistOptionLang(changedOption)
+        ? changedOption
+        : selectedOptions.slice().reverse().find((option) => getSongArtistOptionLang(option));
+    const artistLang = getSongArtistOptionLang(langOption);
+    if (songLangSelect && artistLang && songLangSelect.value !== artistLang) {
+        songLangSelect.value = artistLang;
+        if (window.jQuery && jQuery.fn.select2) {
+            jQuery(songLangSelect).trigger('change');
+        } else {
+            songLangSelect.dispatchEvent(new Event('change', {bubbles: true}));
+        }
+        highlightAdminField(songLangSelect);
+    }
+};
+if (songArtistSelect) {
+    if (window.jQuery && jQuery.fn.select2) {
+        jQuery(songArtistSelect).on('select2:select', (event) => {
+            syncSongArtistFields(event.params?.data?.element || null);
+        });
+        jQuery(songArtistSelect).on('select2:unselect', () => {
+            syncSongArtistFields();
+        });
+    } else {
+        songArtistSelect.addEventListener('change', () => syncSongArtistFields());
+    }
+}
 if (quickAddSongArtistButton && songArtistSelect) {
     quickAddSongArtistButton.addEventListener('click', async () => {
         const defaultLang = (songLangSelect && songLangSelect.value ? songLangSelect.value : 'vi');
@@ -7485,6 +8251,10 @@ if (quickAddSongArtistButton && songArtistSelect) {
                             <button class="btn btn-secondary" id="quick_song_artist_upload" type="button">Upload</button>
                         </div>
                         <input id="quick_song_artist_file" class="d-none" type="file" accept="image/*">
+                        <div id="quick-song-artist-upload-progress-wrap" class="d-none mt-2">
+                            <div class="admin-upload-progress"><div class="admin-upload-progress-bar" id="quick-song-artist-upload-progress-bar"></div></div>
+                            <div class="small fw-bold mt-2" id="quick-song-artist-upload-progress-text">0%</div>
+                        </div>
                     </div>
                     <div class="mb-3">
                         <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2">
@@ -7545,6 +8315,26 @@ if (quickAddSongArtistButton && songArtistSelect) {
                 });
 
                 if (uploadButton && fileInput && avatarInput) {
+                    const setQuickArtistUploadProgress = (progress) => {
+                        const wrap = document.getElementById('quick-song-artist-upload-progress-wrap');
+                        const bar = document.getElementById('quick-song-artist-upload-progress-bar');
+                        const text = document.getElementById('quick-song-artist-upload-progress-text');
+                        if (!wrap || !bar || !text) {
+                            return;
+                        }
+                        wrap.classList.remove('d-none');
+                        if (progress.computable) {
+                            const percent = Number(progress.percent || 0);
+                            bar.style.width = `${percent}%`;
+                            text.textContent = percent >= 100
+                                ? 'Đã gửi file, đang xử lý...'
+                                : `${percent}% - ${adminFormatUploadBytes(progress.loaded)} / ${adminFormatUploadBytes(progress.total)}`;
+                        } else {
+                            bar.style.width = '35%';
+                            text.textContent = `Đang tải lên... ${adminFormatUploadBytes(progress.loaded)}`;
+                        }
+                    };
+
                     uploadButton.addEventListener('click', () => fileInput.click());
                     fileInput.addEventListener('change', async () => {
                         const file = fileInput.files ? fileInput.files[0] : null;
@@ -7560,14 +8350,8 @@ if (quickAddSongArtistButton && songArtistSelect) {
                             uploadData.append('action', 'ajax_upload');
                             uploadData.append('type_media', 'artist_avatar');
                             uploadData.append('file', file);
-                            const response = await fetch('index.php', {
-                                method: 'POST',
-                                body: uploadData,
-                            });
-                            const payload = await response.json();
-                            if (!response.ok || payload.status !== 'success') {
-                                throw new Error(payload.message || 'Upload thất bại.');
-                            }
+                            const payload = await adminUploadFormData(uploadData, setQuickArtistUploadProgress);
+                            setQuickArtistUploadProgress({percent: 100, loaded: file.size, total: file.size, computable: true});
                             avatarInput.value = payload.url;
                             Swal.resetValidationMessage();
                         } catch (error) {
@@ -7668,11 +8452,13 @@ if (quickAddSongArtistButton && songArtistSelect) {
 
             const artistId = String(payload.artist.id);
             const artistName = String(payload.artist.name || result.value.name);
+            const artistLangKey = String(payload.artist.lang_key || result.value.langKey || '');
             let option = Array.from(songArtistSelect.options).find((item) => item.value === artistId);
             if (!option) {
                 option = new Option(artistName, artistId, true, true);
                 songArtistSelect.add(option);
             }
+            option.dataset.langKey = artistLangKey;
             option.selected = true;
 
             if (window.jQuery && jQuery.fn.select2) {
@@ -7680,6 +8466,7 @@ if (quickAddSongArtistButton && songArtistSelect) {
             } else {
                 songArtistSelect.dispatchEvent(new Event('change', {bubbles: true}));
             }
+            syncSongArtistFields(option);
 
             await Swal.fire({icon: 'success', title: 'Đã thêm nghệ sĩ', text: artistName, timer: 1200, showConfirmButton: false});
         } catch (error) {
@@ -7690,12 +8477,30 @@ if (quickAddSongArtistButton && songArtistSelect) {
     });
 }
 
-const bindSimpleEditor = (editorId, sourceId, targetName = '') => {
+const bindSimpleEditor = (editorId, sourceId, targetName = '', options = {}) => {
     const editor = document.getElementById(editorId);
     const source = document.getElementById(sourceId);
     if (!editor || !source) {
         return;
     }
+
+    const escapeEditorHtml = (value) => String(value || '').replace(/[&<>"']/g, (char) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[char]));
+    const looksLikeHtml = (value) => /<\/?[a-z][\s\S]*>/i.test(String(value || ''));
+    const sourceToEditorHtml = (value) => {
+        const text = String(value || '');
+        if (!options.plainLinesAsDivs || looksLikeHtml(text) || !/[\r\n]/.test(text)) {
+            return text;
+        }
+        const lines = text.replace(/\r\n?/g, '\n').split('\n');
+        return lines
+            .map((line) => line.trim() === '' ? '<div><br></div>' : '<div>' + escapeEditorHtml(line) + '</div>')
+            .join('');
+    };
+    const refreshEditorFromSource = () => {
+        editor.innerHTML = sourceToEditorHtml(source.value);
+    };
+
+    refreshEditorFromSource();
 
     document.querySelectorAll('[data-editor-command]').forEach((button) => {
         if (targetName && button.dataset.editorTarget && button.dataset.editorTarget !== targetName) {
@@ -7723,6 +8528,7 @@ const bindSimpleEditor = (editorId, sourceId, targetName = '') => {
     editor.addEventListener('input', () => {
         source.value = editor.innerHTML.trim();
     });
+    source.addEventListener('change', refreshEditorFromSource);
 
     const form = editor.closest('form');
     if (form) {
@@ -7734,6 +8540,7 @@ const bindSimpleEditor = (editorId, sourceId, targetName = '') => {
 
 bindSimpleEditor('page_content_editor', 'page_content_html', 'page_content');
 bindSimpleEditor('app_content_editor', 'app_content_html', 'app_content');
+bindSimpleEditor('song_lyrics_editor', 'song_lyrics', 'music_song_lyrics', {plainLinesAsDivs: true});
 bindSimpleEditor('artist_description_editor', 'artist_description', 'music_artist_description');
 bindSimpleEditor('genre_description_editor', 'genre_description', 'music_genre_description');
 
@@ -7746,8 +8553,8 @@ if (songArtistNameInput && songArtistLangInput && songArtistDescriptionEditor &&
     aiSongArtistRequestButton.addEventListener('click', async () => {
         const artistName = songArtistNameInput.value.trim();
         const langKey = songArtistLangInput.value.trim();
-        if (!artistName || !langKey) {
-            await Swal.fire({icon: 'warning', title: 'Thiếu thông tin', text: 'Vui lòng nhập tên nghệ sĩ và chọn lang trước khi yêu cầu AI.'});
+        if (!artistName) {
+            await Swal.fire({icon: 'warning', title: 'Thiếu thông tin', text: 'Vui lòng nhập tên nghệ sĩ trước khi yêu cầu AI.'});
             return;
         }
 
@@ -7818,13 +8625,15 @@ if (songArtistNameInput && songArtistLangInput && songArtistDescriptionEditor &&
 
 const songGenreIdInput = document.getElementById('genre_id');
 const songGenreTitleInput = document.getElementById('genre_title');
+const songGenreLangInput = document.getElementById('genre_lang_key');
 const songGenreDescriptionEditor = document.getElementById('genre_description_editor');
 const songGenreDescriptionSource = document.getElementById('genre_description');
 const aiSongGenreRequestButton = document.querySelector('.js-ai-song-genre-request');
-if (songGenreIdInput && songGenreTitleInput && songGenreDescriptionEditor && songGenreDescriptionSource && aiSongGenreRequestButton) {
+if (songGenreIdInput && songGenreTitleInput && songGenreLangInput && songGenreDescriptionEditor && songGenreDescriptionSource && aiSongGenreRequestButton) {
     aiSongGenreRequestButton.addEventListener('click', async () => {
         const genreId = songGenreIdInput.value.trim();
         const genreTitle = songGenreTitleInput.value.trim();
+        const langKey = songGenreLangInput.value.trim();
         if (!genreId && !genreTitle) {
             await Swal.fire({icon: 'warning', title: 'Thiếu thông tin', text: 'Vui lòng nhập Genre ID hoặc Title trước khi yêu cầu AI.'});
             return;
@@ -7865,7 +8674,7 @@ if (songGenreIdInput && songGenreTitleInput && songGenreDescriptionEditor && son
         formData.append('idea', requestResult.value);
         formData.append('genre_id', genreId);
         formData.append('title', genreTitle);
-        formData.append('lang_key', 'vi');
+        formData.append('lang_key', langKey);
         formData.append('description', songGenreDescriptionSource.value || '');
 
         try {

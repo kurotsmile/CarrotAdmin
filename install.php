@@ -129,6 +129,14 @@ $results[] = install_run_step('CarrotMusic song search log table', static functi
     admin_ensure_song_search_log_table($cocPdo);
 });
 
+$results[] = install_run_step('CarrotMusic playlist table', static function () use ($cocPdo, $cocError): void {
+    if (!$cocPdo instanceof PDO) {
+        throw new RuntimeException($cocError ?? 'Không thể kết nối CarrotMusic database.');
+    }
+
+    admin_ensure_music_playlist_table($cocPdo);
+});
+
 $results[] = install_run_step('CarrotCoc app category tables', static function () use ($cocPdo, $cocError): void {
     if (!$cocPdo instanceof PDO) {
         throw new RuntimeException($cocError ?? 'Không thể kết nối CarrotCoc database.');
@@ -151,6 +159,14 @@ $results[] = install_run_step('CarrotEbook tables', static function () use ($coc
     }
 
     admin_ensure_ebook_tables($cocPdo);
+});
+
+$results[] = install_run_step('CarrotRom tables', static function () use ($cocPdo, $cocError): void {
+    if (!$cocPdo instanceof PDO) {
+        throw new RuntimeException($cocError ?? 'Không thể kết nối database.');
+    }
+
+    admin_ensure_rom_tables($cocPdo);
 });
 
 $results[] = install_run_step('PayPal config table', static function () use ($cocPdo, $cocError): void {

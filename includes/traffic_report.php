@@ -142,8 +142,10 @@ function admin_traffic_report_aggregate_day(PDO $pdo, string $date, array $sites
     return ['date' => $date, 'sites' => $saved, 'deleted_daily' => $deletedDaily, 'deleted_hourly' => $deletedHourly, 'skipped' => false];
 }
 
-function admin_traffic_report_run(PDO $pdo, ?string $throughDate = null, bool $deleteRaw = true): array
+function admin_traffic_report_run(PDO $pdo, ?string $throughDate = null, bool $deleteRaw = true, int $maxDays = 0): array
 {
+    admin_ensure_visit_daily_ip_table($pdo, 'web');
+    admin_ensure_visit_hourly_ip_table($pdo, 'web');
     admin_ensure_visit_traffic_report_table($pdo);
     $today = date('Y-m-d');
     $throughDate = $throughDate ?: date('Y-m-d', strtotime('-1 day'));
@@ -167,10 +169,22 @@ function admin_traffic_report_run(PDO $pdo, ?string $throughDate = null, bool $d
     }
 
     ksort($dates);
+    $allDates = array_keys($dates);
+    if ($maxDays > 0 && count($allDates) > $maxDays) {
+        $dates = array_fill_keys(array_slice($allDates, 0, $maxDays), true);
+    }
+
     $items = [];
     foreach (array_keys($dates) as $date) {
         $items[] = admin_traffic_report_aggregate_day($pdo, $date, [], $deleteRaw);
     }
 
-    return ['through_date' => $throughDate, 'items' => $items];
+    return [
+        'through_date' => $throughDate,
+        'max_days' => $maxDays,
+        'total_pending_days' => count($allDates),
+        'processed_days' => count($items),
+        'has_more' => $maxDays > 0 && count($allDates) > $maxDays,
+        'items' => $items,
+    ];
 }

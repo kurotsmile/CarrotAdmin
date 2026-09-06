@@ -5,6 +5,7 @@
                 ? array_values(array_filter(array_map('trim', preg_split('/\s*,\s*/', (string) ($editing['genre'] ?? '')) ?: [])))
                 : [];
             $editingGenreId = (string) ($editing['genre_id'] ?? '');
+            $editingGenreDefaultDescription = (string) ($editing['default_description'] ?? $editing['description'] ?? '');
             $musicPublicBase = 'https://heartbeatplay.com';
             $musicAdminSlug = static function ($value): string {
                 $value = trim(rawurldecode((string) $value));
@@ -93,7 +94,7 @@
                             </div>
                             <select class="form-control js-music-artist-select" id="song_artist_ids" name="artist_ids[]" multiple>
                                 <?php foreach ($songArtistOptions as $artistRow): ?>
-                                    <option value="<?= (int) $artistRow['id'] ?>" <?= in_array((int) $artistRow['id'], $selectedSongArtistIds, true) ? 'selected' : '' ?>>
+                                    <option value="<?= (int) $artistRow['id'] ?>" data-lang-key="<?= htmlspecialchars((string) ($artistRow['lang_key'] ?? '')) ?>" <?= in_array((int) $artistRow['id'], $selectedSongArtistIds, true) ? 'selected' : '' ?>>
                                         <?= htmlspecialchars($artistRow['name'] ?? '') ?>
                                     </option>
                                 <?php endforeach; ?>
@@ -106,7 +107,13 @@
                                 <input class="form-control" id="song_album" name="album" value="<?= htmlspecialchars($editing['album'] ?? '') ?>">
                             </div>
                             <div class="col-md-6">
-                                <label class="form-label" for="song_genre">Thể loại</label>
+                                <div class="d-flex justify-content-between align-items-center mb-2">
+                                    <label class="form-label mb-0" for="song_genre">Thể loại</label>
+                                    <a class="btn btn-sm btn-info border d-flex align-items-center gap-1 js-song-genre-search" target="_blank" rel="noopener noreferrer" href="https://www.google.com/search?q=<?= urlencode(trim((string) ($editing['name'] ?? '') . ' ' . (string) ($editing['artist'] ?? '')) . ' là thể loại nhạc gì?') ?>">
+                                        <i data-lucide="search" style="width:15px;height:15px"></i>
+                                        <span>Tìm</span>
+                                    </a>
+                                </div>
                                 <select class="form-control js-music-genre-select" id="song_genre" name="genre[]" multiple>
 	                                    <?php foreach ($songGenres as $genreRow): ?>
 	                                        <option value="<?= htmlspecialchars($genreRow['genre_id']) ?>" <?= in_array((string) $genreRow['genre_id'], $selectedSongGenreIds, true) ? 'selected' : '' ?>>
@@ -168,8 +175,26 @@
                         </div>
 
                         <div class="mb-3 mt-3">
-                            <label class="form-label" for="song_lyrics">Lyrics HTML</label>
-                            <textarea class="form-control" id="song_lyrics" name="lyrics" rows="8"><?= htmlspecialchars($editing['lyrics'] ?? '') ?></textarea>
+                            <div class="d-flex justify-content-between align-items-center mb-2">
+                                <label class="form-label mb-0" for="song_lyrics">Lyrics HTML</label>
+
+                                <a class="btn btn-sm btn-info border d-flex align-items-center gap-1 js-song-lyrics-search" target="_blank" rel="noopener noreferrer" href="https://www.google.com/search?q=<?= urlencode(($editing['name'] ?? '') . ' ' . ($editing['artist'] ?? '') . ' lyrics') ?>">
+                                    <i data-lucide="search" style="width:15px;height:15px"></i>
+                                    <span>Tìm Lyrics</span>
+                                </a>
+                            </div>
+
+                            <div class="simple-editor-toolbar" role="toolbar" aria-label="Lyrics HTML editor toolbar">
+                                <button class="btn btn-sm btn-light" type="button" data-editor-target="music_song_lyrics" data-editor-command="bold"><strong>B</strong></button>
+                                <button class="btn btn-sm btn-light" type="button" data-editor-target="music_song_lyrics" data-editor-command="italic"><em>I</em></button>
+                                <button class="btn btn-sm btn-light" type="button" data-editor-target="music_song_lyrics" data-editor-command="formatBlock" data-editor-value="h2">H2</button>
+                                <button class="btn btn-sm btn-light" type="button" data-editor-target="music_song_lyrics" data-editor-command="formatBlock" data-editor-value="p">P</button>
+                                <button class="btn btn-sm btn-light" type="button" data-editor-target="music_song_lyrics" data-editor-command="insertUnorderedList">List</button>
+                                <button class="btn btn-sm btn-light" type="button" data-editor-target="music_song_lyrics" data-editor-command="createLink">Link</button>
+                                <button class="btn btn-sm btn-light" type="button" data-editor-target="music_song_lyrics" data-editor-command="removeFormat">Clear</button>
+                            </div>
+                            <div class="simple-editor-canvas" id="song_lyrics_editor" contenteditable="true" spellcheck="true" style="min-height:260px;margin-top:8px;padding:5px;border:1px solid rgba(0,0,0,.15)"><?= ($editing['lyrics'] ?? '') ?></div>
+                            <textarea class="form-control font-monospace d-none" id="song_lyrics" name="lyrics" rows="8"><?= htmlspecialchars($editing['lyrics'] ?? '') ?></textarea>
                         </div>
 
                         <button class="btn btn-success fw-bold w-100" type="submit">Lưu bài hát</button>
@@ -241,7 +266,7 @@
                                                         <?php if ($linkedArtistId > 0): ?>
                                                             <div class="btn-group" role="group">
                                                                 <a class="btn btn-sm btn-info border d-flex align-items-center justify-content-cente text-nowrap" type="button" href="<?= htmlspecialchars($musicPublicArtistUrl($linkedArtistId, $artistName)) ?>" target="_blank" rel="noopener noreferrer"><?= htmlspecialchars($artistName) ?></a>
-                                                                <a class="btn btn-sm btn-secondary border d-flex align-items-center justify-content-cente" type="button" target="_blank" href="https://www.google.com/search?tbm=vid&q=<?= htmlspecialchars($artistName) ?>"><i data-lucide="user-round-search" style="width:15px;height:15px"></i></a>
+                                                                <a class="btn btn-sm btn-secondary border d-flex align-items-center justify-content-cente" type="button" target="_blank" href="https://www.google.com/search?tbm=vid&q=<?= urlencode($artistName . ' mv video') ?>"><i data-lucide="user-round-search" style="width:15px;height:15px"></i></a>
                                                             </div>
                                                         <?php else: ?>
                                                             <span class="badge text-bg-light border"><?= htmlspecialchars($artistName) ?></span>
@@ -259,7 +284,13 @@
                                         </td>
                                         <td class="text-end">
                                             <a class="btn btn-sm btn-warning" href="index.php?<?= htmlspecialchars(http_build_query($songEditParams)) ?>"><i data-lucide="pencil" style="width:15px;height:15px"></i></a>
-                                            <form class="d-inline js-confirm-delete" method="post">
+                                            <form
+                                                class="d-inline js-confirm-delete"
+                                                method="post"
+                                                data-confirm-title="Xóa bài hát?"
+                                                data-confirm="Bạn có chắc muốn xóa bài hát &quot;<?= htmlspecialchars($song['name'] ?? $song['id']) ?>&quot;? Hành động này không thể hoàn tác."
+                                                data-confirm-button="Xóa bài hát"
+                                            >
                                                 <input type="hidden" name="action" value="delete_song">
                                                 <input type="hidden" name="id" value="<?= htmlspecialchars($song['id']) ?>">
                                                 <button class="btn btn-sm btn-danger" type="submit"><i data-lucide="trash-2" style="width:15px;height:15px"></i></button>
@@ -414,6 +445,15 @@
                             <input class="form-control" id="genre_title" name="title" value="<?= htmlspecialchars($editing['title'] ?? '') ?>">
                         </div>
                         <div class="mb-3">
+                            <label class="form-label" for="genre_lang_key">Lang description</label>
+                            <select class="form-control js-country-select" id="genre_lang_key" name="lang_key">
+                                <option value="" <?= ($editingGenreLangKey ?? '') === '' ? 'selected' : '' ?>>Tất cả</option>
+                                <?= admin_language_select_options($languageOptions, (string) ($editingGenreLangKey ?? '')) ?>
+                            </select>
+                            <input type="hidden" name="default_description" value="<?= htmlspecialchars($editingGenreDefaultDescription) ?>">
+                            <div class="form-text">Tất cả lưu vào <code>song_genre.description</code>. Chọn lang sẽ lưu vào <code>song_genre_lang</code> và CarrotMusic sẽ fallback về mô tả mặc định nếu lang chưa có nội dung.</div>
+                        </div>
+                        <div class="mb-3">
                             <label class="form-label" for="genre_avatar">Avatar</label>
                             <div class="input-group">
                                 <input class="form-control" id="genre_avatar" name="avatar" value="<?= htmlspecialchars($editing['avatar'] ?? '') ?>">
@@ -448,11 +488,41 @@
                 <div class="col-xl-7">
                     <div class="glass-panel p-4">
                         <h2 class="h5 mb-3">Thể loại</h2>
+                        <form class="row g-2 align-items-end mb-3" method="get">
+                            <input type="hidden" name="section" value="music">
+                            <input type="hidden" name="tab" value="genres">
+                            <div class="col-md-8">
+                                <label class="form-label" for="genre_q">Search</label>
+                                <input class="form-control" id="genre_q" name="genre_q" value="<?= htmlspecialchars($genreSearch) ?>" placeholder="Genre ID hoặc title">
+                            </div>
+                            <div class="col-md-4 d-flex gap-2">
+                                <button class="btn btn-secondary flex-fill" type="submit">Lọc</button>
+                                <?php if ($genreSearch !== ''): ?>
+                                    <a class="btn btn-light border" href="index.php?section=music&tab=genres">Xóa</a>
+                                <?php endif; ?>
+                            </div>
+                        </form>
+                        <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2">
+                            <div class="muted-text small"><?= number_format($genreTotal) ?> thể loại</div>
+                            <div class="muted-text small">Trang <?= number_format($genrePage) ?>/<?= number_format($genreTotalPages) ?></div>
+                        </div>
+                        <?php
+                        $genrePageParams = $_GET;
+                        unset($genrePageParams['edit'], $genrePageParams['genre_lang']);
+                        $genrePageParams['section'] = 'music';
+                        $genrePageParams['tab'] = 'genres';
+                        ?>
+                        <?= admin_pagination($genrePageParams, 'genre_page', $genrePage, $genreTotalPages, 'Phân trang thể loại', 'mb-3') ?>
                         <div class="table-responsive-sm">
                             <table class="table table-striped table-hover table-sm align-middle">
                                 <thead><tr><th>Genre</th><th>Avatar</th><th>Mô tả</th><th>Số bài</th><th></th></tr></thead>
                                 <tbody>
                                 <?php foreach ($songGenres as $genreRow): ?>
+                                    <?php
+                                    $genreEditParams = $genrePageParams;
+                                    $genreEditParams['genre_page'] = $genrePage;
+                                    $genreEditParams['edit'] = (string) $genreRow['genre_id'];
+                                    ?>
                                     <tr>
                                         <td>
                                             <a class="fw-bold text-decoration-none" href="<?= htmlspecialchars($musicPublicGenreUrl($genreRow['genre_id'], $genreRow['title'] ?: $genreRow['genre_id'])) ?>" target="_blank" rel="noopener noreferrer">
@@ -470,7 +540,7 @@
                                         <td><?= htmlspecialchars(admin_excerpt(strip_tags($genreRow['description']) ?? '', 50)) ?></td>
                                         <td><?= number_format((int) ($genreRow['song_count'] ?? 0)) ?></td>
                                         <td class="text-end">
-                                            <a class="btn btn-sm btn-warning" href="index.php?section=music&tab=genres&edit=<?= urlencode($genreRow['genre_id']) ?>"><i data-lucide="pencil" style="width:15px;height:15px"></i></a>
+                                            <a class="btn btn-sm btn-warning" href="index.php?<?= htmlspecialchars(http_build_query($genreEditParams)) ?>"><i data-lucide="pencil" style="width:15px;height:15px"></i></a>
                                             <form class="d-inline js-confirm-delete" method="post">
                                                 <input type="hidden" name="action" value="delete_song_genre">
                                                 <input type="hidden" name="genre_id" value="<?= htmlspecialchars($genreRow['genre_id']) ?>">
@@ -480,6 +550,34 @@
                                     </tr>
                                 <?php endforeach; ?>
                                 <?php if (!$songGenres): ?><tr><td colspan="5" class="text-center text-muted py-4">Chưa có thể loại.</td></tr><?php endif; ?>
+                                </tbody>
+                            </table>
+                        </div>
+                        <?= admin_pagination($genrePageParams, 'genre_page', $genrePage, $genreTotalPages, 'Phân trang thể loại') ?>
+                        <h3 class="h6 mt-4 mb-2">Mô tả theo ngôn ngữ</h3>
+                        <div class="table-responsive-sm">
+                            <table class="table table-striped table-hover table-sm align-middle">
+                                <thead><tr><th>Genre</th><th>Lang</th><th>Mô tả</th><th></th></tr></thead>
+                                <tbody>
+                                <?php foreach ($songGenreLangRows as $langRow): ?>
+                                    <tr>
+                                        <td>
+                                            <strong><?= htmlspecialchars($langRow['title'] ?: $langRow['genre_id']) ?></strong>
+                                            <div class="small text-muted"><?= htmlspecialchars($langRow['genre_id']) ?></div>
+                                        </td>
+                                        <td><span class="badge text-bg-light border text-dark"><?= htmlspecialchars($langRow['lang_key']) ?></span></td>
+                                        <td><?= htmlspecialchars(admin_excerpt(strip_tags($langRow['description']) ?? '', 70)) ?></td>
+                                        <td class="text-end">
+                                            <a class="btn btn-sm btn-warning" href="index.php?section=music&tab=genres&edit=<?= urlencode($langRow['genre_id']) ?>&genre_lang=<?= urlencode($langRow['lang_key']) ?>"><i data-lucide="pencil" style="width:15px;height:15px"></i></a>
+                                            <form class="d-inline js-confirm-delete" method="post">
+                                                <input type="hidden" name="action" value="delete_song_genre_lang">
+                                                <input type="hidden" name="id" value="<?= (int) $langRow['id'] ?>">
+                                                <button class="btn btn-sm btn-danger" type="submit"><i data-lucide="trash-2" style="width:15px;height:15px"></i></button>
+                                            </form>
+                                        </td>
+                                    </tr>
+                                <?php endforeach; ?>
+                                <?php if (!$songGenreLangRows): ?><tr><td colspan="4" class="text-center text-muted py-4">Chưa có mô tả theo ngôn ngữ.</td></tr><?php endif; ?>
                                 </tbody>
                             </table>
                         </div>
@@ -638,6 +736,55 @@
                         .replace(/(^|\s)(\S)/gu, (match, prefix, firstChar) => prefix + firstChar.toLocaleUpperCase('vi-VN'));
                     nameInput.focus();
                 });
+            }
+
+            const lyricsSearchLink = document.querySelector('.js-song-lyrics-search');
+            if (lyricsSearchLink) {
+                const nameInput = document.getElementById('song_name');
+                const artistInput = document.getElementById('song_artist');
+                const buildLyricsSearchUrl = () => {
+                    const query = [nameInput?.value || '', artistInput?.value || '', 'lyrics']
+                        .map((value) => String(value).trim())
+                        .filter(Boolean)
+                        .join(' ');
+                    return 'https://www.google.com/search?q=' + encodeURIComponent(query || 'lyrics');
+                };
+                const refreshLyricsSearchUrl = () => {
+                    lyricsSearchLink.href = buildLyricsSearchUrl();
+                };
+                nameInput?.addEventListener('input', refreshLyricsSearchUrl);
+                artistInput?.addEventListener('input', refreshLyricsSearchUrl);
+                nameInput?.addEventListener('change', refreshLyricsSearchUrl);
+                artistInput?.addEventListener('change', refreshLyricsSearchUrl);
+                lyricsSearchLink.addEventListener('click', () => {
+                    refreshLyricsSearchUrl();
+                });
+                refreshLyricsSearchUrl();
+            }
+
+            const genreSearchLink = document.querySelector('.js-song-genre-search');
+            if (genreSearchLink) {
+                const nameInput = document.getElementById('song_name');
+                const artistInput = document.getElementById('song_artist');
+                const buildGenreSearchUrl = () => {
+                    const songText = [nameInput?.value || '', artistInput?.value || '']
+                        .map((value) => String(value).trim())
+                        .filter(Boolean)
+                        .join(' ');
+                    const query = (songText ? songText + ' ' : '') + 'là thể loại nhạc gì?';
+                    return 'https://www.google.com/search?q=' + encodeURIComponent(query);
+                };
+                const refreshGenreSearchUrl = () => {
+                    genreSearchLink.href = buildGenreSearchUrl();
+                };
+                nameInput?.addEventListener('input', refreshGenreSearchUrl);
+                artistInput?.addEventListener('input', refreshGenreSearchUrl);
+                nameInput?.addEventListener('change', refreshGenreSearchUrl);
+                artistInput?.addEventListener('change', refreshGenreSearchUrl);
+                genreSearchLink.addEventListener('click', () => {
+                    refreshGenreSearchUrl();
+                });
+                refreshGenreSearchUrl();
             }
 
             const songFillFromPayload = (payload) => {

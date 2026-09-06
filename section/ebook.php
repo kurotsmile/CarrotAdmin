@@ -14,7 +14,15 @@
                         <input type="hidden" name="original_id" value="<?= htmlspecialchars($editing['id'] ?? '') ?>">
                         <h2 class="h5 mb-3"><?= $editing ? 'Cập nhật ebook' : 'Thêm ebook' ?></h2>
                         <div class="row g-3">
-                            <div class="col-md-5"><label class="form-label" for="ebook_id">ID</label><input class="form-control" id="ebook_id" name="id" value="<?= htmlspecialchars($editing['id'] ?? '') ?>" required></div>
+                            <div class="col-md-5">
+                                <label class="form-label" for="ebook_id">ID</label>
+                                <div class="input-group">
+                                    <input class="form-control" id="ebook_id" name="id" value="<?= htmlspecialchars($editing['id'] ?? '') ?>" required>
+                                    <button class="btn btn-outline-secondary js-copy-field" type="button" data-copy-target="#ebook_id" title="Copy ID" aria-label="Copy ID">
+                                        <i data-lucide="copy" style="width:16px;height:16px"></i>
+                                    </button>
+                                </div>
+                            </div>
                             <div class="col-md-7"><label class="form-label" for="ebook_name">Tên sách</label><input class="form-control" id="ebook_name" name="name" value="<?= htmlspecialchars($editing['name'] ?? '') ?>" required></div>
                         </div>
                         <div class="row g-3 mt-0">
@@ -56,8 +64,18 @@
                                 <thead><tr><th>Sách</th><th>Chuyên mục</th><th>User</th><th>Giá</th><th>Status</th><th></th></tr></thead>
                                 <tbody>
                                 <?php foreach ($ebooks as $book): ?>
+                                    <?php $ebookPublicUrl = 'https://ebook.carrot28.com/book.php?id=' . rawurlencode((string) ($book['id'] ?? '')); ?>
                                     <tr>
-                                        <td><div class="d-flex align-items-center gap-2"><?php if (!empty($book['cover'])): ?><img src="<?= htmlspecialchars($book['cover']) ?>" alt="" style="width:42px;height:58px;object-fit:cover;border-radius:6px"><?php endif; ?><div><strong><?= htmlspecialchars($book['name'] ?? $book['id']) ?></strong><div class="small text-muted"><?= htmlspecialchars(($book['author'] ?? '') . ' · ' . ($book['id'] ?? '')) ?></div></div></div></td>
+                                        <td>
+                                            <div class="d-flex align-items-center gap-2">
+                                                <?php if (!empty($book['cover'])): ?>
+                                                    <a href="<?= htmlspecialchars($ebookPublicUrl) ?>" target="_blank" rel="noopener noreferrer" title="Xem thông tin ebook">
+                                                        <img src="<?= htmlspecialchars($book['cover']) ?>" alt="" style="width:42px;height:58px;object-fit:cover;border-radius:6px">
+                                                    </a>
+                                                <?php endif; ?>
+                                                <div><strong><?= htmlspecialchars($book['name'] ?? $book['id']) ?></strong><div class="small text-muted"><?= htmlspecialchars(($book['author'] ?? '') . ' · ' . ($book['id'] ?? '')) ?></div></div>
+                                            </div>
+                                        </td>
                                         <td><?= htmlspecialchars($book['category_name'] ?? $book['category_id'] ?? '') ?></td>
                                         <td><?= htmlspecialchars($book['user_name'] ?? ($book['user'] ?? '-')) ?><div class="small text-muted"><?= htmlspecialchars($book['user_email'] ?? (!empty($book['user_id']) ? '#' . (int) $book['user_id'] : '')) ?></div></td>
                                         <td><?= !empty($book['is_free']) ? '<span class="badge text-bg-success">Free</span>' : htmlspecialchars(number_format((float) ($book['price'] ?? 0), 2) . ' ' . ($book['currency'] ?? 'USD')) ?></td>

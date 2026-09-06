@@ -1,0 +1,829 @@
+'"php"' is not recognized as an internal or external command,
+operable program or batch file.
+'"php"' is not recognized as an internal or external command,
+operable program or batch file.
+'"php"' is not recognized as an internal or external command,
+operable program or batch file.
+{
+    "status": "success",
+    "delete_raw": true,
+    "databases": {
+        "main": {
+            "through_date": "2026-08-17",
+            "max_days": 0,
+            "total_pending_days": 29,
+            "processed_days": 29,
+            "has_more": false,
+            "items": [
+                {
+                    "date": "2026-07-20",
+                    "sites": 4,
+                    "deleted_daily": 461,
+                    "deleted_hourly": 839,
+                    "skipped": false
+                },
+                {
+                    "date": "2026-07-21",
+                    "sites": 5,
+                    "deleted_daily": 1273,
+                    "deleted_hourly": 2037,
+                    "skipped": false
+                },
+                {
+                    "date": "2026-07-22",
+                    "sites": 5,
+                    "deleted_daily": 997,
+                    "deleted_hourly": 1703,
+                    "skipped": false
+                },
+                {
+                    "date": "2026-07-23",
+                    "sites": 5,
+                    "deleted_daily": 1827,
+                    "deleted_hourly": 3229,
+                    "skipped": false
+                },
+                {
+                    "date": "2026-07-24",
+                    "sites": 5,
+                    "deleted_daily": 2257,
+                    "deleted_hourly": 4807,
+                    "skipped": false
+                },
+                {
+                    "date": "2026-07-25",
+                    "sites": 5,
+                    "deleted_daily": 2262,
+                    "deleted_hourly": 5096,
+                    "skipped": false
+                },
+                {
+                    "date": "2026-07-26",
+                    "sites": 5,
+                    "deleted_daily": 3081,
+                    "deleted_hourly": 8434,
+                    "skipped": false
+                },
+                {
+                    "date": "2026-07-27",
+                    "sites": 5,
+                    "deleted_daily": 1747,
+                    "deleted_hourly": 7661,
+                    "skipped": false
+                },
+                {
+                    "date": "2026-07-28",
+                    "sites": 6,
+                    "deleted_daily": 3420,
+                    "deleted_hourly": 14819,
+                    "skipped": false
+                },
+                {
+                    "date": "2026-07-29",
+                    "sites": 5,
+                    "deleted_daily": 3096,
+                    "deleted_hourly": 6579,
+                    "skipped": false
+                },
+                {
+                    "date": "2026-07-30",
+                    "sites": 6,
+                    "deleted_daily": 4991,
+                    "deleted_hourly": 9503,
+                    "skipped": false
+                },
+                {
+                    "date": "2026-07-31",
+                    "sites": 6,
+                    "deleted_daily": 5781,
+                    "deleted_hourly": 10548,
+                    "skipped": false
+                },
+                {
+                    "date": "2026-08-01",
+                    "sites": 5,
+                    "deleted_daily": 3916,
+                    "deleted_hourly": 5500,
+                    "skipped": false
+                },
+                {
+                    "date": "2026-08-02",
+                    "sites": 5,
+                    "deleted_daily": 3053,
+                    "deleted_hourly": 5815,
+                    "skipped": false
+                },
+                {
+                    "date": "2026-08-03",
+                    "sites": 5,
+                    "deleted_daily": 2035,
+                    "deleted_hourly": 3504,
+                    "skipped": false
+                },
+                {
+                    "date": "2026-08-04",
+                    "sites": 6,
+                    "deleted_daily": 2214,
+                    "deleted_hourly": 4375,
+                    "skipped": false
+                },
+                {
+                    "date": "2026-08-05",
+                    "sites": 5,
+                    "deleted_daily": 2652,
+                    "deleted_hourly": 4719,
+                    "skipped": false
+                },
+                {
+                    "date": "2026-08-06",
+                    "sites": 5,
+                    "deleted_daily": 3070,
+                    "deleted_hourly": 4944,
+                    "skipped": false
+                },
+                {
+                    "date": "2026-08-07",
+                    "sites": 5,
+                    "deleted_daily": 3824,
+                    "deleted_hourly": 7099,
+                    "skipped": false
+                },
+                {
+                    "date": "2026-08-08",
+                    "sites": 6,
+                    "deleted_daily": 4251,
+                    "deleted_hourly": 8088,
+                    "skipped": false
+                },
+                {
+                    "date": "2026-08-09",
+                    "sites": 5,
+                    "deleted_daily": 2390,
+                    "deleted_hourly": 4298,
+                    "skipped": false
+                },
+                {
+                    "date": "2026-08-10",
+                    "sites": 5,
+                    "deleted_daily": 2163,
+                    "deleted_hourly": 3904,
+                    "skipped": false
+                },
+                {
+                    "date": "2026-08-11",
+                    "sites": 5,
+                    "deleted_daily": 3323,
+                    "deleted_hourly": 5258,
+                    "skipped": false
+                },
+                {
+                    "date": "2026-08-12",
+                    "sites": 5,
+                    "deleted_daily": 4328,
+                    "deleted_hourly": 6683,
+                    "skipped": false
+                },
+                {
+                    "date": "2026-08-13",
+                    "sites": 5,
+                    "deleted_daily": 3007,
+                    "deleted_hourly": 5154,
+                    "skipped": false
+                },
+                {
+                    "date": "2026-08-14",
+                    "sites": 6,
+                    "deleted_daily": 3662,
+                    "deleted_hourly": 5474,
+                    "skipped": false
+                },
+                {
+                    "date": "2026-08-15",
+                    "sites": 5,
+                    "deleted_daily": 2166,
+                    "deleted_hourly": 3892,
+                    "skipped": false
+                },
+                {
+                    "date": "2026-08-16",
+                    "sites": 5,
+                    "deleted_daily": 4021,
+                    "deleted_hourly": 5781,
+                    "skipped": false
+                },
+                {
+                    "date": "2026-08-17",
+                    "sites": 5,
+                    "deleted_daily": 10842,
+                    "deleted_hourly": 12244,
+                    "skipped": false
+                }
+            ]
+        }
+    }
+}
+{
+    "status": "success",
+    "delete_raw": true,
+    "databases": {
+        "main": {
+            "through_date": "2026-08-18",
+            "max_days": 0,
+            "total_pending_days": 1,
+            "processed_days": 1,
+            "has_more": false,
+            "items": [
+                {
+                    "date": "2026-08-18",
+                    "sites": 5,
+                    "deleted_daily": 15795,
+                    "deleted_hourly": 17355,
+                    "skipped": false
+                }
+            ]
+        }
+    }
+}
+{
+    "status": "success",
+    "delete_raw": true,
+    "databases": {
+        "main": {
+            "through_date": "2026-08-19",
+            "max_days": 0,
+            "total_pending_days": 1,
+            "processed_days": 1,
+            "has_more": false,
+            "items": [
+                {
+                    "date": "2026-08-19",
+                    "sites": 5,
+                    "deleted_daily": 5137,
+                    "deleted_hourly": 6688,
+                    "skipped": false
+                }
+            ]
+        }
+    }
+}
+{
+    "status": "success",
+    "delete_raw": true,
+    "databases": {
+        "main": {
+            "through_date": "2026-08-20",
+            "max_days": 0,
+            "total_pending_days": 1,
+            "processed_days": 1,
+            "has_more": false,
+            "items": [
+                {
+                    "date": "2026-08-20",
+                    "sites": 6,
+                    "deleted_daily": 14892,
+                    "deleted_hourly": 16304,
+                    "skipped": false
+                }
+            ]
+        }
+    }
+}
+{
+    "status": "success",
+    "delete_raw": true,
+    "databases": {
+        "main": {
+            "through_date": "2026-08-21",
+            "max_days": 0,
+            "total_pending_days": 1,
+            "processed_days": 1,
+            "has_more": false,
+            "items": [
+                {
+                    "date": "2026-08-21",
+                    "sites": 5,
+                    "deleted_daily": 8650,
+                    "deleted_hourly": 10813,
+                    "skipped": false
+                }
+            ]
+        }
+    }
+}
+{
+    "status": "success",
+    "delete_raw": true,
+    "databases": {
+        "main": {
+            "through_date": "2026-08-22",
+            "max_days": 0,
+            "total_pending_days": 1,
+            "processed_days": 1,
+            "has_more": false,
+            "items": [
+                {
+                    "date": "2026-08-22",
+                    "sites": 5,
+                    "deleted_daily": 3322,
+                    "deleted_hourly": 5256,
+                    "skipped": false
+                }
+            ]
+        }
+    }
+}
+{
+    "status": "success",
+    "delete_raw": true,
+    "delete_created": true,
+    "databases": {
+        "main": {
+            "through_date": "2026-08-23",
+            "max_days": 0,
+            "total_pending_days": 1,
+            "processed_days": 1,
+            "has_more": false,
+            "items": [
+                {
+                    "date": "2026-08-23",
+                    "sites": 6,
+                    "deleted_daily": 2354,
+                    "deleted_hourly": 4153,
+                    "skipped": false
+                }
+            ]
+        }
+    },
+    "created_orders": {
+        "total": 3012,
+        "items": {
+            "App": 7,
+            "Âm nhạc": 3005,
+            "Sách": 0,
+            "Cloud": 0,
+            "COC": 0
+        }
+    }
+}
+{
+    "status": "success",
+    "delete_raw": true,
+    "delete_created": true,
+    "databases": {
+        "main": {
+            "through_date": "2026-08-24",
+            "max_days": 0,
+            "total_pending_days": 1,
+            "processed_days": 1,
+            "has_more": false,
+            "items": [
+                {
+                    "date": "2026-08-24",
+                    "sites": 6,
+                    "deleted_daily": 2202,
+                    "deleted_hourly": 3715,
+                    "skipped": false
+                }
+            ]
+        }
+    },
+    "created_orders": {
+        "total": 3547,
+        "items": {
+            "App": 82,
+            "Âm nhạc": 3464,
+            "Sách": 1,
+            "Cloud": 0,
+            "COC": 0
+        }
+    }
+}
+{
+    "status": "success",
+    "delete_raw": true,
+    "delete_created": true,
+    "databases": {
+        "main": {
+            "through_date": "2026-08-25",
+            "max_days": 0,
+            "total_pending_days": 1,
+            "processed_days": 1,
+            "has_more": false,
+            "items": [
+                {
+                    "date": "2026-08-25",
+                    "sites": 6,
+                    "deleted_daily": 2680,
+                    "deleted_hourly": 4208,
+                    "skipped": false
+                }
+            ]
+        }
+    },
+    "created_orders": {
+        "total": 1020,
+        "items": {
+            "App": 12,
+            "Âm nhạc": 1007,
+            "Sách": 1,
+            "Cloud": 0,
+            "COC": 0
+        }
+    }
+}
+{
+    "status": "success",
+    "delete_raw": true,
+    "delete_created": true,
+    "databases": {
+        "main": {
+            "through_date": "2026-08-26",
+            "max_days": 0,
+            "total_pending_days": 1,
+            "processed_days": 1,
+            "has_more": false,
+            "items": [
+                {
+                    "date": "2026-08-26",
+                    "sites": 6,
+                    "deleted_daily": 2594,
+                    "deleted_hourly": 4114,
+                    "skipped": false
+                }
+            ]
+        }
+    },
+    "created_orders": {
+        "total": 3179,
+        "items": {
+            "App": 23,
+            "Âm nhạc": 3152,
+            "Sách": 4,
+            "Cloud": 0,
+            "COC": 0
+        }
+    }
+}
+{
+    "status": "success",
+    "delete_raw": true,
+    "delete_created": true,
+    "databases": {
+        "main": {
+            "through_date": "2026-08-27",
+            "max_days": 0,
+            "total_pending_days": 1,
+            "processed_days": 1,
+            "has_more": false,
+            "items": [
+                {
+                    "date": "2026-08-27",
+                    "sites": 6,
+                    "deleted_daily": 3940,
+                    "deleted_hourly": 6076,
+                    "skipped": false
+                }
+            ]
+        }
+    },
+    "created_orders": {
+        "total": 1996,
+        "items": {
+            "App": 45,
+            "Âm nhạc": 1950,
+            "Sách": 1,
+            "Cloud": 0,
+            "COC": 0
+        }
+    }
+}
+{
+    "status": "success",
+    "delete_raw": true,
+    "delete_created": true,
+    "databases": {
+        "main": {
+            "through_date": "2026-08-28",
+            "max_days": 0,
+            "total_pending_days": 1,
+            "processed_days": 1,
+            "has_more": false,
+            "items": [
+                {
+                    "date": "2026-08-28",
+                    "sites": 6,
+                    "deleted_daily": 4191,
+                    "deleted_hourly": 6387,
+                    "skipped": false
+                }
+            ]
+        }
+    },
+    "created_orders": {
+        "total": 2032,
+        "items": {
+            "App": 82,
+            "Âm nhạc": 1950,
+            "Sách": 0,
+            "Cloud": 0,
+            "COC": 0
+        }
+    }
+}
+{
+    "status": "success",
+    "delete_raw": true,
+    "delete_created": true,
+    "databases": {
+        "main": {
+            "through_date": "2026-08-29",
+            "max_days": 0,
+            "total_pending_days": 1,
+            "processed_days": 1,
+            "has_more": false,
+            "items": [
+                {
+                    "date": "2026-08-29",
+                    "sites": 6,
+                    "deleted_daily": 2927,
+                    "deleted_hourly": 4922,
+                    "skipped": false
+                }
+            ]
+        }
+    },
+    "created_orders": {
+        "total": 50,
+        "items": {
+            "App": 0,
+            "Âm nhạc": 50,
+            "Sách": 0,
+            "Cloud": 0,
+            "COC": 0
+        }
+    }
+}
+{
+    "status": "success",
+    "delete_raw": true,
+    "delete_created": true,
+    "databases": {
+        "main": {
+            "through_date": "2026-08-30",
+            "max_days": 0,
+            "total_pending_days": 1,
+            "processed_days": 1,
+            "has_more": false,
+            "items": [
+                {
+                    "date": "2026-08-30",
+                    "sites": 6,
+                    "deleted_daily": 2363,
+                    "deleted_hourly": 4901,
+                    "skipped": false
+                }
+            ]
+        }
+    },
+    "created_orders": {
+        "total": 697,
+        "items": {
+            "App": 3,
+            "Âm nhạc": 690,
+            "Sách": 4,
+            "Cloud": 0,
+            "COC": 0
+        }
+    }
+}
+{
+    "status": "success",
+    "delete_raw": true,
+    "delete_created": true,
+    "databases": {
+        "main": {
+            "through_date": "2026-08-31",
+            "max_days": 0,
+            "total_pending_days": 1,
+            "processed_days": 1,
+            "has_more": false,
+            "items": [
+                {
+                    "date": "2026-08-31",
+                    "sites": 5,
+                    "deleted_daily": 3635,
+                    "deleted_hourly": 6349,
+                    "skipped": false
+                }
+            ]
+        }
+    },
+    "created_orders": {
+        "total": 3316,
+        "items": {
+            "App": 32,
+            "Âm nhạc": 3284,
+            "Sách": 0,
+            "Cloud": 0,
+            "COC": 0
+        }
+    }
+}
+{
+    "status": "success",
+    "delete_raw": true,
+    "delete_created": true,
+    "databases": {
+        "main": {
+            "through_date": "2026-09-01",
+            "max_days": 0,
+            "total_pending_days": 1,
+            "processed_days": 1,
+            "has_more": false,
+            "items": [
+                {
+                    "date": "2026-09-01",
+                    "sites": 5,
+                    "deleted_daily": 3185,
+                    "deleted_hourly": 5547,
+                    "skipped": false
+                }
+            ]
+        }
+    },
+    "created_orders": {
+        "total": 1115,
+        "items": {
+            "App": 20,
+            "Âm nhạc": 1093,
+            "Sách": 2,
+            "Cloud": 0,
+            "COC": 0
+        }
+    }
+}
+{
+    "status": "success",
+    "delete_raw": true,
+    "delete_created": true,
+    "databases": {
+        "main": {
+            "through_date": "2026-09-02",
+            "max_days": 0,
+            "total_pending_days": 1,
+            "processed_days": 1,
+            "has_more": false,
+            "items": [
+                {
+                    "date": "2026-09-02",
+                    "sites": 6,
+                    "deleted_daily": 3664,
+                    "deleted_hourly": 6217,
+                    "skipped": false
+                }
+            ]
+        }
+    },
+    "created_orders": {
+        "total": 884,
+        "items": {
+            "App": 32,
+            "Âm nhạc": 831,
+            "Sách": 21,
+            "Cloud": 0,
+            "COC": 0
+        }
+    }
+}
+{
+    "status": "success",
+    "delete_raw": true,
+    "delete_created": true,
+    "databases": {
+        "main": {
+            "through_date": "2026-09-03",
+            "max_days": 0,
+            "total_pending_days": 1,
+            "processed_days": 1,
+            "has_more": false,
+            "items": [
+                {
+                    "date": "2026-09-03",
+                    "sites": 5,
+                    "deleted_daily": 2593,
+                    "deleted_hourly": 4768,
+                    "skipped": false
+                }
+            ]
+        }
+    },
+    "created_orders": {
+        "total": 1049,
+        "items": {
+            "App": 13,
+            "Âm nhạc": 1015,
+            "Sách": 21,
+            "Cloud": 0,
+            "COC": 0
+        }
+    }
+}
+{
+    "status": "success",
+    "delete_raw": true,
+    "delete_created": true,
+    "databases": {
+        "main": {
+            "through_date": "2026-09-04",
+            "max_days": 0,
+            "total_pending_days": 1,
+            "processed_days": 1,
+            "has_more": false,
+            "items": [
+                {
+                    "date": "2026-09-04",
+                    "sites": 4,
+                    "deleted_daily": 4873,
+                    "deleted_hourly": 7420,
+                    "skipped": false
+                }
+            ]
+        }
+    },
+    "created_orders": {
+        "total": 3972,
+        "items": {
+            "App": 13,
+            "Âm nhạc": 3955,
+            "Sách": 4,
+            "Cloud": 0,
+            "COC": 0
+        }
+    }
+}
+{
+    "status": "success",
+    "delete_raw": true,
+    "delete_created": true,
+    "databases": {
+        "main": {
+            "through_date": "2026-09-05",
+            "max_days": 0,
+            "total_pending_days": 1,
+            "processed_days": 1,
+            "has_more": false,
+            "items": [
+                {
+                    "date": "2026-09-05",
+                    "sites": 6,
+                    "deleted_daily": 3973,
+                    "deleted_hourly": 6340,
+                    "skipped": false
+                }
+            ]
+        }
+    },
+    "created_orders": {
+        "total": 1013,
+        "items": {
+            "App": 14,
+            "Âm nhạc": 999,
+            "Sách": 0,
+            "Cloud": 0,
+            "COC": 0
+        }
+    }
+}
+{
+    "status": "success",
+    "delete_raw": true,
+    "delete_created": true,
+    "databases": {
+        "main": {
+            "through_date": "2026-09-06",
+            "max_days": 0,
+            "total_pending_days": 1,
+            "processed_days": 1,
+            "has_more": false,
+            "items": [
+                {
+                    "date": "2026-09-06",
+                    "sites": 6,
+                    "deleted_daily": 3677,
+                    "deleted_hourly": 5863,
+                    "skipped": false
+                }
+            ]
+        }
+    },
+    "created_orders": {
+        "total": 1293,
+        "items": {
+            "App": 10,
+            "Âm nhạc": 1278,
+            "Sách": 5,
+            "Cloud": 0,
+            "COC": 0
+        }
+    }
+}

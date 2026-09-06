@@ -624,6 +624,23 @@ function admin_ensure_music_tables(PDO $pdo): void
     ");
 
     $pdo->exec("
+        CREATE TABLE IF NOT EXISTS song_genre_lang (
+          id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+          genre_id VARCHAR(120) NOT NULL,
+          lang_key VARCHAR(24) NOT NULL,
+          description TEXT DEFAULT NULL,
+          created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+          PRIMARY KEY (id),
+          UNIQUE KEY uq_song_genre_lang (genre_id, lang_key),
+          KEY idx_song_genre_lang_key (lang_key),
+          CONSTRAINT fk_song_genre_lang_genre
+            FOREIGN KEY (genre_id) REFERENCES song_genre (genre_id)
+            ON DELETE CASCADE ON UPDATE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    ");
+
+    $pdo->exec("
         CREATE TABLE IF NOT EXISTS song_orders (
           id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
           song_id VARCHAR(255) NOT NULL,
@@ -672,6 +689,25 @@ function admin_ensure_music_tables(PDO $pdo): void
 
     admin_ensure_song_view_table($pdo);
     admin_ensure_song_search_log_table($pdo);
+    admin_ensure_music_playlist_table($pdo);
+}
+
+function admin_ensure_music_playlist_table(PDO $pdo): void
+{
+    $pdo->exec("
+        CREATE TABLE IF NOT EXISTS music_playlist (
+          id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+          user_id BIGINT UNSIGNED NOT NULL,
+          name VARCHAR(255) NOT NULL,
+          description TEXT DEFAULT NULL,
+          songs_json JSON DEFAULT NULL,
+          created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+          PRIMARY KEY (id),
+          KEY idx_music_playlist_user_id (user_id),
+          KEY idx_music_playlist_user_updated (user_id, updated_at)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    ");
 }
 
 function admin_ensure_app_order_table(PDO $pdo): void
@@ -849,6 +885,177 @@ function admin_ensure_ebook_tables(PDO $pdo): void
             ON DELETE CASCADE ON UPDATE CASCADE
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     ");
+}
+
+function admin_ensure_rom_tables(PDO $pdo): void
+{
+    $pdo->exec("
+        CREATE TABLE IF NOT EXISTS rom_console (
+          id VARCHAR(120) NOT NULL,
+          name VARCHAR(255) NOT NULL,
+          emulator VARCHAR(120) DEFAULT NULL,
+          sort_order INT NOT NULL DEFAULT 0,
+          status VARCHAR(32) NOT NULL DEFAULT 'active',
+          created_at VARCHAR(64) NOT NULL DEFAULT '',
+          updated_at VARCHAR(64) NOT NULL DEFAULT '',
+          PRIMARY KEY (id),
+          KEY idx_rom_console_status_sort (status, sort_order, name)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    ");
+
+    $pdo->exec("
+        CREATE TABLE IF NOT EXISTS rom_category (
+          id VARCHAR(120) NOT NULL,
+          name VARCHAR(255) NOT NULL,
+          description LONGTEXT DEFAULT NULL,
+          sort_order INT NOT NULL DEFAULT 0,
+          status VARCHAR(32) NOT NULL DEFAULT 'active',
+          created_at VARCHAR(64) NOT NULL DEFAULT '',
+          updated_at VARCHAR(64) NOT NULL DEFAULT '',
+          PRIMARY KEY (id),
+          KEY idx_rom_category_status_sort (status, sort_order, name),
+          FULLTEXT KEY ft_rom_category_search (name, description)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    ");
+
+    $pdo->exec("
+        CREATE TABLE IF NOT EXISTS rom (
+          id VARCHAR(255) NOT NULL,
+          name VARCHAR(255) NOT NULL,
+          platform VARCHAR(64) NOT NULL DEFAULT 'ps1',
+          emulator VARCHAR(64) NOT NULL DEFAULT '',
+          category VARCHAR(120) DEFAULT NULL,
+          region VARCHAR(32) DEFAULT NULL,
+          lang VARCHAR(16) DEFAULT 'en',
+          price DECIMAL(10,2) NOT NULL DEFAULT 0.00,
+          is_free TINYINT(1) NOT NULL DEFAULT 1,
+          status VARCHAR(32) NOT NULL DEFAULT 'draft',
+          avatar TEXT DEFAULT NULL,
+          photos LONGTEXT DEFAULT NULL,
+          file_rom TEXT DEFAULT NULL,
+          file_size VARCHAR(64) DEFAULT NULL,
+          sort_order INT NOT NULL DEFAULT 0,
+          description LONGTEXT DEFAULT NULL,
+          published_at VARCHAR(64) DEFAULT NULL,
+          created_at VARCHAR(64) NOT NULL DEFAULT '',
+          updated_at VARCHAR(64) NOT NULL DEFAULT '',
+          PRIMARY KEY (id),
+          KEY idx_rom_platform (platform),
+          KEY idx_rom_status (status),
+          KEY idx_rom_category (category),
+          KEY idx_rom_sort_order (sort_order),
+          KEY idx_rom_updated_at (updated_at),
+          FULLTEXT KEY ft_rom_search (name, category, description)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    ");
+
+    $columns = $pdo->query('SHOW COLUMNS FROM rom')->fetchAll(PDO::FETCH_COLUMN);
+    $columnSql = [
+        'emulator' => "VARCHAR(64) NOT NULL DEFAULT '' AFTER platform",
+        'category' => 'VARCHAR(120) DEFAULT NULL AFTER emulator',
+        'region' => 'VARCHAR(32) DEFAULT NULL AFTER category',
+        'lang' => "VARCHAR(16) DEFAULT 'en' AFTER region",
+        'price' => 'DECIMAL(10,2) NOT NULL DEFAULT 0.00 AFTER lang',
+        'is_free' => 'TINYINT(1) NOT NULL DEFAULT 1 AFTER price',
+        'status' => "VARCHAR(32) NOT NULL DEFAULT 'draft' AFTER is_free",
+        'avatar' => 'TEXT DEFAULT NULL AFTER status',
+        'photos' => 'LONGTEXT DEFAULT NULL AFTER avatar',
+        'file_rom' => 'TEXT DEFAULT NULL AFTER photos',
+        'file_size' => 'VARCHAR(64) DEFAULT NULL AFTER file_rom',
+        'sort_order' => 'INT NOT NULL DEFAULT 0 AFTER file_size',
+        'description' => 'LONGTEXT DEFAULT NULL AFTER sort_order',
+        'published_at' => 'VARCHAR(64) DEFAULT NULL AFTER description',
+        'created_at' => "VARCHAR(64) NOT NULL DEFAULT '' AFTER published_at",
+        'updated_at' => "VARCHAR(64) NOT NULL DEFAULT '' AFTER created_at",
+    ];
+    foreach ($columnSql as $column => $sql) {
+        if (!in_array($column, $columns, true)) {
+            $pdo->exec('ALTER TABLE rom ADD `' . $column . '` ' . $sql);
+        }
+    }
+    $columns = $pdo->query('SHOW COLUMNS FROM rom')->fetchAll(PDO::FETCH_COLUMN);
+    foreach (['currency', 'rating', 'version'] as $oldColumn) {
+        if (in_array($oldColumn, $columns, true)) {
+            $pdo->exec('ALTER TABLE rom DROP COLUMN `' . $oldColumn . '`');
+        }
+    }
+
+    $pdo->exec("
+        CREATE TABLE IF NOT EXISTS rom_console_map (
+          rom_id VARCHAR(255) NOT NULL,
+          console_id VARCHAR(120) NOT NULL,
+          PRIMARY KEY (rom_id, console_id),
+          KEY idx_rom_console_map_console (console_id),
+          CONSTRAINT fk_rom_console_map_rom
+            FOREIGN KEY (rom_id) REFERENCES rom (id)
+            ON DELETE CASCADE ON UPDATE CASCADE,
+          CONSTRAINT fk_rom_console_map_console
+            FOREIGN KEY (console_id) REFERENCES rom_console (id)
+            ON DELETE CASCADE ON UPDATE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    ");
+
+    $pdo->exec("
+        CREATE TABLE IF NOT EXISTS rom_category_map (
+          rom_id VARCHAR(255) NOT NULL,
+          category_id VARCHAR(120) NOT NULL,
+          PRIMARY KEY (rom_id, category_id),
+          KEY idx_rom_category_map_category (category_id),
+          CONSTRAINT fk_rom_category_map_rom
+            FOREIGN KEY (rom_id) REFERENCES rom (id)
+            ON DELETE CASCADE ON UPDATE CASCADE,
+          CONSTRAINT fk_rom_category_map_category
+            FOREIGN KEY (category_id) REFERENCES rom_category (id)
+            ON DELETE CASCADE ON UPDATE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    ");
+
+    $now = gmdate('c');
+    $consoleInsert = $pdo->prepare('INSERT IGNORE INTO rom_console (id, name, emulator, sort_order, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)');
+    foreach ([
+        ['ps1', 'PlayStation', '', 10],
+        ['ps2', 'PlayStation 2', '', 20],
+        ['psp', 'PSP / PPSSPP', 'PPSSPP', 30],
+        ['ps3', 'PlayStation 3', '', 40],
+        ['ps4', 'PlayStation 4', '', 50],
+        ['other', 'Khác', '', 999],
+    ] as $consoleSeed) {
+        $consoleInsert->execute([$consoleSeed[0], $consoleSeed[1], $consoleSeed[2], $consoleSeed[3], 'active', $now, $now]);
+    }
+
+    $legacyConsoleRows = $pdo->query('SELECT id, platform FROM rom WHERE TRIM(COALESCE(platform, "")) <> ""')->fetchAll(PDO::FETCH_ASSOC);
+    if ($legacyConsoleRows) {
+        $legacyConsoleInsert = $pdo->prepare('INSERT IGNORE INTO rom_console (id, name, created_at, updated_at) VALUES (?, ?, ?, ?)');
+        $legacyConsoleMapInsert = $pdo->prepare('INSERT IGNORE INTO rom_console_map (rom_id, console_id) VALUES (?, ?)');
+        foreach ($legacyConsoleRows as $row) {
+            foreach (preg_split('/\s*,\s*/', (string) ($row['platform'] ?? ''), -1, PREG_SPLIT_NO_EMPTY) ?: [] as $consoleId) {
+                $consoleId = trim((string) $consoleId);
+                if ($consoleId === '') {
+                    continue;
+                }
+                $consoleId = mb_substr($consoleId, 0, 120);
+                $legacyConsoleInsert->execute([$consoleId, strtoupper($consoleId), $now, $now]);
+                $legacyConsoleMapInsert->execute([(string) $row['id'], $consoleId]);
+            }
+        }
+    }
+
+    $legacyCategoryRows = $pdo->query('SELECT id, category FROM rom WHERE TRIM(COALESCE(category, "")) <> ""')->fetchAll(PDO::FETCH_ASSOC);
+    if ($legacyCategoryRows) {
+        $legacyCategoryInsert = $pdo->prepare('INSERT IGNORE INTO rom_category (id, name, created_at, updated_at) VALUES (?, ?, ?, ?)');
+        $legacyCategoryMapInsert = $pdo->prepare('INSERT IGNORE INTO rom_category_map (rom_id, category_id) VALUES (?, ?)');
+        foreach ($legacyCategoryRows as $row) {
+            foreach (preg_split('/\s*,\s*/', (string) ($row['category'] ?? ''), -1, PREG_SPLIT_NO_EMPTY) ?: [] as $categoryId) {
+                $categoryId = trim((string) $categoryId);
+                if ($categoryId === '') {
+                    continue;
+                }
+                $categoryId = mb_substr($categoryId, 0, 120);
+                $legacyCategoryInsert->execute([$categoryId, $categoryId, $now, $now]);
+                $legacyCategoryMapInsert->execute([(string) $row['id'], $categoryId]);
+            }
+        }
+    }
 }
 
 function admin_ensure_paypal_config_table(PDO $pdo): void
@@ -1260,6 +1467,13 @@ function admin_ensure_visit_daily_ip_table(PDO $pdo, string $defaultSite = 'web'
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     ");
 
+    admin_ensure_table_indexes($pdo, 'visit_daily_ip', [
+        'uq_visit_daily_ip' => 'ADD UNIQUE KEY uq_visit_daily_ip (site, visit_date, ip_address)',
+        'idx_visit_site_date' => 'ADD KEY idx_visit_site_date (site, visit_date)',
+        'idx_visit_country_date' => 'ADD KEY idx_visit_country_date (country_code, visit_date)',
+        'idx_visit_date' => 'ADD KEY idx_visit_date (visit_date)',
+        'idx_visit_last_seen_at' => 'ADD KEY idx_visit_last_seen_at (last_seen_at)',
+    ]);
 }
 
 function admin_ensure_visit_hourly_ip_table(PDO $pdo, string $defaultSite = 'web'): void
@@ -1291,6 +1505,13 @@ function admin_ensure_visit_hourly_ip_table(PDO $pdo, string $defaultSite = 'web
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     ");
 
+    admin_ensure_table_indexes($pdo, 'visit_hourly_ip', [
+        'uq_visit_hourly_ip' => 'ADD UNIQUE KEY uq_visit_hourly_ip (site, visit_date, visit_hour, ip_address)',
+        'idx_visit_hourly_site_date_hour' => 'ADD KEY idx_visit_hourly_site_date_hour (site, visit_date, visit_hour)',
+        'idx_visit_hourly_country_date' => 'ADD KEY idx_visit_hourly_country_date (country_code, visit_date)',
+        'idx_visit_hourly_date_hour' => 'ADD KEY idx_visit_hourly_date_hour (visit_date, visit_hour)',
+        'idx_visit_hourly_last_seen_at' => 'ADD KEY idx_visit_hourly_last_seen_at (last_seen_at)',
+    ]);
 }
 
 function admin_ensure_visit_traffic_report_table(PDO $pdo): void
@@ -1317,6 +1538,26 @@ function admin_ensure_visit_traffic_report_table(PDO $pdo): void
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     ");
 
+    admin_ensure_table_indexes($pdo, 'visit_traffic_report', [
+        'uq_visit_traffic_report' => 'ADD UNIQUE KEY uq_visit_traffic_report (site, report_date)',
+        'idx_visit_traffic_report_date' => 'ADD KEY idx_visit_traffic_report_date (report_date)',
+        'idx_visit_traffic_report_site_date' => 'ADD KEY idx_visit_traffic_report_site_date (site, report_date)',
+    ]);
+}
+
+function admin_ensure_table_indexes(PDO $pdo, string $table, array $indexSql): void
+{
+    $indexes = $pdo->query('SHOW INDEX FROM `' . str_replace('`', '``', $table) . '`')->fetchAll(PDO::FETCH_ASSOC);
+    $indexNames = array_unique(array_map('strval', array_column($indexes, 'Key_name')));
+    foreach ($indexSql as $indexName => $sql) {
+        if (!in_array($indexName, $indexNames, true)) {
+            try {
+                $pdo->exec('ALTER TABLE `' . str_replace('`', '``', $table) . '` ' . $sql);
+            } catch (Throwable $e) {
+                error_log('admin_ensure_table_indexes failed for ' . $table . '.' . $indexName . ': ' . $e->getMessage());
+            }
+        }
+    }
 }
 
 function admin_country_seed_rows(): array

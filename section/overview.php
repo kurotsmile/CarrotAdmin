@@ -81,16 +81,30 @@
                                 </div>
                             </div>
 
-                            <form class="js-delete d-flex"
-                                method="post"
-                                data-confirm="Clear toàn bộ cache CarrotAdmin, CarrotHome và CarrotMusic hiện tại?">
-                                <input type="hidden" name="action" value="clear_system_cache">
+                            <div class="d-flex flex-column gap-2">
+                                <form class="js-delete d-flex flex-fill"
+                                    method="post"
+                                    data-confirm="Clear toàn bộ cache CarrotAdmin, CarrotHome và CarrotMusic hiện tại?">
+                                    <input type="hidden" name="action" value="clear_system_cache">
 
-                                <button class="btn btn-dark fw-bold h-100 px-3 d-flex flex-column align-items-center justify-content-center gap-2" type="submit">
-                                    <i data-lucide="trash-2" style="width:18px;height:18px"></i>
-                                    <span>Clear Cache</span>
-                                </button>
-                            </form>
+                                    <button class="btn btn-dark fw-bold w-100 px-3 d-flex flex-column align-items-center justify-content-center gap-2" type="submit">
+                                        <i data-lucide="trash-2" style="width:18px;height:18px"></i>
+                                        <span>Clear Cache</span>
+                                    </button>
+                                </form>
+
+                                <form class="js-delete d-flex flex-fill"
+                                    method="post"
+                                    data-confirm="Xóa tất cả đơn có trạng thái CREATED ở App, Âm nhạc, Sách, Cloud và COC?"
+                                    data-confirm-button="Xóa CREATED">
+                                    <input type="hidden" name="action" value="delete_created_orders">
+
+                                    <button class="btn btn-outline-danger fw-bold w-100 px-3 d-flex flex-column align-items-center justify-content-center gap-2" type="submit">
+                                        <i data-lucide="trash-2" style="width:18px;height:18px"></i>
+                                        <span>Xóa CREATED</span>
+                                    </button>
+                                </form>
+                            </div>
 
                         </div>
                     </div>
@@ -133,6 +147,7 @@
                             </div>
                         </div>
                         <canvas id="traffic_compare_chart" height="300" aria-label="Biểu đồ lưu lượng truy cập"></canvas>
+                        <div class="traffic-chart-fallback d-none" id="traffic_compare_fallback">Không tải được Chart.js, đang dùng biểu đồ dự phòng.</div>
                         <script type="application/json" id="traffic_compare_data"><?= json_encode($trafficChartData, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?></script>
                     </div>
                     <div class="traffic-country-card">
