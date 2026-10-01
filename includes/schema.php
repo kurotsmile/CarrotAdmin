@@ -930,7 +930,6 @@ function admin_ensure_rom_tables(PDO $pdo): void
           price DECIMAL(10,2) NOT NULL DEFAULT 0.00,
           is_free TINYINT(1) NOT NULL DEFAULT 1,
           status VARCHAR(32) NOT NULL DEFAULT 'draft',
-          avatar TEXT DEFAULT NULL,
           photos LONGTEXT DEFAULT NULL,
           file_rom TEXT DEFAULT NULL,
           file_size VARCHAR(64) DEFAULT NULL,
@@ -958,8 +957,7 @@ function admin_ensure_rom_tables(PDO $pdo): void
         'price' => 'DECIMAL(10,2) NOT NULL DEFAULT 0.00 AFTER lang',
         'is_free' => 'TINYINT(1) NOT NULL DEFAULT 1 AFTER price',
         'status' => "VARCHAR(32) NOT NULL DEFAULT 'draft' AFTER is_free",
-        'avatar' => 'TEXT DEFAULT NULL AFTER status',
-        'photos' => 'LONGTEXT DEFAULT NULL AFTER avatar',
+        'photos' => 'LONGTEXT DEFAULT NULL AFTER status',
         'file_rom' => 'TEXT DEFAULT NULL AFTER photos',
         'file_size' => 'VARCHAR(64) DEFAULT NULL AFTER file_rom',
         'sort_order' => 'INT NOT NULL DEFAULT 0 AFTER file_size',
@@ -974,7 +972,7 @@ function admin_ensure_rom_tables(PDO $pdo): void
         }
     }
     $columns = $pdo->query('SHOW COLUMNS FROM rom')->fetchAll(PDO::FETCH_COLUMN);
-    foreach (['currency', 'rating', 'version'] as $oldColumn) {
+    foreach (['currency', 'rating', 'version', 'avatar', 'icon'] as $oldColumn) {
         if (in_array($oldColumn, $columns, true)) {
             $pdo->exec('ALTER TABLE rom DROP COLUMN `' . $oldColumn . '`');
         }

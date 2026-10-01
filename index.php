@@ -1,16 +1,43 @@
 <?php
+$adminRememberLifetime = 60 * 60 * 24 * 30;
+$rememberAdminLogin = (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST'
+    && ($_POST['action'] ?? '') === 'login'
+    && !empty($_POST['remember_me']));
+
+ini_set('session.gc_maxlifetime', (string) $adminRememberLifetime);
+$sessionCookieParams = session_get_cookie_params();
+session_set_cookie_params([
+    'lifetime' => $rememberAdminLogin ? $adminRememberLifetime : 0,
+    'path' => $sessionCookieParams['path'] ?? '/',
+    'domain' => $sessionCookieParams['domain'] ?? '',
+    'secure' => $sessionCookieParams['secure'] ?? false,
+    'httponly' => true,
+    'samesite' => $sessionCookieParams['samesite'] ?? 'Lax',
+]);
 session_start();
 date_default_timezone_set('Asia/Ho_Chi_Minh');
 require __DIR__ . '/config/account.php';
 
 if (isset($_GET['logout'])) {
     $_SESSION = [];
+    if (ini_get('session.use_cookies')) {
+        $sessionCookieParams = session_get_cookie_params();
+        setcookie(session_name(), '', [
+            'expires' => time() - 42000,
+            'path' => $sessionCookieParams['path'] ?? '/',
+            'domain' => $sessionCookieParams['domain'] ?? '',
+            'secure' => $sessionCookieParams['secure'] ?? false,
+            'httponly' => true,
+            'samesite' => $sessionCookieParams['samesite'] ?? 'Lax',
+        ]);
+    }
     session_destroy();
     header('Location: index.php');
     exit;
 }
 
 $loginError = '';
+$rememberChecked = $rememberAdminLogin;
 if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST' && ($_POST['action'] ?? '') === 'login') {
     $username = trim($_POST['username'] ?? '');
     $password = (string) ($_POST['password'] ?? '');
@@ -57,9 +84,13 @@ if (empty($_SESSION['admin_user'])):
             <label class="form-label" for="username">Username</label>
             <input class="form-control" id="username" name="username" autocomplete="username" required autofocus>
         </div>
-        <div class="mb-4">
+        <div class="mb-3">
             <label class="form-label" for="password">Password</label>
             <input class="form-control" id="password" name="password" type="password" autocomplete="current-password" required>
+        </div>
+        <div class="form-check mb-4">
+            <input class="form-check-input" id="remember_me" name="remember_me" type="checkbox" value="1"<?= $rememberChecked ? ' checked' : '' ?>>
+            <label class="form-check-label" for="remember_me">Remember me</label>
         </div>
         <button class="btn btn-success fw-bold w-100" type="submit">Đăng nhập</button>
     </form>
@@ -75,6 +106,7 @@ require __DIR__ . '/../CarrotCoc/includes/coc_helpers.php';
 require __DIR__ . '/includes/schema.php';
 require __DIR__ . '/includes/traffic_report.php';
 require __DIR__ . '/includes/orders_cleanup.php';
+require __DIR__ . '/../CarrotRom/includes/rom_library.php';
 
 $message = '';
 $error = '';
@@ -499,7 +531,7 @@ function admin_rom_decode_files(?string $fileRom, ?string $fileSize = ''): array
 
     $decoded = json_decode($fileRom, true);
     if (is_array($decoded)) {
-        $items = array_is_list($decoded) ? $decoded : [$decoded];
+        $items = array_keys($decoded) === range(0, count($decoded) - 1) ? $decoded : [$decoded];
         $rows = [];
         foreach ($items as $item) {
             if (!is_array($item)) {
@@ -4067,12 +4099,14 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages', 'users', '
                 $stmt = $pdo->prepare('DELETE FROM rom WHERE id = ?');
                 $stmt->execute([trim($_POST['id'] ?? '')]);
                 admin_clear_internal_cache('overview_count_main_rom');
+                carrot_rom_cache_clear();
                 $message = 'Đã xóa ROM.';
             }
 
             if ($section === 'rom' && $action === 'delete_rom_console') {
                 $stmt = $pdo->prepare('DELETE FROM rom_console WHERE id = ?');
                 $stmt->execute([trim($_POST['id'] ?? '')]);
+                carrot_rom_cache_clear();
                 $message = 'Đã xóa hệ máy ROM.';
             }
 
@@ -4092,6 +4126,7 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages', 'users', '
                 if ($originalId !== '') {
                     $stmt = $pdo->prepare('UPDATE rom_console SET id = ?, name = ?, emulator = ?, sort_order = ?, status = ?, updated_at = ? WHERE id = ?');
                     $stmt->execute([$id, $name, $emulator, $sortOrder, $status, $now, $originalId]);
+                    carrot_rom_cache_clear();
                     $message = 'Đã cập nhật hệ máy ROM.';
                 } else {
                     $stmt = $pdo->prepare('
@@ -4100,6 +4135,7 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages', 'users', '
                         ON DUPLICATE KEY UPDATE name = VALUES(name), emulator = VALUES(emulator), sort_order = VALUES(sort_order), status = VALUES(status), updated_at = VALUES(updated_at)
                     ');
                     $stmt->execute([$id, $name, $emulator, $sortOrder, $status, $now, $now]);
+                    carrot_rom_cache_clear();
                     $message = 'Đã lưu hệ máy ROM.';
                 }
             }
@@ -4107,6 +4143,7 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages', 'users', '
             if ($section === 'rom' && $action === 'delete_rom_category') {
                 $stmt = $pdo->prepare('DELETE FROM rom_category WHERE id = ?');
                 $stmt->execute([trim($_POST['id'] ?? '')]);
+                carrot_rom_cache_clear();
                 $message = 'Đã xóa thể loại ROM.';
             }
 
@@ -4126,6 +4163,7 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages', 'users', '
                 if ($originalId !== '') {
                     $stmt = $pdo->prepare('UPDATE rom_category SET id = ?, name = ?, description = ?, sort_order = ?, status = ?, updated_at = ? WHERE id = ?');
                     $stmt->execute([$id, $name, $description, $sortOrder, $status, $now, $originalId]);
+                    carrot_rom_cache_clear();
                     $message = 'Đã cập nhật thể loại ROM.';
                 } else {
                     $stmt = $pdo->prepare('
@@ -4134,6 +4172,7 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages', 'users', '
                         ON DUPLICATE KEY UPDATE name = VALUES(name), description = VALUES(description), sort_order = VALUES(sort_order), status = VALUES(status), updated_at = VALUES(updated_at)
                     ');
                     $stmt->execute([$id, $name, $description, $sortOrder, $status, $now, $now]);
+                    carrot_rom_cache_clear();
                     $message = 'Đã lưu thể loại ROM.';
                 }
             }
@@ -4152,7 +4191,6 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages', 'users', '
                 $price = (float) ($_POST['price'] ?? 0);
                 $isFree = !empty($_POST['is_free']) ? 1 : 0;
                 $status = trim($_POST['status'] ?? 'draft') ?: 'draft';
-                $avatar = trim($_POST['avatar'] ?? '');
                 $photos = admin_rom_photos_to_json((string) ($_POST['photos'] ?? ''));
                 $romFileRows = is_array($_POST['rom_files'] ?? null) ? $_POST['rom_files'] : [];
                 $fileRom = admin_rom_files_to_json($romFileRows);
@@ -4169,6 +4207,15 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages', 'users', '
                 $publishedAt = trim($_POST['published_at'] ?? '') ?: date('Y-m-d');
                 $now = gmdate('c');
 
+                if ($originalId !== '') {
+                    $id = $originalId;
+                }
+                if ($originalId === '' && carrot_rom_safe_child_path($id) === null) {
+                    throw new RuntimeException('ROM phải có thư mục tương ứng trong ' . carrot_rom_library_path() . ' trước khi lưu.');
+                }
+                if (carrot_rom_safe_child_path($id) !== null) {
+                    $name = $id;
+                }
                 if ($id === '' || $name === '') {
                     throw new RuntimeException('Vui lòng nhập ID và tên ROM.');
                 }
@@ -4176,23 +4223,25 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages', 'users', '
                 if ($originalId !== '') {
                     $stmt = $pdo->prepare('
                         UPDATE rom
-                        SET id = ?, name = ?, platform = ?, emulator = ?, category = ?, region = ?, lang = ?, price = ?, is_free = ?, status = ?, avatar = ?, photos = ?, file_rom = ?, file_size = ?, sort_order = ?, description = ?, published_at = ?, updated_at = ?
+                        SET name = ?, platform = ?, emulator = ?, category = ?, region = ?, lang = ?, price = ?, is_free = ?, status = ?, photos = ?, file_rom = ?, file_size = ?, sort_order = ?, description = ?, published_at = ?, updated_at = ?
                         WHERE id = ?
                     ');
-                    $stmt->execute([$id, $name, $platform, $emulator, $category, $region, $lang, $price, $isFree, $status, $avatar, $photos, $fileRom, $fileSize, $sortOrder, $description, $publishedAt, $now, $originalId]);
+                    $stmt->execute([$name, $platform, $emulator, $category, $region, $lang, $price, $isFree, $status, $photos, $fileRom, $fileSize, $sortOrder, $description, $publishedAt, $now, $originalId]);
                     admin_sync_rom_consoles($pdo, $id, $consoleIds);
                     admin_sync_rom_categories($pdo, $id, $categoryIds);
                     admin_clear_internal_cache('overview_count_main_rom');
+                    carrot_rom_cache_clear();
                     $message = 'Đã cập nhật ROM.';
                 } else {
                     $stmt = $pdo->prepare('
-                        INSERT INTO rom (id, name, platform, emulator, category, region, lang, price, is_free, status, avatar, photos, file_rom, file_size, sort_order, description, published_at, created_at, updated_at)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        INSERT INTO rom (id, name, platform, emulator, category, region, lang, price, is_free, status, photos, file_rom, file_size, sort_order, description, published_at, created_at, updated_at)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     ');
-                    $stmt->execute([$id, $name, $platform, $emulator, $category, $region, $lang, $price, $isFree, $status, $avatar, $photos, $fileRom, $fileSize, $sortOrder, $description, $publishedAt, $now, $now]);
+                    $stmt->execute([$id, $name, $platform, $emulator, $category, $region, $lang, $price, $isFree, $status, $photos, $fileRom, $fileSize, $sortOrder, $description, $publishedAt, $now, $now]);
                     admin_sync_rom_consoles($pdo, $id, $consoleIds);
                     admin_sync_rom_categories($pdo, $id, $categoryIds);
                     admin_clear_internal_cache('overview_count_main_rom');
+                    carrot_rom_cache_clear();
                     $message = 'Đã thêm ROM mới.';
                 }
             }
@@ -5851,6 +5900,10 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages', 'users', '
             }
         }
 
+        if ($section === 'rom') {
+            carrot_rom_sync_library_to_database($pdo);
+        }
+
         if ($section === 'rom' && $editKey !== '') {
             if ($romTab === 'consoles') {
                 $editing = admin_fetch_rom_console($pdo, $editKey);
@@ -5858,6 +5911,9 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages', 'users', '
                 $editing = admin_fetch_rom_category($pdo, $editKey);
             } else {
                 $editing = admin_fetch_rom($pdo, $editKey);
+                if ($editing) {
+                    $editing = carrot_rom_enrich_rows_from_library([$editing])[0] ?? $editing;
+                }
             }
         }
 
@@ -6114,6 +6170,7 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages', 'users', '
             }
         }
         if ($section === 'rom') {
+            $adminRomLibraryIds = carrot_rom_library_ids();
             $romConsoles = $pdo->query('
                 SELECT c.*, COUNT(rcm.rom_id) AS rom_count
                 FROM rom_console c
@@ -6128,7 +6185,11 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages', 'users', '
                 GROUP BY c.id, c.name, c.description, c.sort_order, c.status, c.created_at, c.updated_at
                 ORDER BY c.sort_order ASC, c.name ASC, c.id ASC
             ')->fetchAll();
-            $roms = $pdo->query('
+            $romListParams = [];
+            $romLibraryWhere = $adminRomLibraryIds
+                ? 'WHERE ' . carrot_rom_bind_library_filter($adminRomLibraryIds, 'rom.id', 'admin_library_rom', $romListParams)
+                : 'WHERE 1 = 0';
+            $romListStmt = $pdo->prepare('
                 SELECT rom.*,
                   rom_console_names.console_names,
                   rom_category_names.category_names
@@ -6145,8 +6206,11 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages', 'users', '
                     INNER JOIN rom_category rcat ON rcat.id = rcmap.category_id
                     GROUP BY rcmap.rom_id
                 ) rom_category_names ON rom_category_names.rom_id = rom.id
+                ' . $romLibraryWhere . '
                 ORDER BY ' . admin_order_by($romSortColumns, $romSort, $romDir) . ', rom.name ASC
-            ')->fetchAll();
+            ');
+            $romListStmt->execute($romListParams);
+            $roms = carrot_rom_enrich_rows_from_library($romListStmt->fetchAll());
         }
         if ($section === 'music') {
             $songWhere = [];
@@ -8540,6 +8604,7 @@ const bindSimpleEditor = (editorId, sourceId, targetName = '', options = {}) => 
 
 bindSimpleEditor('page_content_editor', 'page_content_html', 'page_content');
 bindSimpleEditor('app_content_editor', 'app_content_html', 'app_content');
+bindSimpleEditor('rom_description_editor', 'rom_description', 'rom_description');
 bindSimpleEditor('song_lyrics_editor', 'song_lyrics', 'music_song_lyrics', {plainLinesAsDivs: true});
 bindSimpleEditor('artist_description_editor', 'artist_description', 'music_artist_description');
 bindSimpleEditor('genre_description_editor', 'genre_description', 'music_genre_description');

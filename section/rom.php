@@ -37,17 +37,18 @@
 
             <?php if ($romTab === 'games'): ?>
             <div class="row g-4">
+                <?php if ($editing): ?>
                 <div class="col-xl-5">
                     <form class="glass-panel p-4" method="post">
                         <input type="hidden" name="action" value="save_rom">
                         <input type="hidden" name="original_id" value="<?= htmlspecialchars($editing['id'] ?? '') ?>">
-                        <h2 class="h5 mb-3"><?= $editing ? 'Cập nhật ROM' : 'Thêm ROM' ?></h2>
+                        <h2 class="h5 mb-3">Cập nhật ROM</h2>
 
                         <div class="row g-3">
                             <div class="col-md-5">
                                 <label class="form-label" for="rom_id">ID</label>
                                 <div class="input-group">
-                                    <input class="form-control" id="rom_id" name="id" value="<?= htmlspecialchars($editing['id'] ?? '') ?>" required>
+                                    <input class="form-control" id="rom_id" name="id" value="<?= htmlspecialchars($editing['id'] ?? '') ?>" <?= $editing ? 'readonly' : '' ?> required>
                                     <button class="btn btn-outline-secondary js-copy-field" type="button" data-copy-target="#rom_id" title="Copy ID" aria-label="Copy ID">
                                         <i data-lucide="copy" style="width:16px;height:16px"></i>
                                     </button>
@@ -58,7 +59,7 @@
                             </div>
                             <div class="col-md-7">
                                 <label class="form-label" for="rom_name">Tên game</label>
-                                <input class="form-control" id="rom_name" name="name" value="<?= htmlspecialchars($editing['name'] ?? '') ?>" required>
+                                <input class="form-control" id="rom_name" name="name" value="<?= htmlspecialchars($editing['name'] ?? '') ?>" <?= !empty($editing['_library_rom']) ? 'readonly' : '' ?> required>
                             </div>
                         </div>
 
@@ -133,9 +134,8 @@
                             <label class="form-check-label" for="rom_is_free">Miễn phí</label>
                         </div>
 
-                        <div class="mb-3">
-                            <label class="form-label" for="rom_avatar">Avatar</label>
-                            <div class="input-group"><input class="form-control" id="rom_avatar" name="avatar" value="<?= htmlspecialchars($editing['avatar'] ?? '') ?>"><button class="btn btn-secondary js-upload" type="button" data-target="rom_avatar" data-type-media="carrot_rom_avatar" data-mode="replace" data-accept="image/*">Upload</button></div>
+                        <div class="alert alert-info py-2 small">
+                            Avatar ROM được lấy tự động từ file <span class="font-monospace">avatar.png</span>, <span class="font-monospace">avatar.jpg</span>, <span class="font-monospace">avatar.jpeg</span>... trong thư mục game.
                         </div>
 
                         <?php
@@ -185,14 +185,32 @@
                         </div>
 
                         <div class="mb-3"><label class="form-label" for="rom_published_at">Published at</label><input class="form-control" id="rom_published_at" name="published_at" type="date" value="<?= htmlspecialchars($romPublishedAtValue) ?>"></div>
-                        <div class="mb-3"><label class="form-label" for="rom_description">Mô tả</label><textarea class="form-control" id="rom_description" name="description" rows="7"><?= htmlspecialchars($editing['description'] ?? '') ?></textarea></div>
+                        <div class="mb-3">
+                            <label class="form-label" for="rom_description">Mô tả HTML</label>
+                            <div class="simple-editor-toolbar" role="toolbar" aria-label="ROM description HTML editor toolbar">
+                                <button class="btn btn-sm btn-light" type="button" data-editor-target="rom_description" data-editor-command="bold"><strong>B</strong></button>
+                                <button class="btn btn-sm btn-light" type="button" data-editor-target="rom_description" data-editor-command="italic"><em>I</em></button>
+                                <button class="btn btn-sm btn-light" type="button" data-editor-target="rom_description" data-editor-command="formatBlock" data-editor-value="h2">H2</button>
+                                <button class="btn btn-sm btn-light" type="button" data-editor-target="rom_description" data-editor-command="formatBlock" data-editor-value="p">P</button>
+                                <button class="btn btn-sm btn-light" type="button" data-editor-target="rom_description" data-editor-command="insertUnorderedList">List</button>
+                                <button class="btn btn-sm btn-light" type="button" data-editor-target="rom_description" data-editor-command="createLink">Link</button>
+                                <button class="btn btn-sm btn-light" type="button" data-editor-target="rom_description" data-editor-command="removeFormat">Clear</button>
+                            </div>
+                            <div class="simple-editor-canvas" id="rom_description_editor" contenteditable="true" spellcheck="true" style="min-height:220px;margin-top:8px;padding:5px;border:1px solid rgba(0,0,0,.15)"><?= ($editing['description'] ?? '') ?></div>
+                            <textarea class="form-control font-monospace d-none" id="rom_description" name="description" rows="7"><?= htmlspecialchars($editing['description'] ?? '') ?></textarea>
+                        </div>
                         <button class="btn btn-success fw-bold w-100" type="submit">Lưu ROM</button>
                     </form>
                 </div>
+                <?php endif; ?>
 
-                <div class="col-xl-7">
+                <div class="<?= $editing ? 'col-xl-7' : 'col-12' ?>">
                     <div class="glass-panel p-4">
                         <h2 class="h5 mb-3">Danh sách ROM</h2>
+                        <div class="small text-muted mb-3">
+                            Nguồn thư mục: <span class="font-monospace"><?= htmlspecialchars(carrot_rom_library_path()) ?></span>
+                            <?= carrot_rom_library_available() ? '' : ' · chưa đọc được thư mục này trên server' ?>
+                        </div>
                         <div class="table-responsive-sm">
                             <table class="table table-striped table-hover table-sm align-middle">
                                 <thead><tr><th>Game</th><th>Hệ máy</th><th>Giá</th><th>Status</th><th>File</th><th></th></tr></thead>
