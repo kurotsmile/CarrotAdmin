@@ -1,11 +1,23 @@
 <?php
-$adminRememberLifetime = 60 * 60 * 24 * 30;
+$adminRememberLifetime = 60 * 60 * 24 * 2;
 $rememberAdminLogin = (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST'
     && ($_POST['action'] ?? '') === 'login'
     && !empty($_POST['remember_me']));
 
 ini_set('session.gc_maxlifetime', (string) $adminRememberLifetime);
 $sessionCookieParams = session_get_cookie_params();
+function admin_session_cookie_options(array $sessionCookieParams, int $expires): array
+{
+    return [
+        'expires' => $expires,
+        'path' => $sessionCookieParams['path'] ?? '/',
+        'domain' => $sessionCookieParams['domain'] ?? '',
+        'secure' => $sessionCookieParams['secure'] ?? false,
+        'httponly' => true,
+        'samesite' => $sessionCookieParams['samesite'] ?? 'Lax',
+    ];
+}
+
 session_set_cookie_params([
     'lifetime' => $rememberAdminLogin ? $adminRememberLifetime : 0,
     'path' => $sessionCookieParams['path'] ?? '/',
@@ -15,6 +27,9 @@ session_set_cookie_params([
     'samesite' => $sessionCookieParams['samesite'] ?? 'Lax',
 ]);
 session_start();
+if (!empty($_SESSION['admin_user']) && !empty($_SESSION['admin_remember']) && ini_get('session.use_cookies')) {
+    setcookie(session_name(), session_id(), admin_session_cookie_options($sessionCookieParams, time() + $adminRememberLifetime));
+}
 date_default_timezone_set('Asia/Ho_Chi_Minh');
 require __DIR__ . '/config/account.php';
 
@@ -22,14 +37,7 @@ if (isset($_GET['logout'])) {
     $_SESSION = [];
     if (ini_get('session.use_cookies')) {
         $sessionCookieParams = session_get_cookie_params();
-        setcookie(session_name(), '', [
-            'expires' => time() - 42000,
-            'path' => $sessionCookieParams['path'] ?? '/',
-            'domain' => $sessionCookieParams['domain'] ?? '',
-            'secure' => $sessionCookieParams['secure'] ?? false,
-            'httponly' => true,
-            'samesite' => $sessionCookieParams['samesite'] ?? 'Lax',
-        ]);
+        setcookie(session_name(), '', admin_session_cookie_options($sessionCookieParams, time() - 42000));
     }
     session_destroy();
     header('Location: index.php');
@@ -45,6 +53,7 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST' && ($_POST['action'] ?? '') ==
     if (isset($auth_users[$username]) && password_verify($password, $auth_users[$username])) {
         session_regenerate_id(true);
         $_SESSION['admin_user'] = $username;
+        $_SESSION['admin_remember'] = $rememberAdminLogin;
         header('Location: index.php');
         exit;
     }
@@ -4417,6 +4426,47 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages', 'users', '
                 }
             }
 
+            if ($section === 'music' && $action === 'ajax_search_song_artist') {
+                try {
+                    $query = trim($_POST['q'] ?? '');
+                    $page = max(1, (int) ($_POST['page'] ?? 1));
+                    $perPage = 20;
+                    if ($query === '') {
+                        admin_json_success(['results' => [], 'pagination' => ['more' => false]]);
+                    }
+
+                    $stmt = $pdo->prepare('
+                        SELECT id, name, lang_key
+                        FROM song_artist
+                        WHERE name LIKE :name_query OR lang_key LIKE :lang_query
+                        ORDER BY name ASC, id DESC
+                        LIMIT :limit OFFSET :offset
+                    ');
+                    $searchValue = '%' . $query . '%';
+                    $stmt->bindValue(':name_query', $searchValue);
+                    $stmt->bindValue(':lang_query', $searchValue);
+                    $stmt->bindValue(':limit', $perPage + 1, PDO::PARAM_INT);
+                    $stmt->bindValue(':offset', ($page - 1) * $perPage, PDO::PARAM_INT);
+                    $stmt->execute();
+                    $artists = $stmt->fetchAll();
+                    $hasMore = count($artists) > $perPage;
+                    if ($hasMore) {
+                        array_pop($artists);
+                    }
+
+                    admin_json_success([
+                        'results' => array_map(static fn(array $artist): array => [
+                            'id' => (string) $artist['id'],
+                            'text' => (string) $artist['name'],
+                            'lang_key' => (string) ($artist['lang_key'] ?? ''),
+                        ], $artists),
+                        'pagination' => ['more' => $hasMore],
+                    ]);
+                } catch (Throwable $e) {
+                    admin_json_error($e->getMessage());
+                }
+            }
+
             if ($section === 'music' && $action === 'ajax_ai_request_song_artist') {
                 try {
                     $idea = trim($_POST['idea'] ?? '');
@@ -6261,9 +6311,16 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages', 'users', '
         } else {
             $songs = [];
         }
-        $songArtistOptions = $section === 'music'
-            ? $pdo->query('SELECT * FROM song_artist ORDER BY name ASC, id DESC')->fetchAll()
-            : [];
+        $songArtistOptions = [];
+        if ($section === 'music' && $musicTab === 'songs' && $editing) {
+            $selectedArtistIds = admin_fetch_song_artist_ids($pdo, (string) ($editing['id'] ?? ''));
+            if ($selectedArtistIds) {
+                $artistPlaceholders = implode(',', array_fill(0, count($selectedArtistIds), '?'));
+                $artistOptionsStmt = $pdo->prepare('SELECT id, name, lang_key FROM song_artist WHERE id IN (' . $artistPlaceholders . ') ORDER BY name ASC, id DESC');
+                $artistOptionsStmt->execute($selectedArtistIds);
+                $songArtistOptions = $artistOptionsStmt->fetchAll();
+            }
+        }
         if ($section === 'music') {
             $artistWhere = [];
             $artistParams = [];
@@ -6327,14 +6384,8 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages', 'users', '
             $genreStmt->bindValue(':offset', $genreOffset, PDO::PARAM_INT);
             $genreStmt->execute();
             $songGenres = $genreStmt->fetchAll();
-        } elseif ($section === 'music') {
-            $songGenres = $pdo->query('
-                SELECT g.*, COUNT(s.id) AS song_count
-                FROM song_genre g
-                LEFT JOIN song s ON FIND_IN_SET(g.genre_id, REPLACE(COALESCE(s.genre, \'\'), \' \', \'\')) > 0
-                GROUP BY g.genre_id, g.title, g.avatar, g.description, g.created_at, g.updated_at
-                ORDER BY g.genre_id ASC
-            ')->fetchAll();
+        } elseif ($section === 'music' && $musicTab === 'songs') {
+            $songGenres = $pdo->query('SELECT genre_id, title FROM song_genre ORDER BY genre_id ASC')->fetchAll();
         } else {
             $songGenres = [];
         }
@@ -8229,6 +8280,33 @@ if (window.jQuery && jQuery.fn.select2) {
         theme: 'bootstrap-5',
         width: '100%',
         placeholder: 'Chọn nghệ sĩ',
+        minimumInputLength: 1,
+        ajax: {
+            url: 'index.php?section=music&tab=songs',
+            type: 'POST',
+            dataType: 'json',
+            delay: 250,
+            data: (params) => ({
+                action: 'ajax_search_song_artist',
+                q: params.term || '',
+                page: params.page || 1,
+            }),
+            processResults: (payload) => ({
+                results: payload.status === 'success' ? (payload.results || []) : [],
+                pagination: payload.status === 'success' ? (payload.pagination || {more: false}) : {more: false},
+            }),
+        },
+    }).on('select2:select', function (event) {
+        const artist = event.params?.data;
+        const existingOption = Array.from(this.options).find((item) => item.value === String(artist?.id || ''));
+        const option = artist?.element || existingOption || new Option(artist?.text || '', artist?.id || '', true, true);
+        if (!artist?.element && !existingOption && artist?.id) {
+            option.dataset.langKey = artist.lang_key || '';
+            this.add(option);
+        }
+        if (option) {
+            option.dataset.langKey = artist?.lang_key || option.dataset.langKey || '';
+        }
     });
 
     jQuery('.js-music-genre-select').select2({
