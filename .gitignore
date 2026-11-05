@@ -3,3 +3,5 @@ storage/backups
 
 /storage/cache
 log.txt
+log.txt
+/logs

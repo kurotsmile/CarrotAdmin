@@ -140,3 +140,17 @@
 {"time":"2026-10-28 00:00:08","event":"finished","source":"cli","context":{"status":"success","delete_raw":true,"delete_created":true,"through_date":null,"max_days":0,"databases":["main"],"created_orders_total":975}}
 {"time":"2026-10-29 00:00:06","event":"started","source":"cli"}
 {"time":"2026-10-29 00:00:12","event":"finished","source":"cli","context":{"status":"success","delete_raw":true,"delete_created":true,"through_date":null,"max_days":0,"databases":["main"],"created_orders_total":6183}}
+{"time":"2026-10-30 00:00:02","event":"started","source":"cli"}
+{"time":"2026-10-30 00:00:06","event":"finished","source":"cli","context":{"status":"success","delete_raw":true,"delete_created":true,"through_date":null,"max_days":0,"databases":["main"],"created_orders_total":6703}}
+{"time":"2026-10-31 00:00:03","event":"started","source":"cli"}
+{"time":"2026-10-31 00:00:05","event":"finished","source":"cli","context":{"status":"success","delete_raw":true,"delete_created":true,"through_date":null,"max_days":0,"databases":["main"],"created_orders_total":2908}}
+{"time":"2026-11-01 00:00:03","event":"started","source":"cli"}
+{"time":"2026-11-01 00:00:04","event":"finished","source":"cli","context":{"status":"success","delete_raw":true,"delete_created":true,"through_date":null,"max_days":0,"databases":["main"],"created_orders_total":1787}}
+{"time":"2026-11-02 00:00:03","event":"started","source":"cli"}
+{"time":"2026-11-02 00:00:06","event":"finished","source":"cli","context":{"status":"success","delete_raw":true,"delete_created":true,"through_date":null,"max_days":0,"databases":["main"],"created_orders_total":2187}}
+{"time":"2026-11-03 00:00:05","event":"started","source":"cli"}
+{"time":"2026-11-03 00:00:06","event":"finished","source":"cli","context":{"status":"success","delete_raw":true,"delete_created":true,"through_date":null,"max_days":0,"databases":["main"],"created_orders_total":746}}
+{"time":"2026-11-04 00:00:04","event":"started","source":"cli"}
+{"time":"2026-11-04 00:00:06","event":"finished","source":"cli","context":{"status":"success","delete_raw":true,"delete_created":true,"through_date":null,"max_days":0,"databases":["main"],"created_orders_total":1230}}
+{"time":"2026-11-05 00:00:04","event":"started","source":"cli"}
+{"time":"2026-11-05 00:00:07","event":"finished","source":"cli","context":{"status":"success","delete_raw":true,"delete_created":true,"through_date":null,"max_days":0,"databases":["main"],"created_orders_total":2108}}

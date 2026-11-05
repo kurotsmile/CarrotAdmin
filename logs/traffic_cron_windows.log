@@ -2451,3 +2451,234 @@ operable program or batch file.
         }
     }
 }
+{
+    "status": "success",
+    "delete_raw": true,
+    "delete_created": true,
+    "databases": {
+        "main": {
+            "through_date": "2026-10-29",
+            "max_days": 0,
+            "total_pending_days": 1,
+            "processed_days": 1,
+            "has_more": false,
+            "items": [
+                {
+                    "date": "2026-10-29",
+                    "sites": 5,
+                    "deleted_daily": 11215,
+                    "deleted_hourly": 13823,
+                    "skipped": false
+                }
+            ]
+        }
+    },
+    "created_orders": {
+        "total": 6703,
+        "items": {
+            "App": 68,
+            "Âm nhạc": 6629,
+            "Sách": 6,
+            "Cloud": 0,
+            "COC": 0
+        }
+    }
+}
+{
+    "status": "success",
+    "delete_raw": true,
+    "delete_created": true,
+    "databases": {
+        "main": {
+            "through_date": "2026-10-30",
+            "max_days": 0,
+            "total_pending_days": 1,
+            "processed_days": 1,
+            "has_more": false,
+            "items": [
+                {
+                    "date": "2026-10-30",
+                    "sites": 5,
+                    "deleted_daily": 7276,
+                    "deleted_hourly": 9739,
+                    "skipped": false
+                }
+            ]
+        }
+    },
+    "created_orders": {
+        "total": 2908,
+        "items": {
+            "App": 83,
+            "Âm nhạc": 2804,
+            "Sách": 21,
+            "Cloud": 0,
+            "COC": 0
+        }
+    }
+}
+{
+    "status": "success",
+    "delete_raw": true,
+    "delete_created": true,
+    "databases": {
+        "main": {
+            "through_date": "2026-10-31",
+            "max_days": 0,
+            "total_pending_days": 1,
+            "processed_days": 1,
+            "has_more": false,
+            "items": [
+                {
+                    "date": "2026-10-31",
+                    "sites": 6,
+                    "deleted_daily": 4450,
+                    "deleted_hourly": 7687,
+                    "skipped": false
+                }
+            ]
+        }
+    },
+    "created_orders": {
+        "total": 1787,
+        "items": {
+            "App": 39,
+            "Âm nhạc": 1745,
+            "Sách": 3,
+            "Cloud": 0,
+            "COC": 0
+        }
+    }
+}
+{
+    "status": "success",
+    "delete_raw": true,
+    "delete_created": true,
+    "databases": {
+        "main": {
+            "through_date": "2026-11-01",
+            "max_days": 0,
+            "total_pending_days": 1,
+            "processed_days": 1,
+            "has_more": false,
+            "items": [
+                {
+                    "date": "2026-11-01",
+                    "sites": 6,
+                    "deleted_daily": 6039,
+                    "deleted_hourly": 8761,
+                    "skipped": false
+                }
+            ]
+        }
+    },
+    "created_orders": {
+        "total": 2187,
+        "items": {
+            "App": 71,
+            "Âm nhạc": 2116,
+            "Sách": 0,
+            "Cloud": 0,
+            "COC": 0
+        }
+    }
+}
+{
+    "status": "success",
+    "delete_raw": true,
+    "delete_created": true,
+    "databases": {
+        "main": {
+            "through_date": "2026-11-02",
+            "max_days": 0,
+            "total_pending_days": 1,
+            "processed_days": 1,
+            "has_more": false,
+            "items": [
+                {
+                    "date": "2026-11-02",
+                    "sites": 5,
+                    "deleted_daily": 4160,
+                    "deleted_hourly": 6918,
+                    "skipped": false
+                }
+            ]
+        }
+    },
+    "created_orders": {
+        "total": 746,
+        "items": {
+            "App": 13,
+            "Âm nhạc": 725,
+            "Sách": 8,
+            "Cloud": 0,
+            "COC": 0
+        }
+    }
+}
+{
+    "status": "success",
+    "delete_raw": true,
+    "delete_created": true,
+    "databases": {
+        "main": {
+            "through_date": "2026-11-03",
+            "max_days": 0,
+            "total_pending_days": 1,
+            "processed_days": 1,
+            "has_more": false,
+            "items": [
+                {
+                    "date": "2026-11-03",
+                    "sites": 6,
+                    "deleted_daily": 6203,
+                    "deleted_hourly": 8516,
+                    "skipped": false
+                }
+            ]
+        }
+    },
+    "created_orders": {
+        "total": 1230,
+        "items": {
+            "App": 195,
+            "Âm nhạc": 1033,
+            "Sách": 2,
+            "Cloud": 0,
+            "COC": 0
+        }
+    }
+}
+{
+    "status": "success",
+    "delete_raw": true,
+    "delete_created": true,
+    "databases": {
+        "main": {
+            "through_date": "2026-11-04",
+            "max_days": 0,
+            "total_pending_days": 1,
+            "processed_days": 1,
+            "has_more": false,
+            "items": [
+                {
+                    "date": "2026-11-04",
+                    "sites": 6,
+                    "deleted_daily": 10874,
+                    "deleted_hourly": 13466,
+                    "skipped": false
+                }
+            ]
+        }
+    },
+    "created_orders": {
+        "total": 2108,
+        "items": {
+            "App": 40,
+            "Âm nhạc": 2068,
+            "Sách": 0,
+            "Cloud": 0,
+            "COC": 0
+        }
+    }
+}
