@@ -4318,6 +4318,16 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages', 'users', '
                     $genreValues = [$genreValues];
                 }
                 $genreIds = array_values(array_unique(array_filter(array_map(static fn($value): string => trim((string) $value), $genreValues))));
+                if ($genreIds) {
+                    $genrePlaceholders = implode(',', array_fill(0, count($genreIds), '?'));
+                    $genreStmt = $pdo->prepare('SELECT genre_id FROM song_genre WHERE genre_id IN (' . $genrePlaceholders . ')');
+                    $genreStmt->execute($genreIds);
+                    $existingGenreIds = array_map('strval', $genreStmt->fetchAll(PDO::FETCH_COLUMN));
+                    $invalidGenreIds = array_values(array_diff($genreIds, $existingGenreIds));
+                    if ($invalidGenreIds) {
+                        throw new RuntimeException('Thể loại không tồn tại: ' . implode(', ', $invalidGenreIds) . '. Vui lòng tạo thể loại trước khi gắn vào bài hát.');
+                    }
+                }
                 $genre = implode(',', $genreIds);
                 $lang = trim($_POST['lang'] ?? 'vi') ?: 'vi';
                 $year = trim($_POST['year'] ?? '');
@@ -8312,8 +8322,8 @@ if (window.jQuery && jQuery.fn.select2) {
     jQuery('.js-music-genre-select').select2({
         theme: 'bootstrap-5',
         width: '100%',
-        tags: true,
-        placeholder: 'Chọn hoặc nhập thể loại',
+        tags: false,
+        placeholder: 'Chọn thể loại có sẵn',
     });
 }
 

@@ -120,12 +120,6 @@
 	                                            <?= htmlspecialchars($genreRow['title'] ?: $genreRow['genre_id']) ?>
 	                                        </option>
 	                                    <?php endforeach; ?>
-                                        <?php
-                                        $knownSongGenreIds = array_map(static fn(array $genreRow): string => (string) ($genreRow['genre_id'] ?? ''), $songGenres);
-                                        foreach (array_diff($selectedSongGenreIds, $knownSongGenreIds) as $missingGenreId):
-                                        ?>
-                                            <option value="<?= htmlspecialchars($missingGenreId) ?>" selected><?= htmlspecialchars($missingGenreId) ?></option>
-                                        <?php endforeach; ?>
 	                                </select>
                             </div>
                         </div>
