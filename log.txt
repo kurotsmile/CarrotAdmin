@@ -172,3 +172,15 @@
 {"time":"2026-11-13 00:00:04","event":"finished","source":"cli","context":{"status":"success","delete_raw":true,"delete_created":true,"through_date":null,"max_days":0,"databases":["main"],"created_orders_total":1245}}
 {"time":"2026-11-14 00:00:03","event":"started","source":"cli"}
 {"time":"2026-11-14 00:00:05","event":"finished","source":"cli","context":{"status":"success","delete_raw":true,"delete_created":true,"through_date":null,"max_days":0,"databases":["main"],"created_orders_total":1218}}
+{"time":"2026-11-14 10:41:56","event":"started","source":"web","ip":"::1"}
+{"time":"2026-11-14 10:41:57","event":"started","source":"web","ip":"::1"}
+{"time":"2026-11-15 00:00:03","event":"started","source":"cli"}
+{"time":"2026-11-15 00:00:04","event":"finished","source":"cli","context":{"status":"success","delete_raw":true,"delete_created":true,"through_date":null,"max_days":0,"databases":["main"],"created_orders_total":1738}}
+{"time":"2026-11-16 00:00:03","event":"started","source":"cli"}
+{"time":"2026-11-16 00:00:06","event":"finished","source":"cli","context":{"status":"success","delete_raw":true,"delete_created":true,"through_date":null,"max_days":0,"databases":["main"],"created_orders_total":3707}}
+{"time":"2026-11-17 00:00:06","event":"started","source":"cli"}
+{"time":"2026-11-17 00:00:16","event":"finished","source":"cli","context":{"status":"success","delete_raw":true,"delete_created":true,"through_date":null,"max_days":0,"databases":["main"],"created_orders_total":4961}}
+{"time":"2026-11-18 00:00:04","event":"started","source":"cli"}
+{"time":"2026-11-18 00:00:07","event":"finished","source":"cli","context":{"status":"success","delete_raw":true,"delete_created":true,"through_date":null,"max_days":0,"databases":["main"],"created_orders_total":7501}}
+{"time":"2026-11-19 00:00:03","event":"started","source":"cli"}
+{"time":"2026-11-19 00:00:05","event":"finished","source":"cli","context":{"status":"success","delete_raw":true,"delete_created":true,"through_date":null,"max_days":0,"databases":["main"],"created_orders_total":3155}}

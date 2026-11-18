@@ -2979,3 +2979,168 @@ operable program or batch file.
         }
     }
 }
+{
+    "status": "success",
+    "delete_raw": true,
+    "delete_created": true,
+    "databases": {
+        "main": {
+            "through_date": "2026-11-14",
+            "max_days": 0,
+            "total_pending_days": 1,
+            "processed_days": 1,
+            "has_more": false,
+            "items": [
+                {
+                    "date": "2026-11-14",
+                    "sites": 5,
+                    "deleted_daily": 5988,
+                    "deleted_hourly": 9069,
+                    "skipped": false
+                }
+            ]
+        }
+    },
+    "created_orders": {
+        "total": 1738,
+        "items": {
+            "App": 72,
+            "Âm nhạc": 1647,
+            "Sách": 19,
+            "Cloud": 0,
+            "COC": 0
+        }
+    }
+}
+{
+    "status": "success",
+    "delete_raw": true,
+    "delete_created": true,
+    "databases": {
+        "main": {
+            "through_date": "2026-11-15",
+            "max_days": 0,
+            "total_pending_days": 1,
+            "processed_days": 1,
+            "has_more": false,
+            "items": [
+                {
+                    "date": "2026-11-15",
+                    "sites": 6,
+                    "deleted_daily": 9709,
+                    "deleted_hourly": 12335,
+                    "skipped": false
+                }
+            ]
+        }
+    },
+    "created_orders": {
+        "total": 3707,
+        "items": {
+            "App": 19,
+            "Âm nhạc": 3685,
+            "Sách": 3,
+            "Cloud": 0,
+            "COC": 0
+        }
+    }
+}
+{
+    "status": "success",
+    "delete_raw": true,
+    "delete_created": true,
+    "databases": {
+        "main": {
+            "through_date": "2026-11-16",
+            "max_days": 0,
+            "total_pending_days": 1,
+            "processed_days": 1,
+            "has_more": false,
+            "items": [
+                {
+                    "date": "2026-11-16",
+                    "sites": 5,
+                    "deleted_daily": 16856,
+                    "deleted_hourly": 19965,
+                    "skipped": false
+                }
+            ]
+        }
+    },
+    "created_orders": {
+        "total": 4961,
+        "items": {
+            "App": 25,
+            "Âm nhạc": 4927,
+            "Sách": 9,
+            "Cloud": 0,
+            "COC": 0
+        }
+    }
+}
+{
+    "status": "success",
+    "delete_raw": true,
+    "delete_created": true,
+    "databases": {
+        "main": {
+            "through_date": "2026-11-17",
+            "max_days": 0,
+            "total_pending_days": 1,
+            "processed_days": 1,
+            "has_more": false,
+            "items": [
+                {
+                    "date": "2026-11-17",
+                    "sites": 6,
+                    "deleted_daily": 6763,
+                    "deleted_hourly": 9712,
+                    "skipped": false
+                }
+            ]
+        }
+    },
+    "created_orders": {
+        "total": 7501,
+        "items": {
+            "App": 85,
+            "Âm nhạc": 7374,
+            "Sách": 42,
+            "Cloud": 0,
+            "COC": 0
+        }
+    }
+}
+{
+    "status": "success",
+    "delete_raw": true,
+    "delete_created": true,
+    "databases": {
+        "main": {
+            "through_date": "2026-11-18",
+            "max_days": 0,
+            "total_pending_days": 1,
+            "processed_days": 1,
+            "has_more": false,
+            "items": [
+                {
+                    "date": "2026-11-18",
+                    "sites": 5,
+                    "deleted_daily": 6911,
+                    "deleted_hourly": 9279,
+                    "skipped": false
+                }
+            ]
+        }
+    },
+    "created_orders": {
+        "total": 3155,
+        "items": {
+            "App": 44,
+            "Âm nhạc": 3104,
+            "Sách": 7,
+            "Cloud": 0,
+            "COC": 0
+        }
+    }
+}

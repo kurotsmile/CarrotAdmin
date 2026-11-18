@@ -4301,6 +4301,26 @@ if (!$pdo instanceof PDO && !in_array($section, ['overview', 'pages', 'users', '
                 $message = 'Đã xóa lịch sử tìm kiếm.';
             }
 
+            if ($section === 'music' && $action === 'ajax_check_song_id') {
+                try {
+                    $id = trim($_POST['id'] ?? '');
+                    $currentId = trim($_POST['current_id'] ?? '');
+                    if ($id === '') {
+                        throw new RuntimeException('ID bài hát không được để trống.');
+                    }
+
+                    $stmt = $pdo->prepare('SELECT id, name, artist FROM song WHERE id = ? AND id <> ? LIMIT 1');
+                    $stmt->execute([$id, $currentId]);
+                    $song = $stmt->fetch();
+                    admin_json_success([
+                        'exists' => (bool) $song,
+                        'song' => $song ?: null,
+                    ]);
+                } catch (Throwable $e) {
+                    admin_json_error($e->getMessage());
+                }
+            }
+
             if ($section === 'music' && $action === 'clear_song_search_log') {
                 $stmt = $pdo->prepare('DELETE FROM song_search_log');
                 $stmt->execute();

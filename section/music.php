@@ -711,12 +711,50 @@
 
             const songGenerateIdButton = document.getElementById('song_generate_id');
             if (songGenerateIdButton) {
-                songGenerateIdButton.addEventListener('click', () => {
+                songGenerateIdButton.addEventListener('click', async () => {
                     const idInput = document.getElementById('song_id');
                     const nameInput = document.getElementById('song_name');
                     const artistInput = document.getElementById('song_artist');
                     const slug = songSlugify([nameInput?.value || '', artistInput?.value || ''].filter(Boolean).join('-'));
-                    if (idInput && slug) idInput.value = slug;
+                    if (!idInput || !slug) return;
+
+                    idInput.value = slug;
+                    const formData = new FormData();
+                    formData.append('action', 'ajax_check_song_id');
+                    formData.append('id', slug);
+                    formData.append('current_id', document.querySelector('input[name="original_id"]')?.value || '');
+
+                    try {
+                        songGenerateIdButton.disabled = true;
+                        const response = await fetch('index.php?section=music&tab=songs', {
+                            method: 'POST',
+                            body: formData,
+                        });
+                        const payload = await response.json();
+                        if (!response.ok || payload.status !== 'success') {
+                            throw new Error(payload.message || 'Không kiểm tra được ID bài hát.');
+                        }
+                        if (payload.exists) {
+                            const existingSong = payload.song || {};
+                            const songLabel = [existingSong.name || '', existingSong.artist || ''].filter(Boolean).join(' - ');
+                            await Swal.fire({
+                                icon: 'warning',
+                                title: 'ID bài hát đã tồn tại',
+                                html: `<strong>${songEscapeHtml(slug)}</strong>${songLabel ? `<br><span>${songEscapeHtml(songLabel)}</span>` : ''}`,
+                                confirmButtonText: 'Đã hiểu',
+                            });
+                            idInput.focus();
+                            idInput.select();
+                        }
+                    } catch (error) {
+                        await Swal.fire({
+                            icon: 'error',
+                            title: 'Không kiểm tra được ID',
+                            text: error.message,
+                        });
+                    } finally {
+                        songGenerateIdButton.disabled = false;
+                    }
                 });
             }
 
